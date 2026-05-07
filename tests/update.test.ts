@@ -26,10 +26,11 @@ test("isAutoUpdatableSpec rejects pinned and non-registry specs", () => {
 })
 
 test("updateRemoveDir removes opencode npm wrapper for latest installs", async () => {
-    const wrapperDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
+    const rootDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
+    const wrapperDir = join(rootDir, "@tarquinen", "opencode-dcp@latest")
     const packageDir = join(wrapperDir, "node_modules", "@tarquinen", "opencode-dcp")
     await writePackageJson(wrapperDir, {
-        dependencies: { "@tarquinen/opencode-dcp": "latest" },
+        dependencies: { "@tarquinen/opencode-dcp": "3.1.10" },
     })
     await writePackageJson(packageDir, {
         name: "@tarquinen/opencode-dcp",
@@ -40,7 +41,8 @@ test("updateRemoveDir removes opencode npm wrapper for latest installs", async (
 })
 
 test("updateRemoveDir skips version-locked opencode installs", async () => {
-    const wrapperDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
+    const rootDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
+    const wrapperDir = join(rootDir, "@tarquinen", "opencode-dcp@3.1.9")
     const packageDir = join(wrapperDir, "node_modules", "@tarquinen", "opencode-dcp")
     await writePackageJson(wrapperDir, {
         dependencies: { "@tarquinen/opencode-dcp": "3.1.9" },

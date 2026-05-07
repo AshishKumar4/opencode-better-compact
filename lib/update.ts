@@ -88,10 +88,24 @@ export async function updateRemoveDir(packageDir: string, name: string) {
 
     const wrapperDir = dirname(nodeModulesDir)
     const wrapperPkg = await readPackageJson(join(wrapperDir, "package.json"))
-    const spec = wrapperPkg?.dependencies?.[name]
+    const spec = wrapperSpec(wrapperDir, name) ?? wrapperPkg?.dependencies?.[name]
     if (!spec || !isAutoUpdatableSpec(spec)) return undefined
 
     return wrapperDir
+}
+
+function wrapperSpec(wrapperDir: string, name: string) {
+    if (name.startsWith("@")) {
+        const [scope, pkg] = name.split("/")
+        if (!scope || !pkg || basename(dirname(wrapperDir)) !== scope) return undefined
+        const prefix = `${pkg}@`
+        const base = basename(wrapperDir)
+        return base.startsWith(prefix) ? base.slice(prefix.length) : undefined
+    }
+
+    const prefix = `${name}@`
+    const base = basename(wrapperDir)
+    return base.startsWith(prefix) ? base.slice(prefix.length) : undefined
 }
 
 export function isAutoUpdatableSpec(spec: string) {

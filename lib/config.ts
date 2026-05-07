@@ -25,6 +25,7 @@ export interface CompressConfig {
     iterationNudgeThreshold: number
     nudgeForce: "strong" | "soft"
     protectedTools: string[]
+    protectTags: boolean
     protectUserMessages: boolean
 }
 
@@ -123,6 +124,7 @@ export const VALID_CONFIG_KEYS = new Set([
     "compress.iterationNudgeThreshold",
     "compress.nudgeForce",
     "compress.protectedTools",
+    "compress.protectTags",
     "compress.protectUserMessages",
     "strategies",
     "strategies.deduplication",
@@ -422,6 +424,14 @@ export function validateConfigTypes(config: Record<string, any>): ValidationErro
                 })
             }
 
+            if (compress.protectTags !== undefined && typeof compress.protectTags !== "boolean") {
+                errors.push({
+                    key: "compress.protectTags",
+                    expected: "boolean",
+                    actual: typeof compress.protectTags,
+                })
+            }
+
             if (
                 compress.protectUserMessages !== undefined &&
                 typeof compress.protectUserMessages !== "boolean"
@@ -677,6 +687,7 @@ const defaultConfig: PluginConfig = {
         iterationNudgeThreshold: 15,
         nudgeForce: "soft",
         protectedTools: [...COMPRESS_DEFAULT_PROTECTED_TOOLS],
+        protectTags: false,
         protectUserMessages: false,
     },
     strategies: {
@@ -842,6 +853,7 @@ function mergeCompress(
         iterationNudgeThreshold: override.iterationNudgeThreshold ?? base.iterationNudgeThreshold,
         nudgeForce: override.nudgeForce ?? base.nudgeForce,
         protectedTools: [...new Set([...base.protectedTools, ...(override.protectedTools ?? [])])],
+        protectTags: override.protectTags ?? base.protectTags,
         protectUserMessages: override.protectUserMessages ?? base.protectUserMessages,
     }
 }

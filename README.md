@@ -146,6 +146,8 @@ Each level overrides the previous, so project settings take priority over global
         "nudgeForce": "soft",
         // Tool names whose completed outputs are appended to the compression
         "protectedTools": [],
+        // Preserve text wrapped in <protect>...</protect> when compressed
+        "protectTags": false,
         // Preserve your messages during compression.
         // Warning: large copy-pasted prompts will never be compressed away
         "protectUserMessages": false,
