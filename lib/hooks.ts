@@ -13,6 +13,7 @@ import {
     stripHallucinationsFromString,
     stripStaleMetadata,
     syncCompressionBlocks,
+    computeInputBudget,
 } from "./messages"
 import { renderSystemPrompt, type PromptStore } from "./prompts"
 import { buildProtectedToolsExtension } from "./prompts/extensions/system"
@@ -38,7 +39,6 @@ import { type HostPermissionSnapshot } from "./host-permissions"
 import { compressPermission, syncCompressPermissionState } from "./compress-permission"
 import { checkSession, ensureSessionInitialized, saveSessionState, syncToolCache } from "./state"
 import { cacheSystemPromptTokens } from "./ui/utils"
-import { computeInputBudget } from "./input-budget"
 
 const INTERNAL_AGENT_SIGNATURES = [
     "You are a title generator",
@@ -60,7 +60,10 @@ export function createSystemPromptHandler(
         output: { system: string[] },
     ) => {
         if (input.model?.limit?.context) {
-            state.modelContextLimit = computeInputBudget(input.model.limit)
+            const inputBudget = computeInputBudget(input.model.limit)
+            if (inputBudget !== undefined) {
+                state.modelContextLimit = inputBudget
+            }
             logger.debug("Cached model context limit", { limit: state.modelContextLimit })
         }
 

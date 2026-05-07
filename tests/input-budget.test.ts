@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { computeInputBudget } from "../lib/input-budget"
+import { computeInputBudget } from "../lib/messages/inject/utils"
 
 test("computeInputBudget uses limit.input when defined (split-budget OpenAI models)", () => {
     // gpt-5.4-mini, gpt-5.5: 400K context, 272K input, 128K output
@@ -22,8 +22,8 @@ test("computeInputBudget treats missing output as 0", () => {
     assert.equal(computeInputBudget({ context: 200000 }), 200000)
 })
 
-test("computeInputBudget returns 0 when context is 0", () => {
-    assert.equal(computeInputBudget({ context: 0, input: 100, output: 50 }), 0)
+test("computeInputBudget returns undefined when context is unknown", () => {
+    assert.equal(computeInputBudget({ context: 0, input: 100, output: 50 }), undefined)
 })
 
 test("computeInputBudget never returns negative when output exceeds context", () => {
