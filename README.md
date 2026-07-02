@@ -15,7 +15,7 @@ curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/late
 Install an explicit version:
 
 ```bash
-VERSION=v3.1.14 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+VERSION=v0.1.0 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
 ```
 
 The installer downloads the prebuilt release tarball, verifies its checksum when `sha256sum` or `shasum` is available, installs it under:
@@ -138,8 +138,8 @@ CI uses pnpm and verifies every push/PR with:
 Tag releases as `v*`:
 
 ```bash
-git tag v3.1.15
-git push origin v3.1.15
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 The release workflow builds compiled server and TUI artifacts, packages `better-compact.tar.gz`, writes `checksums.txt`, and uploads both with `install.sh` to GitHub Releases.
