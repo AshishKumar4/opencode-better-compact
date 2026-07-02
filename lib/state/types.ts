@@ -141,6 +141,7 @@ export interface BoundaryState {
     activePlan: {
         sessionId: string
         rangeHash: string
+        contextLimit: number
         rawTailStartMessageId: string
         transcriptRelativePath: string
         beforeTokens: number
@@ -184,5 +185,4 @@ export interface SessionState {
     lastCompaction: number
     currentTurn: number
     modelContextLimit: number | undefined
-    systemPromptTokens: number | undefined
 }

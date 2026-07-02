@@ -323,8 +323,11 @@ test("better-compact stores virtual plan and reports progress without native sum
     assert.ok(prompts.length >= 1)
     assert.equal(prompts.every((prompt) => prompt.body.noReply === true), true)
     assert.equal(prompts.every((prompt) => prompt.body.parts[0].ignored === true), true)
-    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Report/)
+    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Complete/)
     assert.equal(state.boundary.job?.percent, 100)
+    assert.equal(state.boundary.job?.counters.contextLimit, 200_000)
+    assert.ok((state.boundary.job?.counters.beforeTokens ?? 0) > 0)
+    assert.ok((state.boundary.job?.counters.currentTokens ?? 0) > 0)
     assert.ok(state.boundary.job?.logs.some((line) => line.includes("Transcript written")))
 })
 
@@ -368,7 +371,7 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
                     type: "text",
                     text: "Better Compact requested.",
                     ignored: true,
-                    metadata: { betterCompact: "run" },
+                    metadata: { betterCompact: "run", contextLimit: 1_000_000, currentTokens: 857_703 },
                 },
             ],
         },
@@ -378,8 +381,11 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
     assert.ok(state.boundary.activePlan)
     assert.equal(state.boundary.activePlan?.sessionId, "session-1")
     assert.ok(prompts.length >= 1)
-    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Report/)
+    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Complete/)
     assert.equal(state.boundary.job?.percent, 100)
+    assert.equal(state.boundary.job?.counters.contextLimit, 1_000_000)
+    assert.equal(state.boundary.job?.counters.beforeTokens, 857_703)
+    assert.ok((state.boundary.job?.counters.currentTokens ?? 0) > 0)
     assert.ok(state.boundary.job?.stages.some((stage) => stage.id === "report" && stage.status === "completed"))
 })
 

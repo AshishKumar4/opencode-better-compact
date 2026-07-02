@@ -25,7 +25,6 @@ import {
 import { type HostPermissionSnapshot } from "./host-permissions"
 import { compressPermission, syncCompressPermissionState } from "./compress-permission"
 import { checkSession, ensureSessionInitialized, saveSessionState } from "./state"
-import { cacheSystemPromptTokens } from "./ui/utils"
 import {
     buildBoundaryContextPlan,
     applyBoundaryContextManagement,
@@ -95,7 +94,6 @@ export function createChatMessageTransformHandler(
         }
 
         stripHallucinations(output.messages)
-        cacheSystemPromptTokens(state, output.messages)
         assignMessageRefs(state, output.messages)
         if (state.boundary.activePlan && state.boundary.activePlan.sessionId === state.sessionId) {
             const applied = applyBoundaryPlanSnapshot(output.messages, state.boundary.activePlan)
@@ -286,6 +284,8 @@ export function createChatMessageHandler(
                 variant: input.variant,
             },
             compaction: sentinel.metadata?.compaction as Partial<CompactionConfig> | undefined,
+            contextLimit: typeof sentinel.metadata?.contextLimit === "number" ? sentinel.metadata.contextLimit : undefined,
+            currentTokens: typeof sentinel.metadata?.currentTokens === "number" ? sentinel.metadata.currentTokens : undefined,
         }).catch((error) => {
             failBoundaryJob(state, error instanceof Error ? error.message : String(error))
             void saveSessionState(state, logger)
@@ -311,10 +311,22 @@ async function runBetterCompact(input: {
         variant: string | undefined
     }
     compaction?: Partial<CompactionConfig>
+    contextLimit?: number
+    currentTokens?: number
 }): Promise<void> {
     const params = input.params ?? getCurrentParams(input.state, input.messages, input.logger)
     const profile = resolveCompactionProfile(input.config, input.compaction)
+    const contextLimit = input.contextLimit && input.contextLimit > 0 ? input.contextLimit : (input.state.modelContextLimit ?? 200_000)
+    const reportedCurrentTokens = input.currentTokens && input.currentTokens > 0 ? input.currentTokens : getCurrentTokenUsage(input.state, input.messages)
     startBoundaryJob(input.state, input.sessionId)
+    updateBoundaryCounters(input.state, {
+        messages: input.messages.length,
+        beforeTokens: reportedCurrentTokens,
+        currentTokens: reportedCurrentTokens,
+        contextLimit,
+        stageClearedTokens: 0,
+        clearedTokens: 0,
+    })
     const saveProgress = async () => {
         updateBoundaryPercent(input.state)
         await saveSessionState(input.state, input.logger)
@@ -330,13 +342,12 @@ async function runBetterCompact(input: {
         setBoundaryStage(input.state, "scan", "running", "Estimating context and selecting pruning stages")
         await saveProgress()
         const plan = buildBoundaryContextPlan(input.messages, {
-            contextLimit: input.state.modelContextLimit ?? 200_000,
-            reservedTokens: input.state.systemPromptTokens,
+            contextLimit,
             force: true,
             triggerRatio: profile.triggerPercent / 100,
             targetRatio: profile.targetPercent / 100,
             recentToolResultBudgetTokens: profile.recentToolTokens,
-            providerReportedTokens: getCurrentTokenUsage(input.state, input.messages),
+            providerReportedTokens: reportedCurrentTokens,
         })
         if (!plan) {
             setBoundaryStage(input.state, "scan", "skipped", "No eligible historical context found")
@@ -358,7 +369,7 @@ async function runBetterCompact(input: {
             afterTokens: plan.afterPruneTokens,
             currentTokens: plan.beforeTokens,
             targetTokens: plan.targetTokens,
-            contextLimit: input.state.modelContextLimit ?? 200_000,
+            contextLimit: plan.contextLimit,
             stageClearedTokens: 0,
             clearedTokens: Math.max(0, plan.beforeTokens - plan.afterPruneTokens),
         })
@@ -451,14 +462,13 @@ async function runBetterCompact(input: {
             if (Object.keys(assistantSummaries).length > 0) {
                 finalPlan =
                     buildBoundaryContextPlan(input.messages, {
-                        contextLimit: input.state.modelContextLimit ?? 200_000,
-                        reservedTokens: input.state.systemPromptTokens,
+                        contextLimit,
                         force: true,
                         assistantSummaries,
                         triggerRatio: profile.triggerPercent / 100,
                         targetRatio: profile.targetPercent / 100,
                         recentToolResultBudgetTokens: profile.recentToolTokens,
-                        providerReportedTokens: getCurrentTokenUsage(input.state, input.messages),
+                        providerReportedTokens: reportedCurrentTokens,
                     }) ?? plan
             }
             setBoundaryStage(

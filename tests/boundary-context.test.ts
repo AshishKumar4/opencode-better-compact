@@ -4,7 +4,9 @@ import type { WithParts } from "../lib/state"
 import {
     applyBoundaryContextPlan,
     buildBoundaryContextPlan,
+    formatBoundaryReport,
 } from "../lib/boundary/context"
+import { estimateOpenCodeMessages } from "../lib/context-estimate"
 
 const sessionID = "ses_boundary_context"
 
@@ -170,6 +172,49 @@ test("boundary planner compactifies old assistant/tool context and preserves raw
     }
 })
 
+test("boundary report shows visual context bars without internal threshold jargon", () => {
+    const plan = buildBoundaryContextPlan(buildLargeConversation(), {
+        contextLimit: 20_000,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+        providerReportedTokens: 18_000,
+    })
+    assert.ok(plan)
+
+    const report = formatBoundaryReport(plan, 18_000)
+
+    assert.match(report, /Better Compact Complete/)
+    assert.match(report, /Before\s+18K\s+\/\s+20K\s+\[/)
+    assert.match(report, /Now\s+.+\[/)
+    assert.match(report, /Actions/)
+    assert.match(report, /Reference/)
+    assert.doesNotMatch(report, /^\s*Target\s+/m)
+    assert.doesNotMatch(report, /Projected after/i)
+    assert.doesNotMatch(report, /Trigger threshold/i)
+    assert.doesNotMatch(report, /Last-resort target/i)
+})
+
+test("boundary projection does not scale transformed context by raw provider ratio", () => {
+    const messages = buildLargeConversation()
+    const providerReportedTokens = 10_000
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 100_000,
+        force: true,
+        providerReportedTokens,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(plan)
+
+    const transformed = messages.map((item) => ({ info: item.info, parts: [...item.parts] }))
+    applyBoundaryContextPlan(transformed, plan)
+    const directAfter = estimateOpenCodeMessages(transformed)
+    const oldScaledAfter = Math.round(directAfter * (providerReportedTokens / estimateOpenCodeMessages(messages)))
+
+    assert.equal(plan.beforeTokens, providerReportedTokens)
+    assert.equal(plan.afterPruneTokens, directAfter)
+    assert.ok(plan.afterPruneTokens > oldScaledAfter * 2)
+})
+
 test("boundary planner marks custom compaction as last resort only after pruning is still too large", () => {
     const messages = buildLargeConversation()
     const plan = buildBoundaryContextPlan(messages, { contextLimit: 500, reservedTokens: 1_000, recentToolResultBudgetTokens: 0 })
@@ -253,7 +298,7 @@ test("boundary planner ranks assistant turns and summarizes only enough to meet 
     ]
 
     const plan = buildBoundaryContextPlan(messages, {
-        contextLimit: 100_000,
+        contextLimit: 50_000,
         force: true,
         targetRatio: 0.7,
         recentToolResultBudgetTokens: 0,

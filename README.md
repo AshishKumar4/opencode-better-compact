@@ -1,16 +1,112 @@
 # Better Compact
 
-OpenCode plugin that improves long-session context with runtime-owned, pruning-first context management.
+OpenCode plugin that keeps long-running sessions usable with staged, pruning-first context management.
 
-Better Compact keeps long-running OpenCode sessions useful with staged context pruning, raw user-message preservation, assistant-turn summaries, and transcript references for exact recall.
+Better Compact preserves raw user intent, prunes old tool-heavy context first, writes transcript references for exact recall, and summarizes old assistant turns only when lighter pruning is not enough.
 
-## Upstream
+## Install
 
-Better Compact is forked from [Opencode-DCP/opencode-dynamic-context-pruning](https://github.com/Opencode-DCP/opencode-dynamic-context-pruning), originally published as `@tarquinen/opencode-dcp` by tarquinen and contributors.
+Install the latest GitHub release:
 
-This fork keeps the upstream AGPL-3.0-or-later license and builds on the original plugin architecture while changing the product direction to boundary-time context pruning and Better Compact branding.
+```bash
+curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+```
 
-## Installation
+Install an explicit version:
+
+```bash
+VERSION=v3.1.14 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+```
+
+The installer downloads the prebuilt release tarball, verifies its checksum when `sha256sum` or `shasum` is available, installs it under:
+
+```text
+~/.local/share/opencode/plugins/better-compact/<version>
+```
+
+Then it updates:
+
+```text
+~/.config/opencode/opencode.json
+~/.config/opencode/tui.json
+```
+
+Restart OpenCode after installation.
+
+## Commands
+
+- `/better-compact` runs staged pruning immediately.
+- `/better-compact-settings` opens the TUI panel for presets and custom thresholds.
+
+## How It Works
+
+Better Compact applies a virtual context plan to OpenCode's outgoing model request. It does not rewrite OpenCode's durable session history.
+
+Default light mode:
+
+- Prunes loaded skill context.
+- Prunes old tool calls/results while preserving recent tool context.
+- Prunes thinking/reasoning only if needed.
+- Prunes remaining tool calls/results only if needed.
+- Summarizes high-value old assistant turns only if needed.
+- Writes raw transcripts under `.opencode/better-compact/sessions/...` for exact recall.
+
+The TUI shows live progress, context-window bars, stages completed, and final savings.
+
+## Configuration
+
+Better Compact searches config files in this order:
+
+1. `~/.config/opencode/better-compact.jsonc` or `better-compact.json`
+2. `$OPENCODE_CONFIG_DIR/better-compact.jsonc` or `better-compact.json`
+3. `.opencode/better-compact.jsonc` or `better-compact.json`
+
+Example:
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/better-compact.schema.json",
+  "enabled": true,
+  "autoUpdate": false,
+  "debug": false,
+  "compaction": {
+    "preset": "light"
+  }
+}
+```
+
+Presets:
+
+- `light`: default, preserves more recent tool context.
+- `moderate`: stronger pruning and more parallel summarization.
+- `max`: aggressive pruning for heavily saturated sessions.
+- `custom`: use `/better-compact-settings` to dial trigger, target, recent tool budget, and parallel jobs.
+
+## Uninstall
+
+Remove Better Compact entries from:
+
+```text
+~/.config/opencode/opencode.json
+~/.config/opencode/tui.json
+```
+
+Then remove installed files:
+
+```bash
+rm -rf ~/.local/share/opencode/plugins/better-compact
+```
+
+Restart OpenCode.
+
+## Development
+
+```bash
+pnpm install
+pnpm run typecheck
+pnpm test
+pnpm run build
+```
 
 For local development, point OpenCode at this checkout:
 
@@ -30,48 +126,29 @@ For the TUI plugin, add this to `~/.config/opencode/tui.json`:
 
 Restart OpenCode after changing plugin config.
 
-## How It Works
+## Releases
 
-Better Compact applies a pruning-first context plan instead of OpenCode native compaction.
+CI uses pnpm and verifies every push/PR with:
 
-- Triggers around 85% context usage.
-- Preserves raw user messages before summarizing anything else.
-- Preserves the latest user turns and recent tail verbatim.
-- Prunes reasoning, loaded skill context, old tool calls/results, and old todo churn first.
-- Summarizes old contiguous assistant turns when deterministic pruning is not enough.
-- Writes raw transcript references under `.opencode/better-compact/sessions/...` so exact prior details remain recoverable.
-- Uses last-resort prefix summary only when lighter stages still leave context too large.
+- typecheck
+- tests
+- production build
+- package verification
 
-## Commands
-
-- `/better-compact` runs Better Compact pruning immediately and reports each stage.
-- `/better-compact-settings` opens the Better Compact TUI panel.
-
-## Configuration
-
-Better Compact searches config files in this order:
-
-1. `~/.config/opencode/better-compact.jsonc` or `better-compact.json`
-2. `$OPENCODE_CONFIG_DIR/better-compact.jsonc` or `better-compact.json`
-3. `.opencode/better-compact.jsonc` or `better-compact.json`
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/main/better-compact.schema.json",
-  "enabled": true,
-  "autoUpdate": false,
-  "debug": false
-}
-```
-
-## Development
+Tag releases as `v*`:
 
 ```bash
-npm install
-npm test
-npm run typecheck
-npm run build
+git tag v3.1.15
+git push origin v3.1.15
 ```
+
+The release workflow builds compiled server and TUI artifacts, packages `better-compact.tar.gz`, writes `checksums.txt`, and uploads both with `install.sh` to GitHub Releases.
+
+## Upstream
+
+Better Compact is forked from [Opencode-DCP/opencode-dynamic-context-pruning](https://github.com/Opencode-DCP/opencode-dynamic-context-pruning), originally published as `@tarquinen/opencode-dcp` by tarquinen and contributors.
+
+This fork keeps the upstream AGPL-3.0-or-later license and builds on the original plugin architecture while changing the product direction to boundary-time context pruning and Better Compact branding.
 
 ## License
 

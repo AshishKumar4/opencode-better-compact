@@ -43,6 +43,8 @@ const tui: TuiPluginModule["tui"] = async (api) => {
                                 metadata: {
                                     betterCompact: "run",
                                     compaction: settings,
+                                    contextLimit: usage.limit,
+                                    currentTokens: usage.tokens,
                                 },
                             },
                         ],

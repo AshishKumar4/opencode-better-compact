@@ -72,10 +72,9 @@ export function estimateContextBreakdown(messages: WithParts[]): EstimatedContex
     return breakdown
 }
 
-export function toOpenCodeModelLikeMessage(message: WithParts): { id: string; role: string; parts: unknown[] } {
+export function toOpenCodeModelLikeMessage(message: WithParts): { role: string; parts: unknown[] } {
     if (message.info.role === "user") {
         return {
-            id: message.info.id,
             role: "user",
             parts: message.parts.flatMap((part): unknown[] => {
                 if (part.type === "text" && !(part as any).ignored && part.text !== "") return [{ type: "text", text: part.text }]
@@ -88,14 +87,12 @@ export function toOpenCodeModelLikeMessage(message: WithParts): { id: string; ro
     }
 
     return {
-        id: message.info.id,
         role: message.info.role,
         parts: message.parts.flatMap((part): unknown[] => {
             if (part.type === "text") return [{ type: "text", text: part.text }]
-            if (part.type === "reasoning") return [{ type: "reasoning", text: part.text }]
+            if (part.type === "reasoning" && shouldIncludeReasoning(message)) return [{ type: "reasoning", text: part.text }]
             if (part.type === "tool") return [toOpenCodeToolPart(part)]
-            if (part.type === "patch") return [{ type: "patch", files: (part as any).files ?? [] }]
-            return [{ type: part.type }]
+            return []
         }),
     }
 }
@@ -107,9 +104,8 @@ function estimatePart(message: WithParts, part: MessagePart): number {
     }
     if (part.type === "tool") return estimateOpenCodeToolPart(part)
     if (part.type === "text") return estimateOpenCodeTokens(JSON.stringify({ type: "text", text: part.text }))
-    if (part.type === "reasoning") return estimateOpenCodeTokens(JSON.stringify({ type: "reasoning", text: part.text }))
-    if (part.type === "patch") return estimateOpenCodeTokens(JSON.stringify({ type: "patch", files: (part as any).files ?? [] }))
-    return estimateOpenCodeTokens(JSON.stringify({ type: part.type }))
+    if (part.type === "reasoning" && shouldIncludeReasoning(message)) return estimateOpenCodeTokens(JSON.stringify({ type: "reasoning", text: part.text }))
+    return 0
 }
 
 function toOpenCodeToolPart(part: Extract<MessagePart, { type: "tool" }>): unknown {
@@ -144,4 +140,9 @@ function isBetterCompactReference(message: WithParts): boolean {
     return message.parts.some(
         (part) => part.type === "text" && /^\[(?:Better Compact|Context Summary)/.test(part.text.trim()),
     )
+}
+
+function shouldIncludeReasoning(message: WithParts): boolean {
+    const providerID = (message.info as any).providerID ?? (message.info as any).model?.providerID
+    return typeof providerID !== "string" || !providerID.includes("openai")
 }

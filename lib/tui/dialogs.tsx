@@ -222,7 +222,7 @@ export function ProgressDialog(props: {
         const end = item.completedAt ?? Date.now()
         return formatDuration(Math.max(0, end - item.startedAt))
     }
-    const bodyHeight = () => Math.max(6, Math.min(18, Math.floor(dimensions().height * 0.75) - 12))
+    const bodyHeight = () => Math.max(4, Math.min(6, Math.floor(dimensions().height * 0.2)))
 
     return (
         <BetterCompactFrame api={props.api} title="Progress" eyebrow="Better Compact" onBack={props.onBack}>
@@ -246,7 +246,7 @@ export function ProgressDialog(props: {
                     color={current()?.status === "failed" ? "error" : "primary"}
                     detail={`${percent()}%`}
                 />
-                <ContextMeters theme={theme} job={current()} />
+                <ContextWindowMeters theme={theme} job={current()} />
                 {current()?.error ? <text fg={theme.error}>{current()?.error}</text> : null}
             </Card>
 
@@ -259,26 +259,6 @@ export function ProgressDialog(props: {
                             ))}
                             {!current() ? <text fg={theme.textMuted}>Waiting for first progress update...</text> : null}
                         </box>
-                    </Card>
-
-                    <Card theme={theme} title="Counters">
-                        <Metric theme={theme} label="Messages scanned" value={`${current()?.counters.messages ?? 0}`} />
-                        <Metric theme={theme} label="Archived messages" value={`${current()?.counters.archivedMessages ?? 0}`} />
-                        <Metric
-                            theme={theme}
-                            label="Assistant summaries"
-                            value={`${current()?.counters.summaryJobsDone ?? 0}/${current()?.counters.summaryJobsTotal ?? 0}`}
-                        />
-                        <Metric
-                            theme={theme}
-                            label="This stage"
-                            value={`~${formatTokenCount(current()?.counters.stageClearedTokens ?? 0)}`}
-                        />
-                        <Metric
-                            theme={theme}
-                            label="Total cleared"
-                            value={`~${formatTokenCount(current()?.counters.clearedTokens ?? 0)}`}
-                        />
                     </Card>
 
                     <Card theme={theme} title="Live Log">
@@ -295,37 +275,53 @@ export function ProgressDialog(props: {
     )
 }
 
-function ContextMeters(props: { theme: Theme; job: BoundaryJobProgress | null }) {
+function ContextWindowMeters(props: { theme: Theme; job: BoundaryJobProgress | null }) {
     const counters = () => props.job?.counters ?? {}
     const limit = () => counters().contextLimit ?? 0
     const before = () => counters().beforeTokens ?? 0
     const current = () => counters().currentTokens ?? before()
-    const target = () => counters().targetTokens ?? 0
-    if (limit() <= 0) return null
+    const cleared = () => counters().clearedTokens ?? Math.max(0, before() - current())
     return (
         <box flexDirection="column" gap={0} paddingTop={1}>
-            <ContextMeterRow theme={props.theme} label="Before" tokens={before()} limit={limit()} color="warning" />
-            <ContextMeterRow theme={props.theme} label="Now" tokens={current()} limit={limit()} color="primary" />
-            <ContextMeterRow theme={props.theme} label="Target" tokens={target()} limit={limit()} color="success" />
+            <text fg={props.theme.primary} attributes={TextAttributes.BOLD}>Context window</text>
+            {limit() > 0 ? (
+                <>
+                    <ContextMeterRow theme={props.theme} label="Before" tokens={before()} limit={limit()} color="warning" />
+                    <ContextMeterRow theme={props.theme} label="Now" tokens={current()} limit={limit()} color="primary" />
+                    <box flexDirection="row" gap={1} paddingTop={1}>
+                        <box width={8}>
+                            <text fg={props.theme.textMuted}>Saved:</text>
+                        </box>
+                        <text fg={props.theme.success} attributes={TextAttributes.BOLD}>{formatTokenCount(cleared(), true)}</text>
+                    </box>
+                </>
+            ) : (
+                <box paddingTop={1}>
+                    <text fg={props.theme.textMuted}>Waiting for model context limit...</text>
+                </box>
+            )}
         </box>
     )
 }
 
 function ContextMeterRow(props: { theme: Theme; label: string; tokens: number; limit: number; color: "primary" | "success" | "warning" }) {
-    const width = 44
+    const width = 22
     const ratio = Math.max(0, Math.min(1, props.tokens / Math.max(1, props.limit)))
     const filled = Math.round(ratio * width)
-    const percent = Math.round(ratio * 100)
+    const percent = Math.round((props.tokens / Math.max(1, props.limit)) * 100)
     return (
-        <box flexDirection="row" gap={2}>
+        <box flexDirection="row" gap={1}>
             <box width={8}>
-                <text fg={props.theme.textMuted}>{props.label}</text>
+                <text fg={props.theme.textMuted}>{`${props.label}:`}</text>
+            </box>
+            <box width={18}>
+                <text fg={props.theme.text}>{`${formatTokenCount(props.tokens, true)} / ${formatTokenCount(props.limit, true)}`}</text>
             </box>
             <box width={width} flexDirection="row">
                 <text fg={props.theme[props.color]}>{"█".repeat(filled)}</text>
                 <text fg={props.theme.borderSubtle}>{"░".repeat(width - filled)}</text>
             </box>
-            <text fg={props.theme.textMuted}>{`~${formatTokenCount(props.tokens)} (${percent}%)`}</text>
+            <text fg={props.theme.textMuted}>{`${percent}%`}</text>
         </box>
     )
 }

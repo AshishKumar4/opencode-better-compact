@@ -57,7 +57,6 @@ interface StageMutationResult {
 }
 
 interface MessageEstimator {
-    scale: number
     reservedTokens: number
 }
 
@@ -86,6 +85,7 @@ export interface BoundaryTranscriptArtifact {
 export interface BoundaryContextPlan {
     sessionId: string
     rangeHash: string
+    contextLimit: number
     beforeTokens: number
     afterPruneTokens: number
     triggerTokens: number
@@ -112,8 +112,11 @@ export function buildBoundaryContextPlan(
     const reservedTokens = Math.max(0, options.reservedTokens ?? 0)
     const triggerRatio = options.triggerRatio ?? TRIGGER_RATIO
     const targetRatio = options.targetRatio ?? TARGET_RATIO
-    const estimator = createMessageEstimator(messages, reservedTokens, options.providerReportedTokens)
-    const beforeTokens = estimateMessages(messages, estimator)
+    const estimator = createMessageEstimator(reservedTokens)
+    const estimatedBeforeTokens = estimateMessages(messages, estimator)
+    const beforeTokens = options.providerReportedTokens && options.providerReportedTokens > 0
+        ? options.providerReportedTokens
+        : estimatedBeforeTokens
     const triggerTokens = Math.floor(contextLimit * triggerRatio)
     if (!options.force && beforeTokens < triggerTokens) return null
 
@@ -206,13 +209,12 @@ export function buildBoundaryContextPlan(
         })
     }
 
-    const afterPruneTokens = estimateMessages(working, estimator)
-
-    return {
+    const plan: BoundaryContextPlan = {
         sessionId: messages[0]?.info.sessionID ?? "unknown-session",
         rangeHash: rangeHash(compactedRange),
+        contextLimit,
         beforeTokens,
-        afterPruneTokens,
+        afterPruneTokens: estimateMessages(working, estimator),
         triggerTokens,
         targetTokens: range.targetTokens,
         rawTailStartIndex,
@@ -231,6 +233,8 @@ export function buildBoundaryContextPlan(
         assistantSummaries,
         prefixSummary,
     }
+    plan.afterPruneTokens = estimateMessages(transformMessages(messages, rawTailStartIndex, plan), estimator)
+    return plan
 }
 
 export function applyBoundaryContextPlan(messages: WithParts[], plan: BoundaryContextPlan): void {
@@ -248,6 +252,7 @@ export function applyBoundaryPlanSnapshot(
     const transformed = transformMessages(messages, rawTailStartIndex, {
         sessionId: plan.sessionId,
         rangeHash: plan.rangeHash,
+        contextLimit: plan.contextLimit ?? Math.max(plan.beforeTokens, plan.targetTokens, 1),
         beforeTokens: plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
         triggerTokens: plan.triggerTokens,
@@ -276,6 +281,7 @@ export function storeBoundaryPlan(state: SessionState, plan: BoundaryContextPlan
     state.boundary.activePlan = {
         sessionId: plan.sessionId,
         rangeHash: plan.rangeHash,
+        contextLimit: plan.contextLimit,
         rawTailStartMessageId: plan.rawTailStartMessageId,
         transcriptRelativePath: plan.transcript.relativePath,
         beforeTokens: plan.beforeTokens,
@@ -313,40 +319,54 @@ export function formatBoundaryProgressReport(stage: string, detail: string): str
 }
 
 export function formatBoundaryReport(plan: BoundaryContextPlan, actualCurrentTokens?: number): string {
-    const reduced = Math.max(0, plan.beforeTokens - plan.afterPruneTokens)
-    const reductionPercent = plan.beforeTokens > 0 ? Math.round((reduced / plan.beforeTokens) * 100) : 0
-    const stageRows = plan.stages.map((stage, index) => {
-        const status = stage.status === "target-met" ? "stopped" : stage.status
-        return `  ${index + 1}. ${stage.label.padEnd(35)} -${formatTokenCount(stage.clearedTokens).padStart(8)}  ${status}`
-    })
+    const before = actualCurrentTokens && actualCurrentTokens > 0 ? actualCurrentTokens : plan.beforeTokens
+    const now = plan.afterPruneTokens
+    const reduced = Math.max(0, before - now)
+    const reductionPercent = before > 0 ? Math.round((reduced / before) * 100) : 0
+    const stageRows = plan.stages
+        .filter((stage) => stage.status !== "skipped" || stage.clearedTokens > 0)
+        .map((stage) => {
+            const icon = stage.clearedTokens > 0 ? "✓" : stage.status === "target-met" ? "✓" : "-"
+            const detail = stage.clearedTokens > 0 ? `-${formatTokenCount(stage.clearedTokens)}` : "not needed"
+            return `  ${icon} ${stage.label.padEnd(38)} ${detail}`
+        })
     return [
         "╭─────────────────────────────────────────────────────────────────────────╮",
-        "│                         Better Compact Report                          │",
+        "│                       Better Compact Complete                          │",
         "╰─────────────────────────────────────────────────────────────────────────╯",
         "",
-        actualCurrentTokens !== undefined
-            ? `  Actual current context: ~${formatTokenCount(actualCurrentTokens)} (provider-reported latest turn)`
-            : undefined,
-        `  Projected before:       ~${formatTokenCount(plan.beforeTokens)}`,
-        `  Projected after:        ~${formatTokenCount(plan.afterPruneTokens)}`,
-        `  Projected reduced:      ~${formatTokenCount(reduced)} (${reductionPercent}%)`,
-        `  Trigger threshold:      ~${formatTokenCount(plan.triggerTokens)}`,
-        `  Last-resort target:     ~${formatTokenCount(plan.targetTokens)}`,
+        "  Context window",
+        formatContextWindowLine("Before", before, plan.contextLimit),
+        formatContextWindowLine("Now", now, plan.contextLimit, "projected"),
         "",
-        "  Stages:",
+        `  Reduced ${formatTokenCount(reduced)} (${reductionPercent}%)`,
+        "",
+        "  Actions",
         ...(stageRows.length > 0 ? stageRows : ["  (no stages applied)"]),
         "",
-        `  Preserved raw tail:     from ${plan.rawTailStartMessageId}`,
-        `  Transcript:             ${plan.transcript.relativePath}`,
-        `  Messages archived:      ${plan.transcript.messageIds.length}`,
-        `  Assistant summaries:    ${Object.keys(plan.assistantSummaries).length}/${plan.summaryJobs.length}`,
+        "  Reference",
+        `  ${plan.transcript.relativePath}`,
+        `  ${plan.transcript.messageIds.length} archived messages; raw tail starts at ${plan.rawTailStartMessageId}`,
+        Object.keys(plan.assistantSummaries).length > 0
+            ? `  ${Object.keys(plan.assistantSummaries).length} assistant summaries accepted`
+            : undefined,
         "",
-        plan.requiresCustomCompaction
-            ? "  Result: staged pruning applied; last-resort prefix summary was needed."
-            : "  Result: staged pruning applied; prefix summary was not needed.",
+        "  Note: Now is Better Compact's projected active-history size. OpenCode's footer",
+        "  updates after the next provider response and also includes system/tool schemas,",
+        "  cache accounting, output, reasoning, and provider overhead.",
     ]
         .filter((line): line is string => line !== undefined)
         .join("\n")
+}
+
+function formatContextWindowLine(label: string, tokens: number, limit: number, suffix?: string): string {
+    const width = 18
+    const boundedLimit = Math.max(1, limit)
+    const ratio = tokens / boundedLimit
+    const filled = Math.max(0, Math.min(width, Math.round(Math.min(1, ratio) * width)))
+    const percent = Math.round(ratio * 100)
+    const suffixText = suffix ? ` ${suffix}` : ""
+    return `  ${label.padEnd(6)} ${formatTokenCount(tokens).padStart(7)} / ${formatTokenCount(boundedLimit).padEnd(7)} [${"█".repeat(filled)}${"░".repeat(width - filled)}] ${String(percent).padStart(3)}%${suffixText}`
 }
 
 export async function applyBoundaryContextManagement(input: {
@@ -358,7 +378,6 @@ export async function applyBoundaryContextManagement(input: {
 }): Promise<BoundaryContextPlan | null> {
     const plan = buildBoundaryContextPlan(input.messages, {
         contextLimit: input.state.modelContextLimit ?? (input.force ? 200_000 : undefined),
-        reservedTokens: input.state.systemPromptTokens,
         force: input.force,
     })
     if (!plan) return null
@@ -431,7 +450,7 @@ function findRecentToolCallTail(
             if (part.tool === "skill") continue
             if (!part.callID || preserved.has(part.callID)) continue
 
-            const cost = Math.max(1, Math.round(estimateOpenCodeToolPart(part) * estimator.scale))
+            const cost = Math.max(1, Math.round(estimateOpenCodeToolPart(part)))
             if (used >= budgetTokens) return preserved
             if (preserved.size > 0 && used + cost > budgetTokens) return preserved
             preserved.add(part.callID)
@@ -561,7 +580,7 @@ function selectAssistantRunsToSummarize(
         .map((group) => {
             const before = estimateMessages(group.messages, { ...estimator, reservedTokens: 0 })
             const summaryText = group.messages.map(textParts).filter(Boolean).join("\n\n")
-            const after = Math.max(1, estimateOpenCodeTokens(truncate(summaryText, ASSISTANT_TEXT_PREVIEW_CHARS)) * estimator.scale)
+            const after = Math.max(1, estimateOpenCodeTokens(truncate(summaryText, ASSISTANT_TEXT_PREVIEW_CHARS)))
             const savings = Math.max(0, Math.round(before - after))
             const age = compacted.length <= 1 ? 1 : 1 - group.endIndex / (compacted.length - 1)
             return {
@@ -622,6 +641,7 @@ function applyPrefixSummary(
 }
 
 function formatTokenCount(tokens: number): string {
+    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
     if (tokens >= 1000) return `${(tokens / 1000).toFixed(1).replace(/\.0$/, "")}K`
     return `${tokens}`
 }
@@ -946,25 +966,13 @@ function textParts(message: WithParts): string {
         .join("\n\n")
 }
 
-function createMessageEstimator(
-    messages: WithParts[],
-    reservedTokens: number,
-    providerReportedTokens: number | undefined,
-): MessageEstimator {
-    const rawWeight = Math.max(1, estimateOpenCodeMessages(messages))
-    const providerMessageBudget =
-        providerReportedTokens && providerReportedTokens > reservedTokens
-            ? providerReportedTokens - reservedTokens
-            : undefined
-    return {
-        scale: providerMessageBudget ? providerMessageBudget / rawWeight : 1,
-        reservedTokens,
-    }
+function createMessageEstimator(reservedTokens: number): MessageEstimator {
+    return { reservedTokens }
 }
 
 function estimateMessages(messages: WithParts[], estimator: MessageEstimator): number {
     const messageWeightTotal = estimateOpenCodeMessages(messages)
-    return Math.max(0, Math.round(messageWeightTotal * estimator.scale + estimator.reservedTokens))
+    return Math.max(0, Math.round(messageWeightTotal + estimator.reservedTokens))
 }
 
 function findRawTailStartIndex(messages: WithParts[], minMessages: number, minUserTurns: number): number {

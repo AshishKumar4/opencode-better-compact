@@ -1,6 +1,4 @@
-import { SessionState, ToolParameterEntry, WithParts } from "../state"
-import { countTokens } from "../token-utils"
-import { isIgnoredUserMessage } from "../messages/query"
+import type { ToolParameterEntry } from "../state"
 
 function extractParameterKey(tool: string, parameters: any): string {
     if (!parameters) return ""
@@ -188,45 +186,6 @@ export function formatProgressBar(
     }
 
     return `│${bar.join("")}│`
-}
-
-export function cacheSystemPromptTokens(state: SessionState, messages: WithParts[]): void {
-    let firstInputTokens = 0
-    for (const msg of messages) {
-        if (msg.info.role !== "assistant") {
-            continue
-        }
-        const info = msg.info as any
-        const input = info?.tokens?.input || 0
-        const cacheRead = info?.tokens?.cache?.read || 0
-        const cacheWrite = info?.tokens?.cache?.write || 0
-        if (input > 0 || cacheRead > 0 || cacheWrite > 0) {
-            firstInputTokens = input + cacheRead + cacheWrite
-            break
-        }
-    }
-
-    if (firstInputTokens <= 0) {
-        state.systemPromptTokens = undefined
-        return
-    }
-
-    let firstUserText = ""
-    for (const msg of messages) {
-        if (msg.info.role !== "user" || isIgnoredUserMessage(msg)) {
-            continue
-        }
-        const parts = Array.isArray(msg.parts) ? msg.parts : []
-        for (const part of parts) {
-            if (part.type === "text" && !(part as any).ignored) {
-                firstUserText += part.text
-            }
-        }
-        break
-    }
-
-    const estimatedSystemTokens = Math.max(0, firstInputTokens - countTokens(firstUserText))
-    state.systemPromptTokens = estimatedSystemTokens > 0 ? estimatedSystemTokens : undefined
 }
 
 export function shortenPath(input: string, workingDirectory?: string): string {
