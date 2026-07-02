@@ -6,7 +6,7 @@ export type Theme = TuiApi["theme"]["current"]
 export type ThemeColor = Exclude<keyof Theme, "thinkingOpacity" | "_hasSelectedListItemText">
 export type StatsReport = Awaited<ReturnType<typeof buildStatsReport>>
 
-export type DcpCommand = {
+export type BetterCompactCommand = {
     title: string
     name: string
     description: string

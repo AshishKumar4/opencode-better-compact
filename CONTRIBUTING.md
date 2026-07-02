@@ -1,6 +1,6 @@
-# Contributing to DCP
+# Contributing to Better Compact
 
-Thank you for your interest in contributing to Dynamic Context Pruning (DCP)!
+Thank you for your interest in contributing to Better Compact!
 
 ## License and Contributions
 

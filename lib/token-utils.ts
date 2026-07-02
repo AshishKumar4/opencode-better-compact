@@ -1,9 +1,6 @@
 import { SessionState, WithParts } from "./state"
 import { AssistantMessage, UserMessage } from "@opencode-ai/sdk/v2"
 import { Logger } from "./logger"
-import * as _anthropicTokenizer from "@anthropic-ai/tokenizer"
-const anthropicCountTokens = (_anthropicTokenizer.countTokens ??
-    (_anthropicTokenizer as any).default?.countTokens) as typeof _anthropicTokenizer.countTokens
 import { getLastUserMessage } from "./messages/query"
 
 export function getCurrentTokenUsage(state: SessionState, messages: WithParts[]): number {
@@ -68,12 +65,10 @@ export function getCurrentParams(
 
 export function countTokens(text: string): number {
     if (!text) return 0
-    try {
-        return anthropicCountTokens(text)
-    } catch {
-        return Math.round(text.length / 4)
-    }
+    return Math.max(0, Math.round(text.length / 4))
 }
+
+export const estimateOpenCodeTokens = countTokens
 
 export function estimateTokensBatch(texts: string[]): number {
     if (texts.length === 0) return 0
@@ -154,6 +149,8 @@ export function countAllMessageTokens(msg: WithParts): number {
     const texts: string[] = []
     for (const part of parts) {
         if (part.type === "text") {
+            texts.push(part.text)
+        } else if (part.type === "reasoning") {
             texts.push(part.text)
         } else {
             texts.push(...extractToolContent(part))

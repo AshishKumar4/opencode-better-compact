@@ -62,7 +62,7 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
         key: "system",
         fileName: "system.md",
         label: "System",
-        description: "Core system-level DCP instruction block",
+        description: "Core system-level Better Compact instruction block",
         usage: "Injected into the model system prompt on every request",
         runtimeField: "system",
     },
@@ -119,7 +119,7 @@ export const PROMPT_KEYS: PromptKey[] = [
 
 const HTML_COMMENT_REGEX = /<!--[\s\S]*?-->/g
 const LEGACY_INLINE_COMMENT_LINE_REGEX = /^[ \t]*\/\/.*?\/\/[ \t]*$/gm
-const DCP_SYSTEM_REMINDER_TAG_REGEX =
+const LEGACY_SYSTEM_REMINDER_TAG_REGEX =
     /^\s*<dcp-system-reminder\b[^>]*>[\s\S]*<\/dcp-system-reminder>\s*$/i
 const DEFAULTS_README_FILE = "README.md"
 
@@ -174,16 +174,16 @@ function findOpencodeDir(startDir: string): string | null {
 
 function resolvePromptPaths(workingDirectory: string): PromptPaths {
     const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
-    const globalRoot = join(configHome, "opencode", "dcp-prompts")
+    const globalRoot = join(configHome, "opencode", "better-compact-prompts")
     const defaultsDir = join(globalRoot, "defaults")
     const globalOverridesDir = join(globalRoot, "overrides")
 
     const configDirOverridesDir = process.env.OPENCODE_CONFIG_DIR
-        ? join(process.env.OPENCODE_CONFIG_DIR, "dcp-prompts", "overrides")
+        ? join(process.env.OPENCODE_CONFIG_DIR, "better-compact-prompts", "overrides")
         : null
 
     const opencodeDir = findOpencodeDir(workingDirectory)
-    const projectOverridesDir = opencodeDir ? join(opencodeDir, "dcp-prompts", "overrides") : null
+    const projectOverridesDir = opencodeDir ? join(opencodeDir, "better-compact-prompts", "overrides") : null
 
     return {
         defaultsDir,
@@ -201,7 +201,7 @@ function stripConditionalTag(content: string, tagName: string): string {
 function unwrapDcpTagIfWrapped(content: string): string {
     const trimmed = content.trim()
 
-    if (DCP_SYSTEM_REMINDER_TAG_REGEX.test(trimmed)) {
+    if (LEGACY_SYSTEM_REMINDER_TAG_REGEX.test(trimmed)) {
         return trimmed
             .replace(/^\s*<dcp-system-reminder\b[^>]*>\s*/i, "")
             .replace(/\s*<\/dcp-system-reminder>\s*$/i, "")
@@ -273,9 +273,9 @@ function buildDefaultPromptFileContent(bundledEditableText: string): string {
 
 function buildDefaultsReadmeContent(): string {
     const lines: string[] = []
-    lines.push("# DCP Prompt Defaults")
+    lines.push("# Better Compact Prompt Defaults")
     lines.push("")
-    lines.push("This directory stores the DCP prompts.")
+    lines.push("This directory stores the Better Compact prompts.")
     lines.push("Each prompt file here should contain plain text only (no XML wrappers).")
     lines.push("")
     lines.push("## Creating Overrides")
@@ -293,9 +293,9 @@ function buildDefaultsReadmeContent(): string {
     )
     lines.push("")
     lines.push("Override precedence (highest first):")
-    lines.push("1. `.opencode/dcp-prompts/overrides/` (project)")
-    lines.push("2. `$OPENCODE_CONFIG_DIR/dcp-prompts/overrides/` (config dir)")
-    lines.push("3. `~/.config/opencode/dcp-prompts/overrides/` (global)")
+    lines.push("1. `.opencode/better-compact-prompts/overrides/` (project)")
+    lines.push("2. `$OPENCODE_CONFIG_DIR/better-compact-prompts/overrides/` (config dir)")
+    lines.push("3. `~/.config/opencode/better-compact-prompts/overrides/` (global)")
     lines.push("")
     lines.push("## Prompt Files")
     lines.push("")

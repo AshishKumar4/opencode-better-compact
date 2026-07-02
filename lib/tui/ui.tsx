@@ -5,7 +5,7 @@ import type { JSX } from "solid-js"
 import { pct } from "./format"
 import type { Theme, ThemeColor, TuiApi } from "./types"
 
-export function DcpFrame(props: {
+export function BetterCompactFrame(props: {
     api: TuiApi
     title?: string
     eyebrow: string

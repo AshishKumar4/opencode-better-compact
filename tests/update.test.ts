@@ -21,38 +21,38 @@ test("isAutoUpdatableSpec allows latest and ranges", () => {
 
 test("isAutoUpdatableSpec rejects pinned and non-registry specs", () => {
     assert.equal(isAutoUpdatableSpec("3.1.9"), false)
-    assert.equal(isAutoUpdatableSpec("file:../opencode-dcp"), false)
+    assert.equal(isAutoUpdatableSpec("file:../better-compact"), false)
     assert.equal(isAutoUpdatableSpec("github:user/repo"), false)
 })
 
 test("updateRemoveDir removes opencode npm wrapper for latest installs", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
-    const wrapperDir = join(rootDir, "@tarquinen", "opencode-dcp@latest")
-    const packageDir = join(wrapperDir, "node_modules", "@tarquinen", "opencode-dcp")
+    const rootDir = await mkdtemp(join(tmpdir(), "better-compact-update-"))
+    const wrapperDir = join(rootDir, "better-compact@latest")
+    const packageDir = join(wrapperDir, "node_modules", "better-compact")
     await writePackageJson(wrapperDir, {
-        dependencies: { "@tarquinen/opencode-dcp": "3.1.10" },
+        dependencies: { "better-compact": "3.1.10" },
     })
     await writePackageJson(packageDir, {
-        name: "@tarquinen/opencode-dcp",
+        name: "better-compact",
         version: "3.1.9",
     })
 
-    assert.equal(await updateRemoveDir(packageDir, "@tarquinen/opencode-dcp"), wrapperDir)
+    assert.equal(await updateRemoveDir(packageDir, "better-compact"), wrapperDir)
 })
 
 test("updateRemoveDir skips version-locked opencode installs", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "dcp-update-"))
-    const wrapperDir = join(rootDir, "@tarquinen", "opencode-dcp@3.1.9")
-    const packageDir = join(wrapperDir, "node_modules", "@tarquinen", "opencode-dcp")
+    const rootDir = await mkdtemp(join(tmpdir(), "better-compact-update-"))
+    const wrapperDir = join(rootDir, "better-compact@3.1.9")
+    const packageDir = join(wrapperDir, "node_modules", "better-compact")
     await writePackageJson(wrapperDir, {
-        dependencies: { "@tarquinen/opencode-dcp": "3.1.9" },
+        dependencies: { "better-compact": "3.1.9" },
     })
     await writePackageJson(packageDir, {
-        name: "@tarquinen/opencode-dcp",
+        name: "better-compact",
         version: "3.1.9",
     })
 
-    assert.equal(await updateRemoveDir(packageDir, "@tarquinen/opencode-dcp"), undefined)
+    assert.equal(await updateRemoveDir(packageDir, "better-compact"), undefined)
 })
 
 async function writePackageJson(dir: string, data: Record<string, unknown>) {

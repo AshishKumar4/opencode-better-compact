@@ -1,11 +1,11 @@
-# DCP CLI
+# Better Compact CLI
 
 Dev tool for previewing prompt outputs.
 
 ## Usage
 
 ```bash
-bun run dcp [TYPE]
+bun run better-compact [TYPE]
 ```
 
 ## Types
@@ -22,9 +22,9 @@ bun run dcp [TYPE]
 ## Examples
 
 ```bash
-bun run dcp --system
-bun run dcp --nudge
-bun run dcp --context-tools
+bun run better-compact --system
+bun run better-compact --nudge
+bun run better-compact --context-tools
 ```
 
 ## Purpose

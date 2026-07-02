@@ -1,9 +1,9 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
-    "name": "@tarquinen/opencode-dcp",
+    "name": "better-compact",
     "version": "3.1.14",
     "type": "module",
-    "description": "OpenCode plugin that optimizes token usage by pruning obsolete tool outputs from conversation context",
+    "description": "OpenCode plugin that improves long-session context with boundary-time pruning",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
@@ -31,7 +31,7 @@
         "test": "node --import tsx --test tests/*.test.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "dcp": "tsx scripts/print.ts"
+        "better-compact": "tsx scripts/print.ts"
     },
     "keywords": [
         "opencode",
@@ -44,13 +44,13 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Opencode-DCP/opencode-dynamic-context-pruning.git"
+        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git"
     },
     "bugs": {
-        "url": "https://github.com/Opencode-DCP/opencode-dynamic-context-pruning/issues"
+        "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
     },
-    "homepage": "https://github.com/Opencode-DCP/opencode-dynamic-context-pruning#readme",
-    "author": "tarquinen",
+    "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
+    "author": "AshishKumar4",
     "license": "AGPL-3.0-or-later",
     "peerDependencies": {
         "@opencode-ai/plugin": ">=1.4.3",
@@ -59,7 +59,6 @@
         "solid-js": "^1.9.12"
     },
     "dependencies": {
-        "@anthropic-ai/tokenizer": "^0.0.4",
         "@opencode-ai/sdk": "^1.4.3",
         "jsonc-parser": "^3.3.1"
     },

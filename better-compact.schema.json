@@ -1,8 +1,8 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
-    "title": "DCP Plugin Configuration",
-    "description": "Configuration schema for the OpenCode Dynamic Context Pruning plugin",
+    "$id": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/main/better-compact.schema.json",
+    "title": "Better Compact Plugin Configuration",
+    "description": "Configuration schema for the OpenCode Better Compact plugin",
     "type": "object",
     "additionalProperties": false,
     "properties": {
@@ -13,12 +13,12 @@
         "enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable or disable the DCP plugin"
+            "description": "Enable or disable the Better Compact plugin"
         },
         "autoUpdate": {
             "type": "boolean",
-            "default": true,
-            "description": "Automatically update npm-installed DCP when a newer npm latest version is available. Version-locked plugin specs are not updated."
+            "default": false,
+            "description": "Automatically update npm-installed Better Compact when a newer npm latest version is available. Version-locked plugin specs are not updated."
         },
         "debug": {
             "type": "boolean",
@@ -39,13 +39,13 @@
         },
         "commands": {
             "type": "object",
-            "description": "Configuration for DCP slash commands (/dcp)",
+            "description": "Configuration for Better Compact slash commands (/better-compact)",
             "additionalProperties": false,
             "properties": {
                 "enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable DCP slash commands (/dcp)"
+                    "description": "Enable Better Compact slash commands (/better-compact)"
                 },
                 "protectedTools": {
                     "type": "array",
@@ -53,7 +53,7 @@
                         "type": "string"
                     },
                     "default": [],
-                    "description": "Additional tool names or wildcard patterns to protect from pruning via commands (e.g., /dcp sweep). Supports glob wildcards: * matches any characters, ? matches a single character (e.g., \"mcp_*\", \"my_tool_?\")"
+                    "description": "Additional tool names or wildcard patterns to protect from pruning via commands. Supports glob wildcards: * matches any characters, ? matches a single character (e.g., \"mcp_*\", \"my_tool_?\")"
                 }
             },
             "default": {
@@ -61,20 +61,76 @@
                 "protectedTools": []
             }
         },
+        "compaction": {
+            "type": "object",
+            "description": "Better Compact compaction preset and custom tuning",
+            "additionalProperties": false,
+            "properties": {
+                "preset": {
+                    "type": "string",
+                    "enum": ["light", "moderate", "max", "custom"],
+                    "default": "light",
+                    "description": "Compaction level. Custom uses the values under compaction.custom."
+                },
+                "custom": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "triggerPercent": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 99,
+                            "default": 85,
+                            "description": "Warn/confirm below this context usage percentage."
+                        },
+                        "targetPercent": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 99,
+                            "default": 35,
+                            "description": "Target projected context usage percentage after compaction."
+                        },
+                        "recentToolTokens": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200000,
+                            "default": 40000,
+                            "description": "Calibrated recent tool-call/result budget to preserve raw."
+                        },
+                        "summarizerConcurrency": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 16,
+                            "default": 4,
+                            "description": "Maximum scratch summarizer sessions to run in parallel."
+                        }
+                    }
+                }
+            },
+            "default": {
+                "preset": "light",
+                "custom": {
+                    "triggerPercent": 85,
+                    "targetPercent": 35,
+                    "recentToolTokens": 40000,
+                    "summarizerConcurrency": 4
+                }
+            }
+        },
         "manualMode": {
             "type": "object",
-            "description": "Manual mode behavior for context management tools",
+            "description": "Reserved for legacy internal utilities; Better Compact pruning is runtime-driven.",
             "additionalProperties": false,
             "properties": {
                 "enabled": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Start new sessions with manual mode enabled"
+                    "description": "Boundary pruning is runtime-driven and does not use normal-chat manual mode."
                 },
                 "automaticStrategies": {
                     "type": "boolean",
                     "default": true,
-                    "description": "When manual mode is enabled, keep automatic deduplication/purge strategies running"
+                    "description": "Keep automatic cleanup strategies running when enabled"
                 }
             },
             "default": {
@@ -107,12 +163,12 @@
                 "allowSubAgents": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Allow DCP processing in subagent sessions"
+                    "description": "Allow Better Compact processing in subagent sessions"
                 },
                 "customPrompts": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Enable user-editable prompt overrides under dcp-prompts directories"
+                    "description": "Enable user-editable prompt overrides under better-compact-prompts directories"
                 }
             },
             "default": {
@@ -130,33 +186,33 @@
         },
         "compress": {
             "type": "object",
-            "description": "Configuration for the unified compress tool",
+            "description": "Advanced internal context-management settings",
             "additionalProperties": false,
             "properties": {
                 "mode": {
                     "type": "string",
                     "enum": ["range", "message"],
                     "default": "range",
-                    "description": "Compression mode. 'range' compresses spans into block summaries, 'message' compresses individual raw messages."
+                    "description": "Internal summary mode retained for compatibility with older utility tests."
                 },
                 "permission": {
                     "type": "string",
                     "enum": ["ask", "allow", "deny"],
                     "default": "allow",
-                    "description": "Permission mode (deny disables the tool)"
+                    "description": "Permission mode for Better Compact commands"
                 },
                 "showCompression": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Show compression summaries in notifications"
+                    "description": "Show detailed summaries in notifications when available"
                 },
                 "summaryBuffer": {
                     "type": "boolean",
                     "default": true,
-                    "description": "When enabled, active summary tokens extend the effective maxContextLimit used for context-limit nudges."
+                    "description": "When enabled, active summary tokens are considered in context threshold calculations."
                 },
                 "maxContextLimit": {
-                    "description": "Soft upper threshold. Above this, DCP keeps sending strong compression nudges (based on nudgeFrequency), so the model is pushed to compress. Accepts number or \"X%\" of the model context window.",
+                    "description": "Context threshold setting. Accepts number or \"X%\" of the model context window.",
                     "default": 100000,
                     "oneOf": [
                         {
@@ -169,7 +225,7 @@
                     ]
                 },
                 "minContextLimit": {
-                    "description": "Soft lower threshold for reminder nudges. Below this, turn/iteration reminders are off (compression is less likely). At or above this, reminders are on. Accepts number or \"X%\" of the model context window.",
+                    "description": "Soft lower threshold retained for internal context heuristics. Accepts number or \"X%\" of the model context window.",
                     "default": 50000,
                     "oneOf": [
                         {
@@ -215,19 +271,19 @@
                     "type": "number",
                     "default": 5,
                     "minimum": 1,
-                    "description": "How often the context-limit nudge fires when above maxContextLimit (1 = every fetch, 5 = every 5th fetch)"
+                    "description": "Reserved for legacy internal utilities."
                 },
                 "iterationNudgeThreshold": {
                     "type": "number",
                     "default": 15,
                     "minimum": 1,
-                    "description": "How many messages to wait after a user message before adding compression reminders."
+                    "description": "Reserved for legacy internal utilities."
                 },
                 "nudgeForce": {
                     "type": "string",
                     "enum": ["strong", "soft"],
                     "default": "soft",
-                    "description": "Controls how likely compression is after user messages. 'strong' is more likely, 'soft' is less likely."
+                    "description": "Reserved for legacy internal utilities."
                 },
                 "protectedTools": {
                     "type": "array",
@@ -235,17 +291,17 @@
                         "type": "string"
                     },
                     "default": [],
-                    "description": "Tool names or wildcard patterns whose completed outputs should be appended to the compression summary. Supports glob wildcards: * matches any characters, ? matches a single character (e.g., \"mcp_*\", \"my_tool_?\")"
+                    "description": "Tool names or wildcard patterns protected from internal pruning. Supports glob wildcards: * matches any characters, ? matches a single character (e.g., \"mcp_*\", \"my_tool_?\")"
                 },
                 "protectTags": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Preserve text wrapped in <protect>...</protect> when compressed"
+                    "description": "Preserve text wrapped in <protect>...</protect> when context is compacted"
                 },
                 "protectUserMessages": {
                     "type": "boolean",
                     "default": false,
-                    "description": "When enabled, your messages are never lost during compression"
+                    "description": "When enabled, user messages are explicitly protected by internal utilities. Better Compact preserves user messages by default."
                 }
             },
             "default": {

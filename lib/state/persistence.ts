@@ -1,7 +1,7 @@
 /**
- * State persistence module for DCP plugin.
+ * State persistence module for Better Compact plugin.
  * Persists pruned tool IDs across sessions so they survive OpenCode restarts.
- * Storage location: ~/.local/share/opencode/storage/plugin/dcp/{sessionId}.json
+ * Storage location: ~/.local/share/opencode/storage/plugin/better-compact/{sessionId}.json
  */
 
 import * as fs from "fs/promises"
@@ -37,6 +37,10 @@ export interface PersistedSessionState {
     sessionName?: string
     manualMode?: boolean
     prune: PersistedPrune
+    boundary?: {
+        activePlan?: SessionState["boundary"]["activePlan"]
+        job?: SessionState["boundary"]["job"]
+    }
     nudges: PersistedNudges
     stats: SessionStats
     lastUpdated: string
@@ -47,7 +51,7 @@ const STORAGE_DIR = join(
     "opencode",
     "storage",
     "plugin",
-    "dcp",
+    "better-compact",
 )
 
 async function ensureStorageDir(): Promise<void> {
@@ -93,6 +97,10 @@ export async function saveSessionState(
             prune: {
                 tools: Object.fromEntries(sessionState.prune.tools),
                 messages: serializePruneMessagesState(sessionState.prune.messages),
+            },
+            boundary: {
+                activePlan: sessionState.boundary.activePlan,
+                job: sessionState.boundary.job,
             },
             nudges: {
                 contextLimitAnchors: Array.from(sessionState.nudges.contextLimitAnchors),
@@ -218,6 +226,10 @@ function emptyPersistedState(manualMode: boolean): PersistedSessionState {
                 nextBlockId: 1,
                 nextRunId: 1,
             },
+        },
+        boundary: {
+            activePlan: null,
+            job: null,
         },
         nudges: {
             contextLimitAnchors: [],

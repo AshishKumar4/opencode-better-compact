@@ -14,7 +14,7 @@ type UpdateResult =
     | { updated: false; error: "remove_failed"; name: string; current: string; latest: string }
     | { updated: false }
 
-const PACKAGE_NAME = "@tarquinen/opencode-dcp"
+const PACKAGE_NAME = "better-compact"
 
 export function startAutoUpdate(ctx: PluginInput, enabled: boolean): void {
     if (!enabled) return
@@ -27,7 +27,7 @@ export function startAutoUpdate(ctx: PluginInput, enabled: boolean): void {
             setTimeout(() => {
                 ctx.client.tui.showToast({
                     body: {
-                        title: "DCP update ready",
+                        title: "Better Compact update ready",
                         message: `Updated ${result.name} from ${result.current} to ${result.latest}. Restart OpenCode to finish.`,
                         variant: "info",
                         duration: 7000,

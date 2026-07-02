@@ -1,10 +1,10 @@
 /**
- * DCP Sweep command handler.
+ * Better Compact Sweep command handler.
  * Prunes tool outputs since the last user message, or the last N tools.
  *
  * Usage:
- *   /dcp sweep        - Prune all tools since the previous user message
- *   /dcp sweep 10     - Prune the last 10 tools
+ *   /better-compact sweep        - Prune all tools since the previous user message
+ *   /better-compact sweep 10     - Prune the last 10 tools
  */
 
 import type { Logger } from "../logger"
@@ -75,7 +75,7 @@ function formatNoUserMessage(): string {
     const lines: string[] = []
 
     lines.push("╭───────────────────────────────────────────────────────────╮")
-    lines.push("│                      DCP Sweep                            │")
+    lines.push("│                  Better Compact Sweep                     │")
     lines.push("╰───────────────────────────────────────────────────────────╯")
     lines.push("")
     lines.push("Nothing swept: no user message found.")
@@ -95,7 +95,7 @@ function formatSweepMessage(
     const lines: string[] = []
 
     lines.push("╭───────────────────────────────────────────────────────────╮")
-    lines.push("│                      DCP Sweep                            │")
+    lines.push("│                  Better Compact Sweep                     │")
     lines.push("╰───────────────────────────────────────────────────────────╯")
     lines.push("")
 

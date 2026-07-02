@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { mkdtempSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { PluginConfig } from "../lib/config"
 import {
+    createChatMessageHandler,
     createChatMessageTransformHandler,
     createCommandExecuteHandler,
     createEventHandler,
@@ -27,6 +31,15 @@ function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConf
         commands: {
             enabled: true,
             protectedTools: [],
+        },
+        compaction: {
+            preset: "light",
+            custom: {
+                triggerPercent: 85,
+                targetPercent: 35,
+                recentToolTokens: 40_000,
+                summarizerConcurrency: 4,
+            },
         },
         manualMode: {
             enabled: false,
@@ -86,6 +99,68 @@ function buildMessage(id: string, role: "user" | "assistant", text: string): Wit
                 text,
             },
         ],
+    }
+}
+
+function buildUserMessage(id: string, text: string, created: number): WithParts {
+    return {
+        info: {
+            id,
+            role: "user",
+            sessionID: "session-1",
+            agent: "assistant",
+            model: { providerID: "anthropic", modelID: "claude-test" },
+            time: { created },
+        } as WithParts["info"],
+        parts: [
+            {
+                id: `${id}-part`,
+                messageID: id,
+                sessionID: "session-1",
+                type: "text",
+                text,
+            },
+        ],
+    }
+}
+
+function buildAssistantToolMessage(id: string, created: number): WithParts {
+    return {
+        info: {
+            id,
+            role: "assistant",
+            sessionID: "session-1",
+            agent: "assistant",
+            time: { created },
+        } as WithParts["info"],
+        parts: [
+            {
+                id: `${id}-tool`,
+                messageID: id,
+                sessionID: "session-1",
+                type: "tool",
+                callID: `${id}-call`,
+                tool: "read",
+                state: {
+                    status: "completed",
+                    input: { filePath: "src/app.ts" },
+                    output: "tool output ".repeat(500),
+                    title: "read",
+                    metadata: {},
+                    time: { start: 1, end: 2 },
+                },
+            } as any,
+        ],
+    }
+}
+
+async function waitFor(condition: () => boolean, timeoutMs = 10_000): Promise<void> {
+    const started = Date.now()
+    while (!condition()) {
+        if (Date.now() - started > timeoutMs) {
+            throw new Error("Timed out waiting for condition")
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25))
     }
 }
 
@@ -198,10 +273,114 @@ test("command execute exits after effective permission resolves to deny", async 
         { global: undefined, agents: {} },
     )
 
-    await handler({ command: "dcp", sessionID: "session-1", arguments: "context" }, output)
+    await handler({ command: "better-compact", sessionID: "session-1", arguments: "context" }, output)
 
     assert.equal(sessionMessagesCalls, 1)
     assert.deepEqual(output.parts, [])
+})
+
+test("better-compact stores virtual plan and reports progress without native summarize", async () => {
+    const messages = [
+        buildUserMessage("user-1", "old user request", 1),
+        buildAssistantToolMessage("assistant-1", 2),
+        buildUserMessage("user-2", "middle user request", 3),
+        buildMessage("assistant-2", "assistant", "middle assistant response"),
+        buildUserMessage("user-3", "latest user request", 5),
+    ]
+    const prompts: any[] = []
+    let summarizeCalls = 0
+    const state = createSessionState()
+    const output = { parts: [{ type: "text", text: "/better-compact" }] as any[] }
+    const handler = createCommandExecuteHandler(
+        {
+            session: {
+                get: async () => ({ data: { parentID: null } }),
+                messages: async () => ({ data: messages }),
+                prompt: async (input: any) => {
+                    prompts.push(input)
+                    return { data: true }
+                },
+                summarize: async () => {
+                    summarizeCalls += 1
+                    throw new Error("native compaction should not be called")
+                },
+            },
+        } as any,
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-command-")),
+        { global: undefined, agents: {} },
+    )
+
+    await handler({ command: "better-compact", sessionID: "session-1", arguments: "" }, output)
+    await waitFor(() => state.boundary.job?.status === "completed")
+
+    assert.equal(summarizeCalls, 0)
+    assert.equal(output.parts.length, 0)
+    assert.ok(state.boundary.activePlan)
+    assert.equal(state.boundary.activePlan?.sessionId, "session-1")
+    assert.ok(prompts.length >= 1)
+    assert.equal(prompts.every((prompt) => prompt.body.noReply === true), true)
+    assert.equal(prompts.every((prompt) => prompt.body.parts[0].ignored === true), true)
+    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Report/)
+    assert.equal(state.boundary.job?.percent, 100)
+    assert.ok(state.boundary.job?.logs.some((line) => line.includes("Transcript written")))
+})
+
+test("chat message sentinel runs better-compact as no-reply TUI action", async () => {
+    const messages = [
+        buildUserMessage("user-1", "old user request", 1),
+        buildAssistantToolMessage("assistant-1", 2),
+        buildUserMessage("user-2", "middle user request", 3),
+        buildMessage("assistant-2", "assistant", "middle assistant response"),
+        buildUserMessage("user-3", "latest user request", 5),
+    ]
+    const prompts: any[] = []
+    const state = createSessionState()
+    const handler = createChatMessageHandler(
+        {
+            session: {
+                messages: async () => ({ data: messages }),
+                prompt: async (input: any) => {
+                    prompts.push(input)
+                    return { data: true }
+                },
+            },
+        } as any,
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-sentinel-")),
+        { global: undefined, agents: {} },
+    )
+
+    await handler(
+        {
+            sessionID: "session-1",
+            agent: "assistant",
+            model: { providerID: "anthropic", modelID: "claude-test" },
+        },
+        {
+            message: {},
+            parts: [
+                {
+                    type: "text",
+                    text: "Better Compact requested.",
+                    ignored: true,
+                    metadata: { betterCompact: "run" },
+                },
+            ],
+        },
+    )
+    await waitFor(() => state.boundary.job?.status === "completed")
+
+    assert.ok(state.boundary.activePlan)
+    assert.equal(state.boundary.activePlan?.sessionId, "session-1")
+    assert.ok(prompts.length >= 1)
+    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Report/)
+    assert.equal(state.boundary.job?.percent, 100)
+    assert.ok(state.boundary.job?.stages.some((stage) => stage.id === "report" && stage.status === "completed"))
 })
 
 test("text complete strips hallucinated metadata tags", async () => {

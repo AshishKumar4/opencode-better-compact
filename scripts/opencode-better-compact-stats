@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Analyze Dynamic Context Pruning (DCP) tool impact on cache efficiency.
-Tracks cache hit rates and context size changes before/after DCP tool invocations.
+Analyze Better Compact impact on cache efficiency.
+Tracks cache hit rates and context size changes before/after Better Compact context management.
 
-Usage: opencode-dcp-stats [--sessions N] [--min-messages M] [--json] [--verbose]
+Usage: opencode-better-compact-stats [--sessions N] [--min-messages M] [--json] [--verbose]
 """
 
 import json
@@ -14,8 +14,8 @@ from typing import Optional
 
 from opencode_api import APIError, add_api_arguments, create_client_from_args, list_sessions_across_projects
 
-# DCP tool names across versions (compress is canonical; others are legacy aliases)
-DCP_TOOLS = {
+# Legacy compression tool names across versions (compress is canonical; others are legacy aliases)
+BETTER_COMPACT_TOOLS = {
     "compress", "prune", "distill",
     "discard", "extract", "context_pruning", "squash", "consolidate"
 }
@@ -32,9 +32,9 @@ def get_session_messages(client, session: dict) -> list[dict]:
 
 def is_ignored_message(message: dict, parts: list[dict]) -> bool:
     """
-    Check if a message should be ignored (DCP notification messages).
+    Check if a message should be ignored (Better Compact notification messages).
     Returns True if message has no parts OR all parts have ignored=true.
-    Mirrors the isIgnoredUserMessage logic from the DCP plugin.
+    Mirrors the isIgnoredUserMessage logic from the Better Compact plugin.
     """
     if not parts:
         return True
@@ -76,19 +76,19 @@ def extract_step_finish(parts: list[dict]) -> Optional[dict]:
     return None
 
 
-def extract_dcp_tools(parts: list[dict]) -> list[dict]:
-    """Extract all DCP tool calls from message parts."""
-    dcp_calls = []
+def extract_better_compact_tools(parts: list[dict]) -> list[dict]:
+    """Extract legacy compression tool calls from message parts."""
+    compact_calls = []
     for part in parts:
         if part.get("type") == "tool":
             tool_name = part.get("tool", "")
-            if tool_name in DCP_TOOLS:
-                dcp_calls.append({
+            if tool_name in BETTER_COMPACT_TOOLS:
+                compact_calls.append({
                     "tool": tool_name,
                     "state": part.get("state", {}),
                     "part_id": part.get("_id", "")
                 })
-    return dcp_calls
+    return compact_calls
 
 
 def calc_cache_hit_rate(tokens: dict) -> float:
@@ -103,12 +103,12 @@ def calc_cache_hit_rate(tokens: dict) -> float:
 
 
 def analyze_session(messages: list[dict], session_id: str) -> dict:
-    """Analyze DCP impact for a single session."""
+    """Analyze Better Compact impact for a single session."""
 
     result = {
         "session_id": session_id,
-        "dcp_events": [],
-        "total_dcp_calls": 0,
+        "compact_events": [],
+        "total_compact_calls": 0,
         "total_steps": 0,
         "by_tool": defaultdict(lambda: {
             "calls": 0,

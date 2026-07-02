@@ -1,6 +1,6 @@
-import type { DcpCommand, TuiApi } from "./types"
+import type { BetterCompactCommand, TuiApi } from "./types"
 
-export function registerCommands(api: TuiApi, commands: DcpCommand[]) {
+export function registerCommands(api: TuiApi, commands: BetterCompactCommand[]) {
     const keymap = (api as any).keymap
     if (keymap?.registerLayer) {
         keymap.registerLayer({
@@ -9,7 +9,7 @@ export function registerCommands(api: TuiApi, commands: DcpCommand[]) {
                 name: command.name,
                 title: command.title,
                 desc: command.description,
-                category: "DCP",
+                category: "Better Compact",
                 slashName: command.slashName,
                 slashAliases: command.slashAliases,
                 run: command.run,
@@ -23,7 +23,7 @@ export function registerCommands(api: TuiApi, commands: DcpCommand[]) {
             title: command.title,
             value: command.name,
             description: command.description,
-            category: "DCP",
+            category: "Better Compact",
             slash: { name: command.slashName, aliases: command.slashAliases },
             onSelect: command.run,
         })),

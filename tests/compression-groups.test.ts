@@ -11,8 +11,8 @@ import { createSessionState, type WithParts } from "../lib/state"
 import type { PluginConfig } from "../lib/config"
 import { Logger } from "../lib/logger"
 
-const testDataHome = join(tmpdir(), `opencode-dcp-compression-groups-${process.pid}`)
-const testConfigHome = join(tmpdir(), `opencode-dcp-compression-groups-config-${process.pid}`)
+const testDataHome = join(tmpdir(), `better-compact-compression-groups-${process.pid}`)
+const testConfigHome = join(tmpdir(), `better-compact-compression-groups-config-${process.pid}`)
 
 process.env.XDG_DATA_HOME = testDataHome
 process.env.XDG_CONFIG_HOME = testConfigHome

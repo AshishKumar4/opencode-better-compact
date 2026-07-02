@@ -3,6 +3,20 @@ import { join, dirname } from "path"
 import { homedir } from "os"
 import { parse } from "jsonc-parser/lib/esm/main.js"
 import type { PluginInput } from "@opencode-ai/plugin"
+import {
+    DEFAULT_CUSTOM_COMPACTION,
+    normalizeCompactionCustom,
+    normalizePreset,
+    type CompactionConfig,
+} from "./compaction-settings"
+
+export type {
+    CompactionConfig,
+    CompactionCustomSettings,
+    CompactionPreset,
+    CompactionProfile,
+} from "./compaction-settings"
+export { COMPACTION_PRESETS, DEFAULT_CUSTOM_COMPACTION, normalizeCompactionCustom, normalizePreset, resolveCompactionProfile } from "./compaction-settings"
 
 type Permission = "ask" | "allow" | "deny"
 type CompressMode = "range" | "message"
@@ -62,6 +76,7 @@ export interface PluginConfig {
     pruneNotification: "off" | "minimal" | "detailed"
     pruneNotificationType: "chat" | "toast"
     commands: Commands
+    compaction: CompactionConfig
     manualMode: ManualModeConfig
     turnProtection: TurnProtection
     experimental: ExperimentalConfig
@@ -108,6 +123,13 @@ export const VALID_CONFIG_KEYS = new Set([
     "commands",
     "commands.enabled",
     "commands.protectedTools",
+    "compaction",
+    "compaction.preset",
+    "compaction.custom",
+    "compaction.custom.triggerPercent",
+    "compaction.custom.targetPercent",
+    "compaction.custom.recentToolTokens",
+    "compaction.custom.summarizerConcurrency",
     "manualMode",
     "manualMode.enabled",
     "manualMode.automaticStrategies",
@@ -308,6 +330,41 @@ export function validateConfigTypes(config: Record<string, any>): ValidationErro
                     expected: "string[]",
                     actual: typeof commands.protectedTools,
                 })
+            }
+        }
+    }
+
+    const compaction = config.compaction
+    if (compaction !== undefined) {
+        if (typeof compaction !== "object" || compaction === null || Array.isArray(compaction)) {
+            errors.push({ key: "compaction", expected: "object", actual: typeof compaction })
+        } else {
+            if (
+                compaction.preset !== undefined &&
+                compaction.preset !== "light" &&
+                compaction.preset !== "moderate" &&
+                compaction.preset !== "max" &&
+                compaction.preset !== "custom"
+            ) {
+                errors.push({
+                    key: "compaction.preset",
+                    expected: '"light" | "moderate" | "max" | "custom"',
+                    actual: JSON.stringify(compaction.preset),
+                })
+            }
+
+            const custom = compaction.custom
+            if (custom !== undefined) {
+                if (typeof custom !== "object" || custom === null || Array.isArray(custom)) {
+                    errors.push({ key: "compaction.custom", expected: "object", actual: typeof custom })
+                } else {
+                    for (const key of ["triggerPercent", "targetPercent", "recentToolTokens", "summarizerConcurrency"] as const) {
+                        const value = custom[key]
+                        if (value !== undefined && typeof value !== "number") {
+                            errors.push({ key: `compaction.custom.${key}`, expected: "number", actual: typeof value })
+                        }
+                    }
+                }
             }
         }
     }
@@ -643,7 +700,7 @@ function showConfigWarnings(
         try {
             ctx.client.tui.showToast({
                 body: {
-                    title: `DCP: ${configType} warning`,
+                    title: `Better Compact: ${configType} warning`,
                     message: `${configPath}\n${messages.join("\n")}`,
                     variant: "warning",
                     duration: 7000,
@@ -655,13 +712,17 @@ function showConfigWarnings(
 
 const defaultConfig: PluginConfig = {
     enabled: true,
-    autoUpdate: true,
+    autoUpdate: false,
     debug: false,
     pruneNotification: "detailed",
     pruneNotificationType: "chat",
     commands: {
         enabled: true,
         protectedTools: [...DEFAULT_PROTECTED_TOOLS],
+    },
+    compaction: {
+        preset: "light",
+        custom: { ...DEFAULT_CUSTOM_COMPACTION },
     },
     manualMode: {
         enabled: false,
@@ -706,8 +767,8 @@ const defaultConfig: PluginConfig = {
 const GLOBAL_CONFIG_DIR = process.env.XDG_CONFIG_HOME
     ? join(process.env.XDG_CONFIG_HOME, "opencode")
     : join(homedir(), ".config", "opencode")
-const GLOBAL_CONFIG_PATH_JSONC = join(GLOBAL_CONFIG_DIR, "dcp.jsonc")
-const GLOBAL_CONFIG_PATH_JSON = join(GLOBAL_CONFIG_DIR, "dcp.json")
+const GLOBAL_CONFIG_PATH_JSONC = join(GLOBAL_CONFIG_DIR, "better-compact.jsonc")
+const GLOBAL_CONFIG_PATH_JSON = join(GLOBAL_CONFIG_DIR, "better-compact.json")
 
 function findOpencodeDir(startDir: string): string | null {
     let current = startDir
@@ -739,8 +800,8 @@ function getConfigPaths(ctx?: PluginInput): {
     let configDir: string | null = null
     const opencodeConfigDir = process.env.OPENCODE_CONFIG_DIR
     if (opencodeConfigDir) {
-        const configJsonc = join(opencodeConfigDir, "dcp.jsonc")
-        const configJson = join(opencodeConfigDir, "dcp.json")
+        const configJsonc = join(opencodeConfigDir, "better-compact.jsonc")
+        const configJson = join(opencodeConfigDir, "better-compact.json")
         configDir = existsSync(configJsonc)
             ? configJsonc
             : existsSync(configJson)
@@ -752,8 +813,8 @@ function getConfigPaths(ctx?: PluginInput): {
     if (ctx?.directory) {
         const opencodeDir = findOpencodeDir(ctx.directory)
         if (opencodeDir) {
-            const projectJsonc = join(opencodeDir, "dcp.jsonc")
-            const projectJson = join(opencodeDir, "dcp.json")
+            const projectJsonc = join(opencodeDir, "better-compact.jsonc")
+            const projectJson = join(opencodeDir, "better-compact.json")
             project = existsSync(projectJsonc)
                 ? projectJsonc
                 : existsSync(projectJson)
@@ -771,7 +832,7 @@ function createDefaultConfig(): void {
     }
 
     const configContent = `{
-  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json"
+  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/main/better-compact.schema.json"
 }
 `
     writeFileSync(GLOBAL_CONFIG_PATH_JSONC, configContent, "utf-8")
@@ -872,6 +933,20 @@ function mergeCommands(
     }
 }
 
+function mergeCompaction(
+    base: PluginConfig["compaction"],
+    override?: Partial<PluginConfig["compaction"]>,
+): PluginConfig["compaction"] {
+    if (!override) return base
+    return {
+        preset: normalizePreset(override.preset ?? base.preset),
+        custom: normalizeCompactionCustom({
+            ...base.custom,
+            ...(override.custom ?? {}),
+        }),
+    }
+}
+
 function mergeManualMode(
     base: PluginConfig["manualMode"],
     override?: Partial<PluginConfig["manualMode"]>,
@@ -902,6 +977,10 @@ function deepCloneConfig(config: PluginConfig): PluginConfig {
         commands: {
             enabled: config.commands.enabled,
             protectedTools: [...config.commands.protectedTools],
+        },
+        compaction: {
+            preset: config.compaction.preset,
+            custom: { ...config.compaction.custom },
         },
         manualMode: {
             enabled: config.manualMode.enabled,
@@ -937,6 +1016,7 @@ function mergeLayer(config: PluginConfig, data: Record<string, any>): PluginConf
         pruneNotification: data.pruneNotification ?? config.pruneNotification,
         pruneNotificationType: data.pruneNotificationType ?? config.pruneNotificationType,
         commands: mergeCommands(config.commands, data.commands as any),
+        compaction: mergeCompaction(config.compaction, data.compaction as any),
         manualMode: mergeManualMode(config.manualMode, data.manualMode as any),
         turnProtection: {
             enabled: data.turnProtection?.enabled ?? config.turnProtection.enabled,
@@ -989,7 +1069,7 @@ export function getConfig(ctx: PluginInput): PluginConfig {
         if (result.parseError) {
             scheduleParseWarning(
                 ctx,
-                `DCP: Invalid ${layer.name}`,
+                `Better Compact: Invalid ${layer.name}`,
                 `${layer.path}\n${result.parseError}\nUsing previous/default values`,
             )
             continue

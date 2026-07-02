@@ -31,10 +31,10 @@ const showHelp = args.includes("-h") || args.includes("--help")
 
 if (showHelp) {
     console.log(`
-DCP Prompt Preview CLI
+Better Compact Prompt Preview CLI
 
 Usage:
-  npm run dcp -- [options]
+  npm run better-compact -- [options]
 
 Options:
   --list                   List available prompt keys
@@ -49,9 +49,9 @@ Prompt keys:
   context-limit-nudge, turn-nudge, iteration-nudge
 
 Examples:
-  npm run dcp -- --list
-  npm run dcp -- --show compress-range
-  npm run dcp -- --system-all
+  npm run better-compact -- --list
+  npm run better-compact -- --show compress-range
+  npm run better-compact -- --system-all
 `)
     process.exit(0)
 }

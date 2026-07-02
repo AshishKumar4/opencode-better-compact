@@ -1,12 +1,11 @@
 /**
- * DCP Help command handler.
- * Shows available DCP commands and their descriptions.
+ * Better Compact Help command handler.
+ * Shows available Better Compact commands and their descriptions.
  */
 
 import type { Logger } from "../logger"
 import type { PluginConfig } from "../config"
 import type { SessionState, WithParts } from "../state"
-import { compressPermission } from "../compress-permission"
 import { sendIgnoredMessage } from "../ui/notification"
 import { getCurrentParams } from "../token-utils"
 
@@ -19,41 +18,24 @@ export interface HelpCommandContext {
     messages: WithParts[]
 }
 
-const TUI_COMMANDS: [string, string][] = [
-    ["DCP Context", "Show token usage breakdown for current session"],
-    ["DCP Stats", "Show DCP pruning statistics"],
-    ["DCP Help", "Show this help in a modal"],
+const COMMANDS: [string, string][] = [
+    ["/better-compact", "Run staged context pruning now"],
+    ["/better-compact context", "Show token usage breakdown for current session"],
+    ["/better-compact stats", "Show pruning statistics"],
+    ["/better-compact help", "Show this help"],
+    ["/better-compact-settings", "Open Better Compact settings panel"],
 ]
 
-const TOOL_COMMANDS: Record<string, [string, string]> = {
-    compress: ["/dcp-compress [focus]", "Trigger manual compress tool execution"],
-    decompress: ["/dcp decompress <n>", "Restore selected compression"],
-    recompress: ["/dcp recompress <n>", "Re-apply a user-decompressed compression"],
-}
-
-function getVisibleCommands(state: SessionState, config: PluginConfig): [string, string][] {
-    const commands = [...TUI_COMMANDS]
-
-    if (compressPermission(state, config) !== "deny") {
-        commands.push(TOOL_COMMANDS.compress)
-    }
-
-    return commands
-}
-
 export function formatHelpMessage(state: SessionState, config: PluginConfig): string {
-    const commands = getVisibleCommands(state, config)
+    const commands = COMMANDS
     const colWidth = Math.max(...commands.map(([cmd]) => cmd.length)) + 4
     const lines: string[] = []
 
     lines.push("╭─────────────────────────────────────────────────────────────────────────╮")
-    lines.push("│                              DCP Commands                               │")
+    lines.push("│                         Better Compact Commands                         │")
     lines.push("╰─────────────────────────────────────────────────────────────────────────╯")
     lines.push("")
-    lines.push(`  ${"Manual mode:".padEnd(colWidth)}${state.manualMode ? "ON" : "OFF"}`)
-    lines.push("")
-    lines.push("  Open the command palette for DCP modal commands.")
-    lines.push("  Use /dcp-compress [focus] when you want DCP to ask the model to run compression.")
+    lines.push("  Better Compact preserves raw user messages first, prunes assistant/tool-heavy history in stages, and writes transcript refs for exact recall.")
     lines.push("")
     for (const [cmd, desc] of commands) {
         lines.push(`  ${cmd.padEnd(colWidth)}${desc}`)

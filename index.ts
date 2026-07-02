@@ -1,16 +1,12 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { getConfig } from "./lib/config"
-import { createCompressMessageTool, createCompressRangeTool } from "./lib/compress"
-import {
-    compressDisabledByOpencode,
-    hasExplicitToolPermission,
-    type HostPermissionSnapshot,
-} from "./lib/host-permissions"
+import { compressDisabledByOpencode, type HostPermissionSnapshot } from "./lib/host-permissions"
 import { Logger } from "./lib/logger"
 import { createSessionState } from "./lib/state"
 import { PromptStore } from "./lib/prompts/store"
 import {
     createChatMessageTransformHandler,
+    createChatMessageHandler,
     createCommandExecuteHandler,
     createEventHandler,
     createSystemPromptHandler,
@@ -39,19 +35,11 @@ const server: Plugin = (async (ctx) => {
         // logger.info("Secure mode detected, configured client authentication")
     }
 
-    logger.info("DCP initialized", {
+    logger.info("Better Compact initialized", {
         strategies: config.strategies,
     })
 
     startAutoUpdate(ctx, config.autoUpdate)
-
-    const compressToolContext = {
-        client: ctx.client,
-        state,
-        logger,
-        config,
-        prompts,
-    }
 
     return {
         "experimental.chat.system.transform": createSystemPromptHandler(
@@ -67,8 +55,17 @@ const server: Plugin = (async (ctx) => {
             config,
             prompts,
             hostPermissions,
+            ctx.directory,
         ) as any,
         "experimental.text.complete": createTextCompleteHandler(),
+        "chat.message": createChatMessageHandler(
+            ctx.client,
+            state,
+            logger,
+            config,
+            ctx.directory,
+            hostPermissions,
+        ),
         "command.execute.before": createCommandExecuteHandler(
             ctx.client,
             state,
@@ -77,15 +74,8 @@ const server: Plugin = (async (ctx) => {
             ctx.directory,
             hostPermissions,
         ),
-        event: createEventHandler(state, logger),
-        tool: {
-            ...(config.compress.permission !== "deny" && {
-                compress:
-                    config.compress.mode === "message"
-                        ? createCompressMessageTool(compressToolContext)
-                        : createCompressRangeTool(compressToolContext),
-            }),
-        },
+        event: createEventHandler(state, logger, ctx.client),
+        tool: {},
         config: async (opencodeConfig) => {
             if (
                 config.compress.permission !== "deny" &&
@@ -94,33 +84,12 @@ const server: Plugin = (async (ctx) => {
                 config.compress.permission = "deny"
             }
 
-            if (config.commands.enabled && config.compress.permission !== "deny") {
-                opencodeConfig.command ??= {}
-                opencodeConfig.command["dcp-compress"] = {
-                    template: "",
-                    description: "Trigger DCP manual compression with: /dcp-compress [focus]",
-                }
+            const mutableConfig = opencodeConfig as typeof opencodeConfig & {
+                compaction?: { auto?: boolean }
             }
-
-            const toolsToAdd: string[] = []
-            if (config.compress.permission !== "deny" && !config.experimental.allowSubAgents) {
-                toolsToAdd.push("compress")
-            }
-
-            if (toolsToAdd.length > 0) {
-                const existingPrimaryTools = opencodeConfig.experimental?.primary_tools ?? []
-                opencodeConfig.experimental = {
-                    ...opencodeConfig.experimental,
-                    primary_tools: [...existingPrimaryTools, ...toolsToAdd],
-                }
-            }
-
-            if (!hasExplicitToolPermission(opencodeConfig.permission, "compress")) {
-                const permission = opencodeConfig.permission ?? {}
-                opencodeConfig.permission = {
-                    ...permission,
-                    compress: config.compress.permission,
-                } as typeof permission
+            mutableConfig.compaction = {
+                ...mutableConfig.compaction,
+                auto: false,
             }
 
             hostPermissions.global = opencodeConfig.permission

@@ -8,8 +8,8 @@ import { createSessionState, type WithParts } from "../lib/state"
 import type { PluginConfig } from "../lib/config"
 import { Logger } from "../lib/logger"
 
-const testDataHome = join(tmpdir(), `opencode-dcp-message-tests-${process.pid}`)
-const testConfigHome = join(tmpdir(), `opencode-dcp-message-config-tests-${process.pid}`)
+const testDataHome = join(tmpdir(), `better-compact-message-tests-${process.pid}`)
+const testConfigHome = join(tmpdir(), `better-compact-message-config-tests-${process.pid}`)
 
 process.env.XDG_DATA_HOME = testDataHome
 process.env.XDG_CONFIG_HOME = testConfigHome
@@ -692,7 +692,7 @@ test("compress message mode sends one aggregated notification for batched messag
     )
 
     assert.equal(toastCalls.length, 1)
-    assert.match(toastCalls[0] || "", /▣ DCP \| -[^,\n]+ removed, \+[^\s\n]+ summary/)
+    assert.match(toastCalls[0] || "", /▣ Better Compact \| -[^,\n]+ removed, \+[^\s\n]+ summary/)
     assert.match(toastCalls[0] || "", /Compression #1/)
     assert.match(toastCalls[0] || "", /▣ Compression #1 -[^,\n]+ removed, \+[^\s\n]+ summary/)
     assert.match(toastCalls[0] || "", /Topic: Batch stale notes/)

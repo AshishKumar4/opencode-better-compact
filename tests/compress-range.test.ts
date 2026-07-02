@@ -8,8 +8,8 @@ import { createSessionState, type WithParts } from "../lib/state"
 import type { PluginConfig } from "../lib/config"
 import { Logger } from "../lib/logger"
 
-const testDataHome = join(tmpdir(), `opencode-dcp-tests-${process.pid}`)
-const testConfigHome = join(tmpdir(), `opencode-dcp-config-tests-${process.pid}`)
+const testDataHome = join(tmpdir(), `better-compact-tests-${process.pid}`)
+const testConfigHome = join(tmpdir(), `better-compact-config-tests-${process.pid}`)
 
 process.env.XDG_DATA_HOME = testDataHome
 process.env.XDG_CONFIG_HOME = testConfigHome
@@ -324,7 +324,7 @@ test("compress range mode batches multiple ranges into one notification", async 
     assert.equal(result, "Compressed 2 messages into [Compressed conversation section].")
     assert.equal(state.prune.messages.blocksById.size, 2)
     assert.equal(toastCalls.length, 1)
-    assert.match(toastCalls[0] || "", /▣ DCP \| -[^,\n]+ removed, \+[^\s\n]+ summary/)
+    assert.match(toastCalls[0] || "", /▣ Better Compact \| -[^,\n]+ removed, \+[^\s\n]+ summary/)
     assert.match(toastCalls[0] || "", /Compression #1/)
     assert.match(toastCalls[0] || "", /▣ Compression #1 -[^,\n]+ removed, \+[^\s\n]+ summary/)
     assert.match(toastCalls[0] || "", /Topic: Batch stale notes/)

@@ -1,5 +1,5 @@
 /**
- * DCP Stats command handler.
+ * Better Compact Stats command handler.
  * Shows pruning statistics for the current session and all-time totals.
  */
 
@@ -30,7 +30,7 @@ export function formatStatsMessage(
     const lines: string[] = []
 
     lines.push("╭───────────────────────────────────────────────────────────╮")
-    lines.push("│                    DCP Statistics                         │")
+    lines.push("│                Better Compact Statistics                  │")
     lines.push("╰───────────────────────────────────────────────────────────╯")
     lines.push("")
     lines.push("Compression:")

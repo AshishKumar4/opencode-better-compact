@@ -4,11 +4,18 @@ import type { WithParts } from "../lib/state"
 import {
     COMPACTED_TOOL_OUTPUT_PLACEHOLDER,
     countAllMessageTokens,
+    countTokens,
     countToolTokens,
     estimateTokensBatch,
     extractCompletedToolOutput,
     extractToolContent,
 } from "../lib/token-utils"
+
+test("countTokens matches opencode Token.estimate semantics", () => {
+    assert.equal(countTokens(""), 0)
+    assert.equal(countTokens("a".repeat(4_000)), 1_000)
+    assert.equal(countTokens("a".repeat(20_000)), 5_000)
+})
 
 function buildToolMessage(part: Record<string, any>): WithParts {
     return {

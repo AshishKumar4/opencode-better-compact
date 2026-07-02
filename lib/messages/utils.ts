@@ -4,9 +4,9 @@ import { isMessageCompacted } from "../state/utils"
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 
 const SUMMARY_ID_HASH_LENGTH = 16
-const DCP_BLOCK_ID_TAG_REGEX = /(<dcp-message-id(?=[\s>])[^>]*>)b\d+(<\/dcp-message-id>)/g
-const DCP_PAIRED_TAG_REGEX = /<dcp[^>]*>[\s\S]*?<\/dcp[^>]*>/gi
-const DCP_UNPAIRED_TAG_REGEX = /<\/?dcp[^>]*>/gi
+const LEGACY_BLOCK_ID_TAG_REGEX = /(<dcp-message-id(?=[\s>])[^>]*>)b\d+(<\/dcp-message-id>)/g
+const LEGACY_PAIRED_TAG_REGEX = /<dcp[^>]*>[\s\S]*?<\/dcp[^>]*>/gi
+const LEGACY_UNPAIRED_TAG_REGEX = /<\/?dcp[^>]*>/gi
 
 const generateStableId = (prefix: string, seed: string): string => {
     const hash = createHash("sha256").update(seed).digest("hex").slice(0, SUMMARY_ID_HASH_LENGTH)
@@ -159,11 +159,11 @@ export function buildToolIdList(state: SessionState, messages: WithParts[]): str
 }
 
 export const replaceBlockIdsWithBlocked = (text: string): string => {
-    return text.replace(DCP_BLOCK_ID_TAG_REGEX, "$1BLOCKED$2")
+    return text.replace(LEGACY_BLOCK_ID_TAG_REGEX, "$1BLOCKED$2")
 }
 
 export const stripHallucinationsFromString = (text: string): string => {
-    return text.replace(DCP_PAIRED_TAG_REGEX, "").replace(DCP_UNPAIRED_TAG_REGEX, "")
+    return text.replace(LEGACY_PAIRED_TAG_REGEX, "").replace(LEGACY_UNPAIRED_TAG_REGEX, "")
 }
 
 export const stripHallucinations = (messages: WithParts[]): void => {

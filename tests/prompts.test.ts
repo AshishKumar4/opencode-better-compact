@@ -8,7 +8,7 @@ import { PromptStore } from "../lib/prompts/store"
 import { SYSTEM as SYSTEM_PROMPT } from "../lib/prompts/system"
 
 function createPromptStoreFixture(overrideContent?: string, overrideFileName = "system.md") {
-    const rootDir = mkdtempSync(join(tmpdir(), "opencode-dcp-prompts-"))
+    const rootDir = mkdtempSync(join(tmpdir(), "better-compact-prompts-"))
     const configHome = join(rootDir, "config")
     const workspaceDir = join(rootDir, "workspace")
 
@@ -22,7 +22,7 @@ function createPromptStoreFixture(overrideContent?: string, overrideFileName = "
     delete process.env.OPENCODE_CONFIG_DIR
 
     if (overrideContent !== undefined) {
-        const overrideDir = join(configHome, "opencode", "dcp-prompts", "overrides")
+        const overrideDir = join(configHome, "opencode", "better-compact-prompts", "overrides")
         mkdirSync(overrideDir, { recursive: true })
         writeFileSync(join(overrideDir, overrideFileName), overrideContent, "utf-8")
     }
