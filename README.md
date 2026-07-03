@@ -6,30 +6,28 @@ Better Compact preserves raw user intent, prunes old tool-heavy context first, w
 
 ## Install
 
-Install the latest GitHub release:
+Requires OpenCode 1.17.13 or a newer 1.x release. Install globally with OpenCode's built-in plugin manager:
 
 ```bash
-curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+opencode plugin better-compact --global
 ```
 
 Install an explicit version:
 
 ```bash
-VERSION=v0.1.0 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+opencode plugin better-compact@0.1.1 --global
 ```
 
-The installer downloads the prebuilt release tarball, verifies its checksum when `sha256sum` or `shasum` is available, installs it under:
-
-```text
-~/.local/share/opencode/plugins/better-compact/<version>
-```
-
-Then it updates:
+OpenCode downloads the prebuilt package with its embedded package manager and updates both plugin configurations:
 
 ```text
 ~/.config/opencode/opencode.json
 ~/.config/opencode/tui.json
 ```
+
+OpenCode also preserves and updates existing `opencode.jsonc` and `tui.jsonc` files.
+
+No separate Node.js, Bun, pnpm, npm, curl, or tar installation is required.
 
 Restart OpenCode after installation.
 
@@ -65,13 +63,13 @@ Example:
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/better-compact.schema.json",
-  "enabled": true,
-  "autoUpdate": false,
-  "debug": false,
-  "compaction": {
-    "preset": "light"
-  }
+    "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/better-compact.schema.json",
+    "enabled": true,
+    "autoUpdate": false,
+    "debug": false,
+    "compaction": {
+        "preset": "light",
+    },
 }
 ```
 
@@ -84,17 +82,11 @@ Presets:
 
 ## Uninstall
 
-Remove Better Compact entries from:
+Remove `better-compact` from the `plugin` arrays in the JSON or JSONC equivalents of:
 
 ```text
 ~/.config/opencode/opencode.json
 ~/.config/opencode/tui.json
-```
-
-Then remove installed files:
-
-```bash
-rm -rf ~/.local/share/opencode/plugins/better-compact
 ```
 
 Restart OpenCode.
@@ -112,7 +104,7 @@ For local development, point OpenCode at this checkout:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/index.ts"]
+    "plugin": ["file:///path/to/opencode-better-compact/index.ts"]
 }
 ```
 
@@ -120,7 +112,7 @@ For the TUI plugin, add this to `~/.config/opencode/tui.json`:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/tui.tsx"]
+    "plugin": ["file:///path/to/opencode-better-compact/tui.tsx"]
 }
 ```
 
@@ -138,11 +130,11 @@ CI uses pnpm and verifies every push/PR with:
 Tag releases as `v*`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-The release workflow builds compiled server and TUI artifacts, packages `better-compact.tar.gz`, writes `checksums.txt`, and uploads both with `install.sh` to GitHub Releases.
+The release workflow verifies that the tag matches `package.json`, builds and tests the compiled server and TUI artifacts, publishes the package to npm with provenance, and creates the GitHub Release.
 
 ## Upstream
 

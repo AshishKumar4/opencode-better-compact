@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "better-compact",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "packageManager": "pnpm@10.13.1",
     "type": "module",
     "description": "OpenCode plugin that improves long-session context with boundary-time pruning",
@@ -22,10 +22,11 @@
         }
     },
     "scripts": {
-        "clean": "rm -rf dist .release",
+        "clean": "rm -rf dist",
         "build": "pnpm run clean && tsup && tsc --emitDeclarationOnly",
         "verify:package": "node scripts/verify-package.mjs",
-        "package:release": "node scripts/package-release.mjs",
+        "verify:release": "node scripts/verify-release.mjs",
+        "smoke:install": "node scripts/smoke-opencode-install.mjs",
         "check:package": "pnpm run build && pnpm run verify:package",
         "prepublishOnly": "pnpm run check:package",
         "dev": "opencode plugin dev",
@@ -54,18 +55,24 @@
     "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
     "author": "AshishKumar4",
     "license": "AGPL-3.0-or-later",
+    "engines": {
+        "opencode": ">=1.17.13 <2"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
     "peerDependencies": {
-        "@opencode-ai/plugin": ">=1.4.3",
+        "@opencode-ai/plugin": ">=1.17.13 <2",
         "@opentui/core": "^0.4.2",
         "@opentui/solid": "^0.4.2",
         "solid-js": "^1.9.12"
     },
     "dependencies": {
-        "@opencode-ai/sdk": "^1.4.3",
+        "@opencode-ai/sdk": "^1.17.13",
         "jsonc-parser": "^3.3.1"
     },
     "devDependencies": {
-        "@opencode-ai/plugin": "^1.4.3",
+        "@opencode-ai/plugin": "^1.17.13",
         "@opentui/core": "^0.4.2",
         "@opentui/solid": "^0.4.2",
         "@types/node": "^25.5.0",
@@ -80,8 +87,10 @@
         "esbuild": "0.28.1"
     },
     "files": [
-        "dist/",
-        "lib/",
+        "dist/index.js",
+        "dist/index.d.ts",
+        "dist/tui.js",
+        "dist/tui.d.ts",
         "better-compact.schema.json",
         "README.md",
         "LICENSE"

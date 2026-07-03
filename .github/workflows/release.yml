@@ -1,35 +1,101 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+    push:
+        tags:
+            - "v*"
 
 permissions:
-  contents: write
+    contents: read
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.13.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
-      - run: pnpm test
-      - run: pnpm run build
-      - run: pnpm run verify:package
-      - run: pnpm run package:release
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            .release/better-compact.tar.gz
-            .release/checksums.txt
-            scripts/install.sh
-          generate_release_notes: true
+    package:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  version: 10.13.1
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: 24
+                  cache: pnpm
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm run verify:release
+            - run: pnpm run typecheck
+            - run: pnpm test
+            - run: pnpm run build
+            - run: pnpm run verify:package
+            - run: mkdir release && npm pack --ignore-scripts --pack-destination release
+            - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: npm-package
+                  path: release/*.tgz
+                  if-no-files-found: error
+                  retention-days: 1
+
+    compatibility:
+        needs: package
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: 24
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                  name: npm-package
+                  path: release
+            - run: curl -fsSL https://opencode.ai/install | bash -s -- --version 1.17.13 --no-modify-path
+            - run: node scripts/smoke-opencode-install.mjs "$HOME/.opencode/bin/opencode" "better-compact@file:$(realpath release/*.tgz)"
+
+    publish:
+        needs: [package, compatibility]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                  name: npm-package
+                  path: release
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: 24
+                  registry-url: https://registry.npmjs.org
+            - run: npm publish release/*.tgz --access public --provenance
+
+    consumer:
+        needs: publish
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                opencode: ["1.17.13", "latest"]
+        steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+            - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: 24
+            - name: Install minimum OpenCode
+              if: matrix.opencode != 'latest'
+              run: curl -fsSL https://opencode.ai/install | bash -s -- --version "${{ matrix.opencode }}" --no-modify-path
+            - name: Install latest OpenCode
+              if: matrix.opencode == 'latest'
+              run: curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+            - run: node scripts/smoke-opencode-install.mjs "$HOME/.opencode/bin/opencode" "better-compact@$(node -p 'require("./package.json").version')"
+
+    github-release:
+        needs: consumer
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+              with:
+                  generate_release_notes: true

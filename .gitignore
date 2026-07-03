@@ -4,7 +4,6 @@ bun.lock
 
 # Build output
 dist/
-.release/
 *.tgz
 
 # Logs

@@ -6,7 +6,7 @@ export default defineConfig([
         format: ["esm"],
         dts: false,
         clean: true,
-        sourcemap: true,
+        sourcemap: false,
         noExternal: ["@opencode-ai/sdk", "jsonc-parser"],
     },
     {
@@ -14,7 +14,7 @@ export default defineConfig([
         format: ["esm"],
         dts: false,
         clean: false,
-        sourcemap: true,
+        sourcemap: false,
         external: ["@opencode-ai/plugin", "@opencode-ai/plugin/tui", "@opentui/core", "@opentui/solid", "solid-js"],
         noExternal: ["@opencode-ai/sdk", "jsonc-parser"],
     },
