@@ -30,11 +30,13 @@ jobs:
             - run: pnpm test
             - run: pnpm run build
             - run: pnpm run verify:package
-            - run: mkdir release && npm pack --ignore-scripts --pack-destination release
+            - run: |
+                  archive="$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+                  mv "$RUNNER_TEMP/$archive" "$RUNNER_TEMP/package.tgz"
             - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: npm-package
-                  path: release/*.tgz
+                  path: ${{ runner.temp }}/package.tgz
                   if-no-files-found: error
                   retention-days: 1
 
@@ -51,7 +53,8 @@ jobs:
                   name: npm-package
                   path: release
             - run: curl -fsSL https://opencode.ai/install | bash -s -- --version 1.17.13 --no-modify-path
-            - run: node scripts/smoke-opencode-install.mjs "$HOME/.opencode/bin/opencode" "better-compact@file:$(realpath release/*.tgz)"
+            - run: test -f release/package.tgz
+            - run: node scripts/smoke-opencode-install.mjs "$HOME/.opencode/bin/opencode" "better-compact@file:$(realpath release/package.tgz)"
 
     publish:
         needs: [package, compatibility]
@@ -68,7 +71,8 @@ jobs:
               with:
                   node-version: 24
                   registry-url: https://registry.npmjs.org
-            - run: npm publish release/*.tgz --access public --provenance
+            - run: test -f release/package.tgz
+            - run: npm publish release/package.tgz --access public --provenance
 
     consumer:
         needs: publish
