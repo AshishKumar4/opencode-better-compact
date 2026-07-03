@@ -72,7 +72,7 @@ jobs:
                   node-version: 24
                   registry-url: https://registry.npmjs.org
             - run: test -f release/package.tgz
-            - run: npm publish release/package.tgz --access public --provenance
+            - run: npm publish "$GITHUB_WORKSPACE/release/package.tgz" --access public --provenance
 
     consumer:
         needs: publish
