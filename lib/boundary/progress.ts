@@ -1,4 +1,10 @@
-import type { BoundaryJobProgress, BoundaryJobStage, BoundaryStageStatus, SessionState } from "../state"
+import { randomUUID } from "node:crypto"
+import type {
+    BoundaryJobProgress,
+    BoundaryJobStage,
+    BoundaryStageStatus,
+    SessionState,
+} from "../state"
 
 export const BOUNDARY_PROGRESS_STAGES: Array<Pick<BoundaryJobStage, "id" | "label">> = [
     { id: "load", label: "Loaded session history" },
@@ -14,20 +20,35 @@ export const BOUNDARY_PROGRESS_STAGES: Array<Pick<BoundaryJobStage, "id" | "labe
     { id: "report", label: "Published final report" },
 ]
 
-export function startBoundaryJob(state: SessionState, sessionId: string): BoundaryJobProgress {
-    const now = Date.now()
+export interface BoundaryJobStart {
+    sessionId: string
+    id?: string
+    startedAt?: number
+    counters?: BoundaryJobProgress["counters"]
+}
+
+export function createBoundaryJob(input: BoundaryJobStart): BoundaryJobProgress {
+    const now = input.startedAt ?? Date.now()
     const job: BoundaryJobProgress = {
-        id: `bc_${now.toString(36)}`,
-        sessionId,
+        id: input.id ?? `bc_${randomUUID().replaceAll("-", "")}`,
+        sessionId: input.sessionId,
         status: "running",
-        currentStage: "Starting",
+        currentStage: "Starting Better Compact",
         percent: 0,
         stages: BOUNDARY_PROGRESS_STAGES.map((stage) => ({ ...stage, status: "pending" })),
         logs: ["Starting Better Compact."],
-        counters: {},
+        counters: { ...input.counters },
         startedAt: now,
         updatedAt: now,
     }
+    return job
+}
+
+export function startBoundaryJob(
+    state: SessionState,
+    input: BoundaryJobStart,
+): BoundaryJobProgress {
+    const job = createBoundaryJob(input)
     state.boundary.job = job
     return job
 }
@@ -74,9 +95,14 @@ export function updateBoundaryCounters(
 export function updateBoundaryPercent(state: SessionState): void {
     const job = state.boundary.job
     if (!job) return
-    const completed = job.stages.filter((stage) => stage.status === "completed" || stage.status === "skipped").length
+    const completed = job.stages.filter(
+        (stage) => stage.status === "completed" || stage.status === "skipped",
+    ).length
     const runningBonus = job.stages.some((stage) => stage.status === "running") ? 0.5 : 0
-    job.percent = Math.max(0, Math.min(99, Math.round(((completed + runningBonus) / job.stages.length) * 100)))
+    job.percent = Math.max(
+        0,
+        Math.min(99, Math.round(((completed + runningBonus) / job.stages.length) * 100)),
+    )
     touchBoundaryJob(job)
 }
 

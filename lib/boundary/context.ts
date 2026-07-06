@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { dirname, join } from "node:path"
 import { mkdir, writeFile } from "node:fs/promises"
 import type { Logger } from "../logger"
+import type { CompactionProfile } from "../compaction-settings"
 import type { SessionState, WithParts } from "../state"
 import { estimateOpenCodeMessages, estimateOpenCodeToolPart } from "../context-estimate"
 import { estimateOpenCodeTokens } from "../token-utils"
@@ -375,10 +376,14 @@ export async function applyBoundaryContextManagement(input: {
     directory: string
     messages: WithParts[]
     force?: boolean
+    profile?: CompactionProfile
 }): Promise<BoundaryContextPlan | null> {
     const plan = buildBoundaryContextPlan(input.messages, {
         contextLimit: input.state.modelContextLimit ?? (input.force ? 200_000 : undefined),
         force: input.force,
+        triggerRatio: input.profile ? input.profile.triggerPercent / 100 : undefined,
+        targetRatio: input.profile ? input.profile.targetPercent / 100 : undefined,
+        recentToolResultBudgetTokens: input.profile?.recentToolTokens,
     })
     if (!plan) return null
 

@@ -15,7 +15,7 @@ opencode plugin better-compact --global
 Install an explicit version:
 
 ```bash
-opencode plugin better-compact@0.1.3 --global
+opencode plugin better-compact@0.1.4 --global
 ```
 
 OpenCode downloads the prebuilt package with its embedded package manager and updates both plugin configurations:
@@ -34,7 +34,7 @@ Restart OpenCode after installation.
 ## Commands
 
 - `/better-compact` runs staged pruning immediately.
-- `/better-compact-settings` opens the TUI panel for presets and custom thresholds.
+- `/better-compact-settings` opens global compaction and summary-effort settings.
 
 ## How It Works
 
@@ -68,17 +68,23 @@ Example:
     "autoUpdate": false,
     "debug": false,
     "compaction": {
+        "automatic": true,
         "preset": "light",
+        "summaryEffort": "inherit",
     },
 }
 ```
 
-Presets:
+Compaction strength:
 
-- `light`: default, preserves more recent tool context.
-- `moderate`: stronger pruning and more parallel summarization.
-- `max`: aggressive pruning for heavily saturated sessions.
-- `custom`: use `/better-compact-settings` to dial trigger, target, recent tool budget, and parallel jobs.
+- **Gentle** (`light`): waits longer and preserves more recent tool output.
+- **Balanced** (`moderate`): compacts earlier and keeps a moderate recent tool window.
+- **Aggressive** (`max`): frees the most working room and keeps less old tool output verbatim.
+- **Custom**: choose the automatic trigger, deep-summary goal, and recent tool-output budget.
+
+Summary effort is configured separately. `inherit` uses the model default. Low, medium, high, and max are applied only when the active model advertises a matching variant; unsupported levels safely fall back to the model default.
+
+The settings panel saves global behavior to `~/.config/opencode/better-compact.jsonc`, preserving comments and unrelated settings. Changes apply to subsequent manual and automatic runs without restarting OpenCode.
 
 ## Uninstall
 
@@ -124,14 +130,15 @@ CI uses pnpm and verifies every push/PR with:
 
 - typecheck
 - tests
+- host-shaped OpenTUI visual/runtime tests under Bun
 - production build
 - package verification
 
 Tag releases as `v*`:
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 The release workflow verifies that the tag matches `package.json`, builds and tests the compiled server and TUI artifacts, publishes the package to npm with provenance, and creates the GitHub Release.

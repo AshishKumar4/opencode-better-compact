@@ -16,6 +16,7 @@ import { configureClientAuth, isSecureMode } from "./lib/auth"
 import { startAutoUpdate } from "./lib/update"
 
 const server: Plugin = (async (ctx) => {
+    const loadConfig = () => getConfig(ctx, { warnings: false })
     const config = getConfig(ctx)
 
     if (!config.enabled) {
@@ -56,6 +57,7 @@ const server: Plugin = (async (ctx) => {
             prompts,
             hostPermissions,
             ctx.directory,
+            loadConfig,
         ) as any,
         "experimental.text.complete": createTextCompleteHandler(),
         "chat.message": createChatMessageHandler(

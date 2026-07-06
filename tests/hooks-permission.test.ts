@@ -33,7 +33,9 @@ function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConf
             protectedTools: [],
         },
         compaction: {
+            automatic: true,
             preset: "light",
+            summaryEffort: "inherit",
             custom: {
                 triggerPercent: 85,
                 targetPercent: 35,
@@ -254,6 +256,43 @@ test("chat message transform drops messages without info instead of crashing", a
     assert.equal(output.messages.length, 0)
 })
 
+test("automatic compaction uses freshly loaded global settings", async () => {
+    const state = createSessionState()
+    state.sessionId = "session-1"
+    state.modelContextLimit = 1_000
+    const startupConfig = buildConfig("allow")
+    const currentConfig = buildConfig("allow")
+    currentConfig.compaction.automatic = false
+    const handler = createChatMessageTransformHandler(
+        { session: { get: async () => ({ data: { parentID: null } }) } } as any,
+        state,
+        new Logger(false),
+        startupConfig,
+        {
+            reload() {},
+            getRuntimePrompts() {
+                return {} as any
+            },
+        } as any,
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-automatic-")),
+        () => currentConfig,
+    )
+    const output = {
+        messages: [
+            buildUserMessage("user-1", "old request", 1),
+            buildAssistantToolMessage("assistant-1", 2),
+            buildUserMessage("user-2", "middle request", 3),
+            buildAssistantToolMessage("assistant-2", 4),
+            buildUserMessage("user-3", "latest request", 5),
+        ],
+    }
+
+    await handler({}, output)
+
+    assert.equal(state.boundary.activePlan, null)
+})
+
 test("command execute exits after effective permission resolves to deny", async () => {
     let sessionMessagesCalls = 0
     const output = { parts: [] as any[] }
@@ -273,7 +312,10 @@ test("command execute exits after effective permission resolves to deny", async 
         { global: undefined, agents: {} },
     )
 
-    await handler({ command: "better-compact", sessionID: "session-1", arguments: "context" }, output)
+    await handler(
+        { command: "better-compact", sessionID: "session-1", arguments: "context" },
+        output,
+    )
 
     assert.equal(sessionMessagesCalls, 1)
     assert.deepEqual(output.parts, [])
@@ -321,9 +363,18 @@ test("better-compact stores virtual plan and reports progress without native sum
     assert.ok(state.boundary.activePlan)
     assert.equal(state.boundary.activePlan?.sessionId, "session-1")
     assert.ok(prompts.length >= 1)
-    assert.equal(prompts.every((prompt) => prompt.body.noReply === true), true)
-    assert.equal(prompts.every((prompt) => prompt.body.parts[0].ignored === true), true)
-    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Complete/)
+    assert.equal(
+        prompts.every((prompt) => prompt.body.noReply === true),
+        true,
+    )
+    assert.equal(
+        prompts.every((prompt) => prompt.body.parts[0].ignored === true),
+        true,
+    )
+    assert.match(
+        prompts.map((prompt) => prompt.body.parts[0].text).join("\n"),
+        /Better Compact Complete/,
+    )
     assert.equal(state.boundary.job?.percent, 100)
     assert.equal(state.boundary.job?.counters.contextLimit, 200_000)
     assert.ok((state.boundary.job?.counters.beforeTokens ?? 0) > 0)
@@ -361,17 +412,28 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
     await handler(
         {
             sessionID: "session-1",
-            agent: "assistant",
-            model: { providerID: "anthropic", modelID: "claude-test" },
         },
         {
-            message: {},
+            message: {
+                agent: "assistant",
+                model: { providerID: "anthropic", modelID: "claude-test" },
+                variant: "high",
+            },
             parts: [
                 {
                     type: "text",
                     text: "Better Compact requested.",
                     ignored: true,
-                    metadata: { betterCompact: "run", contextLimit: 1_000_000, currentTokens: 857_703 },
+                    metadata: {
+                        betterCompact: "run",
+                        jobId: "bc_tuitest",
+                        jobStartedAt: 123_456,
+                        summaryVariant: "high",
+                        summaryProviderID: "anthropic",
+                        summaryModelID: "claude-test",
+                        contextLimit: 1_000_000,
+                        currentTokens: 857_703,
+                    },
                 },
             ],
         },
@@ -381,12 +443,75 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
     assert.ok(state.boundary.activePlan)
     assert.equal(state.boundary.activePlan?.sessionId, "session-1")
     assert.ok(prompts.length >= 1)
-    assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Complete/)
+    assert.equal(
+        prompts.every(
+            (prompt) =>
+                prompt.body.model.providerID === "anthropic" &&
+                prompt.body.model.modelID === "claude-test",
+        ),
+        true,
+    )
+    assert.match(
+        prompts.map((prompt) => prompt.body.parts[0].text).join("\n"),
+        /Better Compact Complete/,
+    )
     assert.equal(state.boundary.job?.percent, 100)
+    assert.equal(state.boundary.job?.id, "bc_tuitest")
+    assert.equal(state.boundary.job?.startedAt, 123_456)
     assert.equal(state.boundary.job?.counters.contextLimit, 1_000_000)
     assert.equal(state.boundary.job?.counters.beforeTokens, 857_703)
     assert.ok((state.boundary.job?.counters.currentTokens ?? 0) > 0)
-    assert.ok(state.boundary.job?.stages.some((stage) => stage.id === "report" && stage.status === "completed"))
+    assert.ok(
+        state.boundary.job?.stages.some(
+            (stage) => stage.id === "report" && stage.status === "completed",
+        ),
+    )
+})
+
+test("denied TUI compaction persists a correlated failed job", async () => {
+    const state = createSessionState()
+    const sessionID = `session-denied-${Date.now()}`
+    const handler = createChatMessageHandler(
+        {
+            session: {
+                get: async () => ({ data: { parentID: null } }),
+                messages: async () => ({ data: [] }),
+            },
+        } as any,
+        state,
+        new Logger(false),
+        buildConfig("deny"),
+        mkdtempSync(join(tmpdir(), "better-compact-denied-")),
+        { global: undefined, agents: {} },
+    )
+
+    await handler(
+        { sessionID },
+        {
+            message: {},
+            parts: [
+                {
+                    type: "text",
+                    text: "Better Compact requested.",
+                    ignored: true,
+                    metadata: {
+                        betterCompact: "run",
+                        jobId: "bc_denied",
+                        jobStartedAt: 123_456,
+                        contextLimit: 272_000,
+                        currentTokens: 200_000,
+                        targetTokens: 95_200,
+                    },
+                },
+            ],
+        },
+    )
+
+    assert.equal(state.boundary.job?.id, "bc_denied")
+    assert.equal(state.boundary.job?.status, "failed")
+    assert.match(state.boundary.job?.error ?? "", /denied/i)
+    assert.equal(state.boundary.job?.counters.contextLimit, 272_000)
+    assert.equal(state.boundary.job?.counters.targetTokens, 95_200)
 })
 
 test("text complete strips hallucinated metadata tags", async () => {

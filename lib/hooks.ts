@@ -69,8 +69,10 @@ export function createChatMessageTransformHandler(
     prompts: PromptStore,
     hostPermissions: HostPermissionSnapshot,
     workingDirectory = process.cwd(),
+    loadConfig: () => PluginConfig = () => config,
 ) {
     return async (input: {}, output: { messages: WithParts[] }) => {
+        const currentConfig = loadConfig()
         const receivedMessages = Array.isArray(output.messages) ? output.messages.length : 0
         const messages = filterMessagesInPlace(output.messages)
         if (messages.length !== receivedMessages) {
@@ -85,11 +87,11 @@ export function createChatMessageTransformHandler(
             return
         }
 
-        await checkSession(client, state, logger, output.messages, config.manualMode.enabled)
+        await checkSession(client, state, logger, output.messages, currentConfig.manualMode.enabled)
 
-        syncCompressPermissionState(state, config, hostPermissions, output.messages)
+        syncCompressPermissionState(state, currentConfig, hostPermissions, output.messages)
 
-        if (state.isSubAgent && !config.experimental.allowSubAgents) {
+        if (state.isSubAgent && !currentConfig.experimental.allowSubAgents) {
             return
         }
 
@@ -105,13 +107,18 @@ export function createChatMessageTransformHandler(
                 return
             }
         }
-        const boundaryPlan = await applyBoundaryContextManagement({
-            state,
-            logger,
-            directory: workingDirectory,
-            messages: output.messages,
-            force: state.sessionId !== null && state.boundary.compactingSessionId === state.sessionId,
-        })
+        const forced = state.sessionId !== null && state.boundary.compactingSessionId === state.sessionId
+        const boundaryPlan =
+            currentConfig.compaction.automatic || forced
+                ? await applyBoundaryContextManagement({
+                      state,
+                      logger,
+                      directory: workingDirectory,
+                      messages: output.messages,
+                      force: forced,
+                      profile: resolveCompactionProfile(currentConfig),
+                  })
+                : null
         if (boundaryPlan) {
             await saveSessionState(state, logger)
         }
@@ -266,8 +273,38 @@ export function createChatMessageHandler(
         })
         const messages = filterMessages(messagesResponse.data || messagesResponse)
         await ensureSessionInitialized(client, state, input.sessionID, logger, messages, config.manualMode.enabled)
+        const jobId = validBoundaryJobId(sentinel.metadata?.jobId)
+        const jobStartedAt = validBoundaryJobStartedAt(sentinel.metadata?.jobStartedAt)
+        const contextLimit = validBoundaryCounter(sentinel.metadata?.contextLimit)
+        const currentTokens = validBoundaryCounter(sentinel.metadata?.currentTokens)
+        const targetTokens = validBoundaryCounter(sentinel.metadata?.targetTokens)
+        const requestedSummaryVariant = validSummaryVariant(sentinel.metadata?.summaryVariant)
+        const messageModel = output.message?.model
+        const providerID = input.model?.providerID ?? messageModel?.providerID
+        const modelID = input.model?.modelID ?? messageModel?.modelID
+        const summaryVariant =
+            requestedSummaryVariant &&
+            providerID === sentinel.metadata?.summaryProviderID &&
+            modelID === sentinel.metadata?.summaryModelID
+                ? requestedSummaryVariant
+                : undefined
         syncCompressPermissionState(state, config, hostPermissions, messages)
-        if (compressPermission(state, config) === "deny") return
+        if (compressPermission(state, config) === "deny") {
+            startBoundaryJob(state, {
+                id: jobId,
+                sessionId: input.sessionID,
+                startedAt: jobStartedAt,
+                counters: {
+                    beforeTokens: currentTokens,
+                    currentTokens,
+                    targetTokens,
+                    contextLimit,
+                },
+            })
+            failBoundaryJob(state, "Compression is denied by OpenCode permissions.")
+            await saveSessionState(state, logger)
+            return
+        }
 
         void runBetterCompact({
             client,
@@ -278,14 +315,17 @@ export function createChatMessageHandler(
             sessionId: input.sessionID,
             messages,
             params: {
-                providerId: input.model?.providerID,
-                modelId: input.model?.modelID,
-                agent: input.agent,
-                variant: input.variant,
+                providerId: providerID,
+                modelId: modelID,
+                agent: input.agent ?? output.message?.agent,
+                variant: input.variant ?? output.message?.variant,
             },
             compaction: sentinel.metadata?.compaction as Partial<CompactionConfig> | undefined,
-            contextLimit: typeof sentinel.metadata?.contextLimit === "number" ? sentinel.metadata.contextLimit : undefined,
-            currentTokens: typeof sentinel.metadata?.currentTokens === "number" ? sentinel.metadata.currentTokens : undefined,
+            contextLimit,
+            currentTokens,
+            jobId,
+            jobStartedAt,
+            summaryVariant,
         }).catch((error) => {
             failBoundaryJob(state, error instanceof Error ? error.message : String(error))
             void saveSessionState(state, logger)
@@ -313,12 +353,27 @@ async function runBetterCompact(input: {
     compaction?: Partial<CompactionConfig>
     contextLimit?: number
     currentTokens?: number
+    jobId?: string
+    jobStartedAt?: number
+    summaryVariant?: string
 }): Promise<void> {
     const params = input.params ?? getCurrentParams(input.state, input.messages, input.logger)
     const profile = resolveCompactionProfile(input.config, input.compaction)
     const contextLimit = input.contextLimit && input.contextLimit > 0 ? input.contextLimit : (input.state.modelContextLimit ?? 200_000)
     const reportedCurrentTokens = input.currentTokens && input.currentTokens > 0 ? input.currentTokens : getCurrentTokenUsage(input.state, input.messages)
-    startBoundaryJob(input.state, input.sessionId)
+    startBoundaryJob(input.state, {
+        id: input.jobId,
+        sessionId: input.sessionId,
+        startedAt: input.jobStartedAt,
+        counters: {
+            beforeTokens: reportedCurrentTokens,
+            currentTokens: reportedCurrentTokens,
+            targetTokens: Math.round((contextLimit * profile.targetPercent) / 100),
+            contextLimit,
+            stageClearedTokens: 0,
+            clearedTokens: 0,
+        },
+    })
     updateBoundaryCounters(input.state, {
         messages: input.messages.length,
         beforeTokens: reportedCurrentTokens,
@@ -441,7 +496,10 @@ async function runBetterCompact(input: {
                 logger: input.logger,
                 parentSessionId: input.sessionId,
                 jobs: plan.summaryJobs,
-                params,
+                params: {
+                    ...params,
+                    variant: input.summaryVariant ?? params.variant,
+                },
                 concurrency: profile.summarizerConcurrency,
                 onProgress: async (event) => {
                     updateBoundaryCounters(input.state, {
@@ -523,6 +581,26 @@ async function runBetterCompact(input: {
         await sendIgnoredMessage(input.client, input.sessionId, `Better Compact failed: ${message}`, params, input.logger)
         throw error
     }
+}
+
+function validBoundaryJobId(value: unknown): string | undefined {
+    return typeof value === "string" && /^bc_[a-zA-Z0-9]{1,64}$/.test(value) ? value : undefined
+}
+
+function validBoundaryJobStartedAt(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+function validBoundaryCounter(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER
+        ? value
+        : undefined
+}
+
+function validSummaryVariant(value: unknown): string | undefined {
+    return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(value)
+        ? value
+        : undefined
 }
 
 function formatCompactTokens(tokens: number): string {

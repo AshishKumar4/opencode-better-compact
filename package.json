@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "better-compact",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "packageManager": "pnpm@10.13.1",
     "type": "module",
     "description": "OpenCode plugin that improves long-session context with boundary-time pruning",
@@ -32,6 +32,7 @@
         "dev": "opencode plugin dev",
         "typecheck": "tsc --noEmit",
         "test": "node --import tsx --test tests/*.test.ts",
+        "test:tui": "bun --bun test --preload @opentui/solid/runtime-plugin-support ./tests/tui-layout.visual.tsx ./tests/tui-command.visual.ts ./tests/global-settings.visual.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "better-compact": "tsx scripts/print.ts"
