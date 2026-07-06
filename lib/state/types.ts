@@ -135,16 +135,19 @@ export interface BoundaryJobProgress {
 }
 
 export interface BoundaryState {
-    compactingSessionId: string | null
-    scratchSessionIds: Set<string>
     job: BoundaryJobProgress | null
     activePlan: {
         sessionId: string
         rangeHash: string
         contextLimit: number
         rawTailStartMessageId: string
+        sourceLastMessageId?: string
+        sourceFingerprint?: string
+        compactedMessageCount?: number
         transcriptRelativePath: string
         beforeTokens: number
+        reportedBeforeTokens?: number
+        visibleBeforeTokens?: number
         afterPruneTokens: number
         triggerTokens: number
         targetTokens: number

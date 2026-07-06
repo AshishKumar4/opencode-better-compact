@@ -10,10 +10,13 @@ type RegisteredCommand = {
 }
 
 test("confirmed below-trigger runs open progress after the host clears confirmation", async () => {
+    const sessionID = `tui-command-${process.pid}-${Date.now()}`
     const configHome = mkdtempSync(join(tmpdir(), "better-compact-tui-command-"))
     const previousConfigHome = process.env.XDG_CONFIG_HOME
     const previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    const previousDataHome = process.env.XDG_DATA_HOME
     process.env.XDG_CONFIG_HOME = configHome
+    process.env.XDG_DATA_HOME = join(configHome, "data")
     const opencodeConfig = join(configHome, "opencode")
     process.env.OPENCODE_CONFIG_DIR = opencodeConfig
     mkdirSync(opencodeConfig, { recursive: true })
@@ -60,6 +63,7 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
                             providerID: "provider-1",
                             modelID: "model-1",
                             tokens: {
+                                total: 60,
                                 input: 45,
                                 output: 1,
                                 reasoning: 0,
@@ -77,7 +81,7 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
                     },
                 ],
             },
-            route: { current: { name: "session", params: { sessionID: "session-1" } } },
+            route: { current: { name: "session", params: { sessionID } } },
             kv: {
                 get: <T>(_key: string, fallback: T) => fallback,
                 set: () => undefined,
@@ -133,7 +137,9 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
         assert.equal(dialogRenders.length, 1)
         assert.equal(promptCalls, 0)
 
-        await new Promise<void>((resolve) => queueMicrotask(resolve))
+        for (let attempt = 0; attempt < 100 && dialogRenders.length < 2; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+        }
         assert.equal(clearCalls, 1)
         assert.ok(dialogRenders.length >= 2)
         assert.equal(promptCalls, 1)
@@ -141,7 +147,7 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
         assert.match(metadata.jobId, /^bc_/)
         assert.equal(typeof metadata.jobStartedAt, "number")
         assert.equal(metadata.contextLimit, 100)
-        assert.equal(metadata.currentTokens, 46)
+        assert.equal(metadata.currentTokens, 60)
         assert.equal(metadata.targetTokens, 35)
         assert.equal(metadata.summaryProviderID, "provider-1")
         assert.equal(metadata.summaryModelID, "model-1")
@@ -157,7 +163,9 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
         assert.ok(confirm)
         confirm()
         api.ui.dialog.clear()
-        await new Promise<void>((resolve) => setImmediate(resolve))
+        for (let attempt = 0; attempt < 100 && promptCalls < 2; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+        }
 
         assert.equal(promptCalls, 2)
         assert.ok(dialogRenders.length >= beforeFailure + 3)
@@ -167,6 +175,8 @@ test("confirmed below-trigger runs open progress after the host clears confirmat
         else process.env.XDG_CONFIG_HOME = previousConfigHome
         if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
         else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+        if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+        else process.env.XDG_DATA_HOME = previousDataHome
         rmSync(configHome, { recursive: true, force: true })
     }
 })

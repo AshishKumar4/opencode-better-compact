@@ -2,7 +2,13 @@
 
 import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { registerCommands } from "./lib/tui/commands"
-import { activeSessionID, currentContextUsage, loadConfig, resolveSummaryVariant } from "./lib/tui/data"
+import {
+    activeSessionID,
+    currentContextUsage,
+    loadBoundaryJob,
+    loadConfig,
+    resolveSummaryVariant,
+} from "./lib/tui/data"
 import { resolveCompactionProfile } from "./lib/compaction-settings"
 import { createBoundaryJob } from "./lib/boundary/progress"
 import { openPanelModal, openProgressModal, showError } from "./lib/tui/modals"
@@ -37,6 +43,14 @@ const tui: TuiPluginModule["tui"] = async (api) => {
                         : resolveSummaryVariant(api, sessionID, settings.summaryEffort)
                 const percent = usage.limit > 0 ? Math.round((usage.tokens / usage.limit) * 100) : 0
                 const run = async () => {
+                    const existingJob = await loadBoundaryJob(sessionID)
+                    if (
+                        existingJob?.status === "running" &&
+                        Date.now() - existingJob.updatedAt < 5 * 60 * 1000
+                    ) {
+                        showError(api, "Better Compact", "Compaction is already running for this session.")
+                        return
+                    }
                     const initialJob = createBoundaryJob({
                         sessionId: sessionID,
                         counters: {

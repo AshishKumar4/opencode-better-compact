@@ -2,29 +2,30 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { summarizeBoundaryJobs } from "../lib/boundary/summarizer"
 import { Logger } from "../lib/logger"
-import { createSessionState } from "../lib/state"
+import { createRuntimeState } from "../lib/state"
 
 test("scratch summaries use the resolved summary effort variant", async () => {
     const prompts: any[] = []
     const deleted: string[] = []
-    const summaries = await summarizeBoundaryJobs({
-        client: {
-            session: {
-                create: async () => ({ data: { id: "scratch-1" } }),
-                prompt: async (input: any) => {
-                    prompts.push(input)
-                    return {
-                        data: {
-                            parts: [{ type: "text", text: "Detailed summary content. ".repeat(8) }],
-                        },
-                    }
-                },
-                delete: async (input: any) => {
-                    deleted.push(input.path.id)
-                },
+    const client = {
+        session: {
+            create: async () => ({ data: { id: "scratch-1" } }),
+            prompt: async (input: any) => {
+                prompts.push(input)
+                return {
+                    data: {
+                        parts: [{ type: "text", text: "Detailed summary content. ".repeat(8) }],
+                    },
+                }
+            },
+            delete: async (input: any) => {
+                deleted.push(input.path.id)
             },
         },
-        state: createSessionState(),
+    }
+    const summaries = await summarizeBoundaryJobs({
+        client,
+        runtime: createRuntimeState(client, new Logger(false)),
         logger: new Logger(false),
         parentSessionId: "session-1",
         jobs: [

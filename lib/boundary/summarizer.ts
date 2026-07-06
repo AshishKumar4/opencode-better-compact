@@ -1,5 +1,5 @@
 import type { Logger } from "../logger"
-import type { SessionState } from "../state"
+import type { RuntimeState } from "../state"
 import type { BoundarySummaryJob } from "./context"
 
 const DEFAULT_CONCURRENCY = 4
@@ -8,7 +8,7 @@ const MAX_SUMMARY_CHARS = 4_000
 
 interface SummarizeBoundaryJobsInput {
     client: any
-    state: SessionState
+    runtime: RuntimeState
     logger: Logger
     parentSessionId: string
     jobs: BoundarySummaryJob[]
@@ -88,6 +88,7 @@ function dedupeJobs(jobs: BoundarySummaryJob[]): BoundarySummaryJob[] {
 
 async function summarizeOne(input: SummarizeBoundaryJobsInput, job: BoundarySummaryJob): Promise<string | null> {
     let scratchSessionId: string | undefined
+    let untrackScratch: (() => void) | undefined
     try {
         const created = await input.client.session.create({
             body: {
@@ -108,7 +109,7 @@ async function summarizeOne(input: SummarizeBoundaryJobsInput, job: BoundarySumm
         })
         scratchSessionId = created?.data?.id ?? created?.id
         if (!scratchSessionId) return null
-        input.state.boundary.scratchSessionIds.add(scratchSessionId)
+        untrackScratch = input.runtime.trackScratch(scratchSessionId)
 
         const response = await input.client.session.prompt({
             path: { id: scratchSessionId },
@@ -141,7 +142,6 @@ async function summarizeOne(input: SummarizeBoundaryJobsInput, job: BoundarySumm
         return null
     } finally {
         if (scratchSessionId) {
-            input.state.boundary.scratchSessionIds.delete(scratchSessionId)
             try {
                 await input.client.session.delete({ path: { id: scratchSessionId } })
             } catch (error) {
@@ -149,6 +149,8 @@ async function summarizeOne(input: SummarizeBoundaryJobsInput, job: BoundarySumm
                     scratchSessionId,
                     error: error instanceof Error ? error.message : String(error),
                 })
+            } finally {
+                untrackScratch?.()
             }
         }
     }

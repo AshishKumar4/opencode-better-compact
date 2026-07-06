@@ -87,6 +87,7 @@ export function openProgressModal(
     let refreshing = false
     let frame = 0
     let removeDispose = () => {}
+    const openedAt = Date.now()
 
     const terminal = () => snapshot.status === "completed" || snapshot.status === "failed"
     const stop = () => {
@@ -146,6 +147,32 @@ export function openProgressModal(
                 next.updatedAt >= snapshot.updatedAt
             ) {
                 snapshot = next
+            } else if (
+                !stopped &&
+                next &&
+                next.sessionId === initialJob.sessionId &&
+                next.id !== initialJob.id &&
+                next.status === "running"
+            ) {
+                const now = Date.now()
+                snapshot = {
+                    ...snapshot,
+                    status: "failed",
+                    currentStage: "Another compaction is already running",
+                    error: "Another Better Compact run is already active for this session.",
+                    updatedAt: now,
+                    completedAt: now,
+                }
+            } else if (!stopped && Date.now() - openedAt >= 5_000) {
+                const now = Date.now()
+                snapshot = {
+                    ...snapshot,
+                    status: "failed",
+                    currentStage: "No matching server job started",
+                    error: "Better Compact did not start this request. Another compaction may already be active.",
+                    updatedAt: now,
+                    completedAt: now,
+                }
             }
             if (!stopped) {
                 frame += 1

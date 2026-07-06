@@ -210,6 +210,30 @@ test("getCurrentTokenUsage returns 0 until a fresh assistant follows compaction"
     assert.equal(getCurrentTokenUsage(state, messages), 0)
 })
 
+test("getCurrentTokenUsage prefers the provider total", () => {
+    const state = createSessionState("session-total")
+    const messages = [
+        {
+            info: {
+                id: "assistant-total",
+                sessionID: "session-total",
+                role: "assistant",
+                time: { created: 1 },
+                tokens: {
+                    total: 90_000,
+                    input: 10,
+                    output: 1,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                },
+            } as WithParts["info"],
+            parts: [],
+        },
+    ]
+
+    assert.equal(getCurrentTokenUsage(state, messages), 90_000)
+})
+
 test("isContextOverLimits ignores stale summary totals and resumes with fresh reported totals", () => {
     const messages = buildCompactedMessages()
     const state = createSessionState()

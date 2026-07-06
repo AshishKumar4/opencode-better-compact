@@ -44,6 +44,16 @@ export const checkSession = async (
         }
     }
 
+    await refreshSessionState(state, messages, lastSessionId, logger, manualModeDefault)
+}
+
+export async function refreshSessionState(
+    state: SessionState,
+    messages: WithParts[],
+    sessionId: string,
+    logger: Logger,
+    manualModeDefault: boolean,
+): Promise<void> {
     const lastCompactionTimestamp = findLastCompactionTimestamp(messages)
     if (lastCompactionTimestamp > state.lastCompaction) {
         state.lastCompaction = lastCompactionTimestamp
@@ -60,12 +70,12 @@ export const checkSession = async (
     }
 
     state.currentTurn = countTurns(state, messages)
-    await refreshManualMode(state, lastSessionId, logger, manualModeDefault)
+    await refreshManualMode(state, sessionId, logger, manualModeDefault)
 }
 
-export function createSessionState(): SessionState {
+export function createSessionState(sessionId: string | null = null): SessionState {
     return {
-        sessionId: null,
+        sessionId,
         isSubAgent: false,
         manualMode: false,
         compressPermission: undefined,
@@ -80,8 +90,6 @@ export function createSessionState(): SessionState {
             iterationNudgeAnchors: new Set<string>(),
         },
         boundary: {
-            compactingSessionId: null,
-            scratchSessionIds: new Set<string>(),
             job: null,
             activePlan: null,
         },
@@ -123,8 +131,6 @@ export function resetSessionState(state: SessionState): void {
         iterationNudgeAnchors: new Set<string>(),
     }
     state.boundary = {
-        compactingSessionId: null,
-        scratchSessionIds: new Set<string>(),
         job: null,
         activePlan: null,
     }
@@ -161,6 +167,21 @@ export async function ensureSessionInitialized(
     // logger.info("Initializing session state", { sessionId: sessionId })
 
     resetSessionState(state)
+    await initializeSessionState(client, state, sessionId, logger, messages, manualModeEnabled)
+}
+
+export async function initializeSessionState(
+    client: any,
+    state: SessionState,
+    sessionId: string,
+    logger: Logger,
+    messages: WithParts[],
+    manualModeEnabled: boolean,
+): Promise<void> {
+    if (state.sessionId !== null && state.sessionId !== sessionId) {
+        throw new Error(`Session state ${state.sessionId} cannot be initialized as ${sessionId}`)
+    }
+
     state.manualMode = manualModeEnabled ? "active" : false
     state.sessionId = sessionId
 

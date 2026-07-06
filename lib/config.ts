@@ -1,4 +1,15 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, renameSync, rmSync } from "fs"
+import {
+    closeSync,
+    existsSync,
+    fsyncSync,
+    mkdirSync,
+    openSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "fs"
 import { join, dirname } from "path"
 import { homedir } from "os"
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser/lib/esm/main.js"
@@ -866,7 +877,19 @@ export function saveGlobalCompactionConfig(compaction: CompactionConfig): SaveGl
         }
         const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600
         writeFileSync(temp, updated, { encoding: "utf-8", mode })
+        const temporaryHandle = openSync(temp, "r")
+        try {
+            fsyncSync(temporaryHandle)
+        } finally {
+            closeSync(temporaryHandle)
+        }
         renameSync(temp, path)
+        const directoryHandle = openSync(dirname(path), "r")
+        try {
+            fsyncSync(directoryHandle)
+        } finally {
+            closeSync(directoryHandle)
+        }
         return { ok: true, path }
     } catch (error) {
         rmSync(temp, { force: true })
@@ -955,14 +978,29 @@ function loadConfigFile(configPath: string): ConfigLoadResult {
     let fileContent = ""
     try {
         fileContent = readFileSync(configPath, "utf-8")
-    } catch {
-        return { data: null }
+    } catch (error) {
+        return {
+            data: null,
+            parseError: error instanceof Error ? error.message : "Failed to read config",
+        }
     }
 
     try {
-        const parsed = parse(fileContent, undefined, { allowTrailingComma: true })
-        if (parsed === undefined || parsed === null) {
-            return { data: null, parseError: "Config file is empty or invalid" }
+        const errors: ParseError[] = []
+        const parsed = parse(fileContent, errors, { allowTrailingComma: true })
+        if (errors.length > 0) {
+            return {
+                data: null,
+                parseError: `JSONC parse error at offset ${errors[0].offset}`,
+            }
+        }
+        if (
+            parsed === undefined ||
+            parsed === null ||
+            typeof parsed !== "object" ||
+            Array.isArray(parsed)
+        ) {
+            return { data: null, parseError: "Config root must be an object" }
         }
         return { data: parsed }
     } catch (error: any) {
@@ -1160,6 +1198,7 @@ function scheduleParseWarning(ctx: PluginInput, title: string, message: string):
 
 export function getConfig(ctx: PluginInput, options?: { warnings?: boolean }): PluginConfig {
     let config = deepCloneConfig(defaultConfig)
+    let unsafeLayer = false
     const configPaths = getConfigPaths(ctx)
 
     if (!configPaths.global) {
@@ -1179,6 +1218,7 @@ export function getConfig(ctx: PluginInput, options?: { warnings?: boolean }): P
 
         const result = loadConfigFile(layer.path)
         if (result.parseError) {
+            unsafeLayer = true
             if (options?.warnings === false) continue
             scheduleParseWarning(
                 ctx,
@@ -1192,10 +1232,24 @@ export function getConfig(ctx: PluginInput, options?: { warnings?: boolean }): P
             continue
         }
 
-        if (options?.warnings !== false) {
-            showConfigWarnings(ctx, layer.path, result.data, layer.isProject)
+        const invalidKeys = getInvalidConfigKeys(result.data)
+        const typeErrors = validateConfigTypes(result.data)
+        if (invalidKeys.length > 0 || typeErrors.length > 0) {
+            unsafeLayer = true
+            if (options?.warnings !== false) {
+                showConfigWarnings(ctx, layer.path, result.data, layer.isProject)
+            }
+            continue
         }
         config = mergeLayer(config, result.data)
+    }
+
+    if (unsafeLayer) {
+        config.enabled = false
+        config.commands.enabled = false
+        config.compaction.automatic = false
+        config.compress.permission = "deny"
+        config.autoUpdate = false
     }
 
     return config

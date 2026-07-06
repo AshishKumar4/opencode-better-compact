@@ -343,8 +343,6 @@ export function resetOnCompaction(state: SessionState): void {
         iterationNudgeAnchors: new Set<string>(),
     }
     state.boundary = {
-        compactingSessionId: null,
-        scratchSessionIds: new Set<string>(),
         job: null,
         activePlan: null,
     }

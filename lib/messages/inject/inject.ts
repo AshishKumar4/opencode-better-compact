@@ -53,7 +53,7 @@ export const injectCompressNudges = (
         state.nudges.contextLimitAnchors.clear()
         state.nudges.turnNudgeAnchors.clear()
         state.nudges.iterationNudgeAnchors.clear()
-        void saveSessionState(state, logger)
+        saveStateBestEffort(state, logger)
         return
     }
 
@@ -138,8 +138,16 @@ export const injectCompressNudges = (
     applyAnchoredNudges(state, config, messages, prompts, compressionPriorities)
 
     if (anchorsChanged) {
-        void saveSessionState(state, logger)
+        saveStateBestEffort(state, logger)
     }
+}
+
+function saveStateBestEffort(state: SessionState, logger: Logger): void {
+    void saveSessionState(state, logger).catch((error) => {
+        logger.warn("Failed to persist Better Compact nudge state", {
+            error: error instanceof Error ? error.message : String(error),
+        })
+    })
 }
 
 export const injectMessageIds = (

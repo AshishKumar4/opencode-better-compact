@@ -11,6 +11,14 @@ import { join } from "path"
 import type { CompressionBlock, PrunedMessageEntry, SessionState, SessionStats } from "./types"
 import type { Logger } from "../logger"
 import { serializePruneMessagesState } from "./utils"
+import {
+    ensurePrivateDirectory,
+    securePrivateFile,
+    securePrivateTree,
+    writePrivateFile,
+} from "../private-storage"
+import { boundaryRangeHash } from "../boundary/fingerprint"
+import type { WithParts } from "./types"
 
 /** Prune state as stored on disk */
 export interface PersistedPruneMessagesState {
@@ -55,12 +63,20 @@ const STORAGE_DIR = join(
 )
 
 async function ensureStorageDir(): Promise<void> {
-    if (!existsSync(STORAGE_DIR)) {
-        await fs.mkdir(STORAGE_DIR, { recursive: true })
-    }
+    await ensurePrivateDirectory(STORAGE_DIR)
 }
 
+export async function secureSessionStorage(): Promise<void> {
+    await securePrivateTree(STORAGE_DIR)
+}
+
+const stateWrites = new Map<string, Promise<void>>()
+let boundaryPlanIndex: Promise<Array<NonNullable<SessionState["boundary"]["activePlan"]>>> | undefined
+
 function getSessionFilePath(sessionId: string): string {
+    if (!/^[a-zA-Z0-9._-]{1,160}$/.test(sessionId)) {
+        throw new Error(`Invalid Better Compact session ID: ${sessionId}`)
+    }
     return join(STORAGE_DIR, `${sessionId}.json`)
 }
 
@@ -73,7 +89,17 @@ async function writePersistedSessionState(
 
     const filePath = getSessionFilePath(sessionId)
     const content = JSON.stringify(state, null, 2)
-    await fs.writeFile(filePath, content, "utf-8")
+    const previous = stateWrites.get(sessionId) ?? Promise.resolve()
+    const current = previous
+        .catch(() => {})
+        .then(() => writePrivateFile(filePath, content, STORAGE_DIR))
+    stateWrites.set(sessionId, current)
+    try {
+        await current
+        boundaryPlanIndex = undefined
+    } finally {
+        if (stateWrites.get(sessionId) === current) stateWrites.delete(sessionId)
+    }
 
     logger.info("Saved session state to disk", {
         sessionId,
@@ -86,12 +112,11 @@ export async function saveSessionState(
     logger: Logger,
     sessionName?: string,
 ): Promise<void> {
-    try {
-        if (!sessionState.sessionId) {
-            return
-        }
+    if (!sessionState.sessionId) {
+        return
+    }
 
-        const state: PersistedSessionState = {
+    const state: PersistedSessionState = {
             sessionName: sessionName,
             manualMode: !!sessionState.manualMode,
             prune: {
@@ -109,14 +134,16 @@ export async function saveSessionState(
             },
             stats: sessionState.stats,
             lastUpdated: new Date().toISOString(),
-        }
+    }
 
+    try {
         await writePersistedSessionState(sessionState.sessionId, state, logger)
     } catch (error: any) {
         logger.error("Failed to save session state", {
             sessionId: sessionState.sessionId,
             error: error?.message,
         })
+        throw error
     }
 }
 
@@ -125,6 +152,7 @@ export async function loadSessionState(
     logger: Logger,
 ): Promise<PersistedSessionState | null> {
     try {
+        await ensureStorageDir()
         const filePath = getSessionFilePath(sessionId)
 
         if (!existsSync(filePath)) {
@@ -132,6 +160,7 @@ export async function loadSessionState(
         }
 
         const content = await fs.readFile(filePath, "utf-8")
+        await securePrivateFile(filePath)
         const state = JSON.parse(content) as PersistedSessionState
 
         const hasPruneTools = state?.prune?.tools && typeof state.prune.tools === "object"
@@ -211,6 +240,47 @@ export async function loadSessionState(
         })
         return null
     }
+}
+
+export async function findMatchingBoundaryPlan(
+    sessionId: string,
+    messages: WithParts[],
+    directory: string,
+    logger: Logger,
+): Promise<NonNullable<SessionState["boundary"]["activePlan"]> | null> {
+    if (!existsSync(STORAGE_DIR)) return null
+    boundaryPlanIndex ??= (async () => {
+        const files = (await fs.readdir(STORAGE_DIR))
+            .filter((file) => file.endsWith(".json"))
+            .sort()
+        const states = await Promise.all(
+            files.map((file) => loadSessionState(file.slice(0, -5), logger)),
+        )
+        return states
+            .map((state) => state?.boundary?.activePlan)
+            .filter(
+                (plan): plan is NonNullable<SessionState["boundary"]["activePlan"]> =>
+                    !!plan,
+            )
+            .sort((left, right) => right.createdAt - left.createdAt)
+    })()
+    const plans = await boundaryPlanIndex
+    const hashes = new Map<number, string>()
+    for (const plan of plans) {
+        const compactedCount = plan?.compactedMessageCount
+        if (!plan || !compactedCount || compactedCount >= messages.length) continue
+        const hash = hashes.get(compactedCount) ?? boundaryRangeHash(messages.slice(0, compactedCount))
+        hashes.set(compactedCount, hash)
+        if (hash !== plan.rangeHash) continue
+        if (!existsSync(join(directory, plan.transcriptRelativePath))) continue
+        return {
+            ...plan,
+            sessionId,
+            rawTailStartMessageId: messages[compactedCount].info.id,
+            sourceLastMessageId: messages.at(-1)?.info.id,
+        }
+    }
+    return null
 }
 
 function emptyPersistedState(manualMode: boolean): PersistedSessionState {

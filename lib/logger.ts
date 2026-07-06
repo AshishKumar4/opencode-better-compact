@@ -1,7 +1,7 @@
-import { writeFile, mkdir } from "fs/promises"
+import { chmod, writeFile } from "fs/promises"
 import { join } from "path"
-import { existsSync } from "fs"
 import { homedir } from "os"
+import { ensurePrivateDirectory, writePrivateFile } from "./private-storage"
 
 export class Logger {
     private logDir: string
@@ -14,9 +14,7 @@ export class Logger {
     }
 
     private async ensureLogDir() {
-        if (!existsSync(this.logDir)) {
-            await mkdir(this.logDir, { recursive: true })
-        }
+        await ensurePrivateDirectory(this.logDir)
     }
 
     private formatData(data?: any): string {
@@ -79,12 +77,11 @@ export class Logger {
             const logLine = `${timestamp} ${level.padEnd(5)} ${component}: ${message}${dataStr ? " | " + dataStr : ""}\n`
 
             const dailyLogDir = join(this.logDir, "daily")
-            if (!existsSync(dailyLogDir)) {
-                await mkdir(dailyLogDir, { recursive: true })
-            }
+            await ensurePrivateDirectory(dailyLogDir)
 
             const logFile = join(dailyLogDir, `${new Date().toISOString().split("T")[0]}.log`)
-            await writeFile(logFile, logLine, { flag: "a" })
+            await writeFile(logFile, logLine, { flag: "a", mode: 0o600 })
+            await chmod(logFile, 0o600)
         } catch (error) {}
     }
 
@@ -210,17 +207,22 @@ export class Logger {
         if (!this.enabled) return
 
         try {
-            const contextDir = join(this.logDir, "context", sessionId)
-            if (!existsSync(contextDir)) {
-                await mkdir(contextDir, { recursive: true })
+            if (!/^[a-zA-Z0-9._-]{1,160}$/.test(sessionId)) {
+                throw new Error(`Invalid Better Compact session ID: ${sessionId}`)
             }
+            const contextDir = join(this.logDir, "context", sessionId)
+            await ensurePrivateDirectory(contextDir, this.logDir)
 
             const minimized = this.minimizeForDebug(messages).filter(
                 (msg) => msg.parts && msg.parts.length > 0,
             )
             const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
             const contextFile = join(contextDir, `${timestamp}.json`)
-            await writeFile(contextFile, JSON.stringify(minimized, null, 2))
+            await writePrivateFile(
+                contextFile,
+                JSON.stringify(minimized, null, 2),
+                this.logDir,
+            )
         } catch (error) {}
     }
 }

@@ -64,11 +64,13 @@ export function currentContextUsage(api: TuiApi, sessionID: string): {
     const last = [...messages].reverse().find((message: any) => message.role === "assistant" && message.tokens?.output > 0) as any
     if (!last) return { tokens: 0, limit: 0 }
     const tokens =
-        (last.tokens?.input ?? 0) +
-        (last.tokens?.output ?? 0) +
-        (last.tokens?.reasoning ?? 0) +
-        (last.tokens?.cache?.read ?? 0) +
-        (last.tokens?.cache?.write ?? 0)
+        typeof last.tokens?.total === "number" && Number.isFinite(last.tokens.total)
+            ? last.tokens.total
+            : (last.tokens?.input ?? 0) +
+              (last.tokens?.output ?? 0) +
+              (last.tokens?.reasoning ?? 0) +
+              (last.tokens?.cache?.read ?? 0) +
+              (last.tokens?.cache?.write ?? 0)
     const active = activeSessionModel(api, sessionID)
     const providerID = active?.providerID ?? last.providerID
     const modelID = active?.modelID ?? last.modelID

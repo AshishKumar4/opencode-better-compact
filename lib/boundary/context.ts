@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto"
-import { dirname, join } from "node:path"
-import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import type { Logger } from "../logger"
 import type { CompactionProfile } from "../compaction-settings"
 import type { SessionState, WithParts } from "../state"
 import { estimateOpenCodeMessages, estimateOpenCodeToolPart } from "../context-estimate"
 import { estimateOpenCodeTokens } from "../token-utils"
+import { writePrivateFile } from "../private-storage"
+import { boundaryRangeHash, boundarySourceHash } from "./fingerprint"
 
 const TRIGGER_RATIO = 0.85
 const TARGET_RATIO = 0.3
@@ -73,6 +74,8 @@ export interface BoundaryContextOptions {
     assistantSummaries?: Record<string, string>
     prefixSummary?: string
     providerReportedTokens?: number
+    triggerUsageTokens?: number
+    priorPlan?: NonNullable<SessionState["boundary"]["activePlan"]>
 }
 
 export interface BoundaryTranscriptArtifact {
@@ -88,11 +91,15 @@ export interface BoundaryContextPlan {
     rangeHash: string
     contextLimit: number
     beforeTokens: number
+    reportedBeforeTokens?: number
+    visibleBeforeTokens: number
     afterPruneTokens: number
     triggerTokens: number
     targetTokens: number
     rawTailStartIndex: number
     rawTailStartMessageId: string
+    sourceLastMessageId: string
+    sourceFingerprint: string
     requiresCustomCompaction: boolean
     preservedToolCallIds: string[]
     transcript: BoundaryTranscriptArtifact
@@ -118,8 +125,10 @@ export function buildBoundaryContextPlan(
     const beforeTokens = options.providerReportedTokens && options.providerReportedTokens > 0
         ? options.providerReportedTokens
         : estimatedBeforeTokens
+    const triggerUsageTokens =
+        options.triggerUsageTokens ?? Math.max(beforeTokens, estimatedBeforeTokens)
     const triggerTokens = Math.floor(contextLimit * triggerRatio)
-    if (!options.force && beforeTokens < triggerTokens) return null
+    if (!options.force && triggerUsageTokens < triggerTokens) return null
 
     const rawTailStartIndex = findRawTailStartIndex(
         messages,
@@ -130,16 +139,29 @@ export function buildBoundaryContextPlan(
     if (compactedRange.length === 0) return null
 
     const transcriptRelativePath = transcriptPath(messages, compactedRange)
-    const assistantSummaries = options.assistantSummaries ?? {}
+    const assistantSummaries = {
+        ...(options.priorPlan?.assistantSummaries ?? {}),
+        ...(options.assistantSummaries ?? {}),
+    }
     const working = cloneMessages(messages)
     const preservedToolCallIds = findRecentToolCallTail(
         compactedRange,
         estimator,
         options.recentToolResultBudgetTokens ?? RECENT_TOOL_RESULT_BUDGET_TOKENS,
     )
+    applyPreservationFloor(
+        messages,
+        preservedToolCallIds,
+        options.priorPlan,
+    )
     const stages: BoundaryStageReport[] = []
     const summaryJobs: BoundarySummaryJob[] = []
-    const assistantSummaryKeys = new Set<string>()
+    const assistantSummaryKeys = new Set<string>(options.priorPlan?.assistantSummaryKeys ?? [])
+    const priorStages = new Set(
+        (options.priorPlan?.stages ?? [])
+            .filter((stage) => stage.status !== "skipped" && stage.status !== "failed")
+            .map((stage) => stage.name),
+    )
     const range = {
         rawTailStartIndex,
         transcriptRelativePath,
@@ -155,21 +177,27 @@ export function buildBoundaryContextPlan(
     runStage(stages, working, range, "tools-old", "Pruned old tool calls/results", () =>
         stripToolParts(working, rawTailStartIndex, transcriptRelativePath, preservedToolCallIds),
     )
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (isBelowTrigger(working, estimator, triggerTokens) && !priorStages.has("reasoning")) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "reasoning", "Pruned thinking tokens", () =>
             stripReasoningParts(working, rawTailStartIndex),
         )
     }
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (
+        isBelowTrigger(working, estimator, triggerTokens) &&
+        !priorStages.has("tools-remaining")
+    ) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "tools-remaining", "Pruned remaining tool calls/results", () =>
             stripToolParts(working, rawTailStartIndex, transcriptRelativePath, new Set()),
         )
     }
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (
+        isBelowTrigger(working, estimator, triggerTokens) &&
+        !priorStages.has("assistant-runs")
+    ) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "assistant-runs", "Summarized assistant turns", () =>
@@ -183,8 +211,19 @@ export function buildBoundaryContextPlan(
     }
 
     let requiresCustomCompaction = false
-    let prefixSummary = options.prefixSummary
-    if (!isBelowTrigger(working, estimator, triggerTokens)) {
+    const priorTailIndex = options.priorPlan
+        ? messages.findIndex(
+              (message) => message.info.id === options.priorPlan?.rawTailStartMessageId,
+          )
+        : -1
+    const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
+    let prefixSummary =
+        options.prefixSummary ??
+        (expandedPrefix ? undefined : options.priorPlan?.prefixSummary)
+    if (
+        !isBelowTrigger(working, estimator, triggerTokens) ||
+        options.priorPlan?.requiresCustomCompaction
+    ) {
         const currentTailStartIndex = working.findIndex(
             (message) => message.info.id === messages[rawTailStartIndex]?.info.id,
         )
@@ -212,14 +251,21 @@ export function buildBoundaryContextPlan(
 
     const plan: BoundaryContextPlan = {
         sessionId: messages[0]?.info.sessionID ?? "unknown-session",
-        rangeHash: rangeHash(compactedRange),
+        rangeHash: boundaryRangeHash(compactedRange),
         contextLimit,
         beforeTokens,
+        reportedBeforeTokens:
+            options.providerReportedTokens && options.providerReportedTokens > 0
+                ? options.providerReportedTokens
+                : undefined,
+        visibleBeforeTokens: estimatedBeforeTokens,
         afterPruneTokens: estimateMessages(working, estimator),
         triggerTokens,
         targetTokens: range.targetTokens,
         rawTailStartIndex,
         rawTailStartMessageId: messages[rawTailStartIndex]?.info.id ?? messages.at(-1)?.info.id ?? "",
+        sourceLastMessageId: lastContextBearingMessageId(messages),
+        sourceFingerprint: boundarySourceHash(messages),
         requiresCustomCompaction,
         preservedToolCallIds: [...preservedToolCallIds],
         transcript: {
@@ -238,6 +284,21 @@ export function buildBoundaryContextPlan(
     return plan
 }
 
+function lastContextBearingMessageId(messages: WithParts[]): string {
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index]
+        if (
+            message.info.role === "user" &&
+            message.parts.length > 0 &&
+            message.parts.every(isIgnoredPart)
+        ) {
+            continue
+        }
+        return message.info.id
+    }
+    return ""
+}
+
 export function applyBoundaryContextPlan(messages: WithParts[], plan: BoundaryContextPlan): void {
     const transformed = transformMessages(messages, plan.rawTailStartIndex, plan)
     messages.length = 0
@@ -250,16 +311,26 @@ export function applyBoundaryPlanSnapshot(
 ): boolean {
     const rawTailStartIndex = messages.findIndex((message) => message.info.id === plan.rawTailStartMessageId)
     if (rawTailStartIndex <= 0) return false
+    if (
+        plan.sourceLastMessageId &&
+        boundaryRangeHash(messages.slice(0, rawTailStartIndex)) !== plan.rangeHash
+    ) {
+        return false
+    }
     const transformed = transformMessages(messages, rawTailStartIndex, {
         sessionId: plan.sessionId,
         rangeHash: plan.rangeHash,
         contextLimit: plan.contextLimit ?? Math.max(plan.beforeTokens, plan.targetTokens, 1),
         beforeTokens: plan.beforeTokens,
+        reportedBeforeTokens: plan.reportedBeforeTokens,
+        visibleBeforeTokens: plan.visibleBeforeTokens ?? plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
         triggerTokens: plan.triggerTokens,
         targetTokens: plan.targetTokens,
         rawTailStartIndex,
         rawTailStartMessageId: plan.rawTailStartMessageId,
+        sourceLastMessageId: plan.sourceLastMessageId ?? plan.rawTailStartMessageId,
+        sourceFingerprint: plan.sourceFingerprint ?? "",
         requiresCustomCompaction: plan.requiresCustomCompaction,
         preservedToolCallIds: plan.preservedToolCallIds ?? [],
         assistantSummaryKeys: plan.assistantSummaryKeys ?? Object.keys(plan.assistantSummaries ?? {}),
@@ -284,8 +355,13 @@ export function storeBoundaryPlan(state: SessionState, plan: BoundaryContextPlan
         rangeHash: plan.rangeHash,
         contextLimit: plan.contextLimit,
         rawTailStartMessageId: plan.rawTailStartMessageId,
+        sourceLastMessageId: plan.sourceLastMessageId,
+        sourceFingerprint: plan.sourceFingerprint,
+        compactedMessageCount: plan.transcript.messageIds.length,
         transcriptRelativePath: plan.transcript.relativePath,
         beforeTokens: plan.beforeTokens,
+        reportedBeforeTokens: plan.reportedBeforeTokens,
+        visibleBeforeTokens: plan.visibleBeforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
         triggerTokens: plan.triggerTokens,
         targetTokens: plan.targetTokens,
@@ -322,8 +398,9 @@ export function formatBoundaryProgressReport(stage: string, detail: string): str
 export function formatBoundaryReport(plan: BoundaryContextPlan, actualCurrentTokens?: number): string {
     const before = actualCurrentTokens && actualCurrentTokens > 0 ? actualCurrentTokens : plan.beforeTokens
     const now = plan.afterPruneTokens
-    const reduced = Math.max(0, before - now)
-    const reductionPercent = before > 0 ? Math.round((reduced / before) * 100) : 0
+    const visibleBefore = plan.visibleBeforeTokens
+    const reduced = Math.max(0, visibleBefore - now)
+    const reductionPercent = visibleBefore > 0 ? Math.round((reduced / visibleBefore) * 100) : 0
     const stageRows = plan.stages
         .filter((stage) => stage.status !== "skipped" || stage.clearedTokens > 0)
         .map((stage) => {
@@ -340,7 +417,7 @@ export function formatBoundaryReport(plan: BoundaryContextPlan, actualCurrentTok
         formatContextWindowLine("Before", before, plan.contextLimit),
         formatContextWindowLine("Now", now, plan.contextLimit, "projected"),
         "",
-        `  Reduced ${formatTokenCount(reduced)} (${reductionPercent}%)`,
+        `  Estimated active-history reduction ${formatTokenCount(reduced)} (${reductionPercent}%)`,
         "",
         "  Actions",
         ...(stageRows.length > 0 ? stageRows : ["  (no stages applied)"]),
@@ -377,19 +454,35 @@ export async function applyBoundaryContextManagement(input: {
     messages: WithParts[]
     force?: boolean
     profile?: CompactionProfile
+    providerReportedTokens?: number
+    triggerUsageTokens?: number
+    priorPlan?: NonNullable<SessionState["boundary"]["activePlan"]>
+    summarize?: (jobs: BoundarySummaryJob[]) => Promise<Record<string, string>>
 }): Promise<BoundaryContextPlan | null> {
-    const plan = buildBoundaryContextPlan(input.messages, {
+    const options: BoundaryContextOptions = {
         contextLimit: input.state.modelContextLimit ?? (input.force ? 200_000 : undefined),
         force: input.force,
         triggerRatio: input.profile ? input.profile.triggerPercent / 100 : undefined,
         targetRatio: input.profile ? input.profile.targetPercent / 100 : undefined,
         recentToolResultBudgetTokens: input.profile?.recentToolTokens,
-    })
+        providerReportedTokens: input.providerReportedTokens,
+        triggerUsageTokens: input.triggerUsageTokens,
+        priorPlan: input.priorPlan,
+    }
+    let plan = buildBoundaryContextPlan(input.messages, options)
     if (!plan) return null
+    if (input.summarize && plan.summaryJobs.length > 0) {
+        const assistantSummaries = await input.summarize(plan.summaryJobs)
+        if (Object.keys(assistantSummaries).length > 0) {
+            plan =
+                buildBoundaryContextPlan(input.messages, {
+                    ...options,
+                    assistantSummaries,
+                }) ?? plan
+        }
+    }
 
     await writeBoundaryTranscript(input.directory, plan, input.logger)
-    applyBoundaryContextPlan(input.messages, plan)
-    storeBoundaryPlan(input.state, plan)
     input.logger.info("Applied Better Compact staged pruning", {
         sessionId: plan.sessionId,
         beforeTokens: plan.beforeTokens,
@@ -463,6 +556,30 @@ function findRecentToolCallTail(
         }
     }
     return preserved
+}
+
+function applyPreservationFloor(
+    messages: WithParts[],
+    preservedToolCallIds: Set<string>,
+    priorPlan: BoundaryContextOptions["priorPlan"],
+): void {
+    if (!priorPlan) return
+    const priorTailIndex = messages.findIndex(
+        (message) => message.info.id === priorPlan.rawTailStartMessageId,
+    )
+    if (priorTailIndex <= 0) return
+    const previouslyPreserved = new Set(priorPlan.preservedToolCallIds ?? [])
+    for (let index = 0; index < priorTailIndex; index++) {
+        for (const part of messages[index].parts) {
+            if (
+                part.type === "tool" &&
+                preservedToolCallIds.has(part.callID) &&
+                !previouslyPreserved.has(part.callID)
+            ) {
+                preservedToolCallIds.delete(part.callID)
+            }
+        }
+    }
 }
 
 function stripReasoningParts(messages: WithParts[], rawTailStartIndex: number): StageMutationResult {
@@ -672,8 +789,12 @@ export async function writeBoundaryTranscript(
 ): Promise<void> {
     const absolutePath = join(directory, plan.transcript.relativePath)
     const content = plan.transcript.content || formatTranscript(plan.transcript.messages ?? [])
-    await mkdir(dirname(absolutePath), { recursive: true })
-    await writeFile(absolutePath, content, "utf-8")
+    await writePrivateFile(
+        join(directory, ".opencode", "better-compact", ".gitignore"),
+        "*\n!.gitignore\n",
+        directory,
+    )
+    await writePrivateFile(absolutePath, content, directory)
     plan.transcript.content = content
     plan.transcript.messages = undefined
     plan.transcript.absolutePath = absolutePath
@@ -696,16 +817,16 @@ function transformMessages(messages: WithParts[], rawTailStartIndex: number, pla
         ]
     }
     const stageNames = new Set<string>(plan.stages.map((stage) => stage.name))
+    const working = cloneMessages(messages)
+    if (stageNames.has("skills")) stripSkillToolParts(working, rawTailStartIndex)
+    if (stageNames.has("tools-old")) {
+        stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set(plan.preservedToolCallIds))
+    }
+    if (stageNames.has("reasoning")) stripReasoningParts(working, rawTailStartIndex)
+    if (stageNames.has("tools-remaining") || stageNames.has("tools")) {
+        stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set())
+    }
     if (!stageNames.has("assistant-runs")) {
-        const working = cloneMessages(messages)
-        if (stageNames.has("skills")) stripSkillToolParts(working, rawTailStartIndex)
-        if (stageNames.has("tools-old")) {
-            stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set(plan.preservedToolCallIds))
-        }
-        if (stageNames.has("reasoning")) stripReasoningParts(working, rawTailStartIndex)
-        if (stageNames.has("tools-remaining") || stageNames.has("tools")) {
-            stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set())
-        }
         const result = working.slice(0, rawTailStartIndex)
         const reference = createReferenceMessage(working, working.slice(0, rawTailStartIndex), plan.transcript.relativePath)
         if (reference) result.push(reference)
@@ -714,7 +835,7 @@ function transformMessages(messages: WithParts[], rawTailStartIndex: number, pla
     }
     const summaryJobs: BoundarySummaryJob[] = []
     const result = transformCompactedPrefix(
-        messages.slice(0, rawTailStartIndex),
+        working.slice(0, rawTailStartIndex),
         {
             transcriptRelativePath: plan.transcript.relativePath,
             latestTodoCallId: findLatestTodoCallId(messages.slice(0, rawTailStartIndex)),
@@ -723,9 +844,9 @@ function transformMessages(messages: WithParts[], rawTailStartIndex: number, pla
         },
         summaryJobs,
     )
-    const reference = createReferenceMessage(messages, messages.slice(0, rawTailStartIndex), plan.transcript.relativePath)
+    const reference = createReferenceMessage(working, working.slice(0, rawTailStartIndex), plan.transcript.relativePath)
     if (reference) result.push(reference)
-    result.push(...messages.slice(rawTailStartIndex))
+    result.push(...working.slice(rawTailStartIndex))
     return result
 }
 
@@ -820,7 +941,7 @@ function createReferenceMessage(
     const base = messages.find((message) => message.info.role === "user")
     if (!base) return null
 
-    const hash = rangeHash(compacted)
+    const hash = boundaryRangeHash(compacted)
     const first = compacted[0]?.info.id ?? "unknown"
     const last = compacted.at(-1)?.info.id ?? "unknown"
     return {
@@ -857,7 +978,7 @@ function createSyntheticSummaryMessage(
     transcriptRelativePath: string,
 ): WithParts {
     const base = messages.find((message) => message.info.role === "user") ?? messages[0]
-    const hash = rangeHash(compacted)
+    const hash = boundaryRangeHash(compacted)
     return {
         info: {
             ...base.info,
@@ -910,38 +1031,23 @@ function createTextPart(message: WithParts, text: string): MessagePart {
 }
 
 function formatTranscript(messages: WithParts[]): string {
-    const lines = ["# Better Compact Raw Transcript", ""]
-    for (const message of messages) {
-        lines.push(`## ${message.info.role.toUpperCase()} ${message.info.id}`)
-        lines.push(`created: ${message.info.time.created}`)
-        lines.push("")
-        for (const part of message.parts) {
-            lines.push(formatPart(part))
-        }
-        lines.push("")
-    }
-    return lines.join("\n").trimEnd() + "\n"
-}
-
-function formatPart(part: MessagePart): string {
-    if (part.type === "text") return part.text
-    if (part.type === "reasoning") return `[reasoning]\n${part.text}`
-    if (part.type === "tool") {
-        return [
-            `[tool:${part.tool}] callID=${part.callID} status=${part.state?.status}`,
-            `input=${previewJson(part.state?.input, 20_000)}`,
-            part.state?.status === "completed" ? `output=${part.state.output}` : "",
-            part.state?.status === "error" ? `error=${part.state.error}` : "",
-        ]
-            .filter(Boolean)
-            .join("\n")
-    }
-    return `[${part.type}] ${previewJson(part, 20_000)}`
+    return [
+        "# Better Compact Raw Transcript",
+        "",
+        "```json",
+        JSON.stringify(messages, null, 2),
+        "```",
+        "",
+    ].join("\n")
 }
 
 function formatPrefixSummary(messages: WithParts[], transcriptRelativePath: string): string {
     const userMessages = messages
-        .filter((message) => message.info.role === "user")
+        .filter(
+            (message) =>
+                message.info.role === "user" &&
+                !message.parts.every(isIgnoredPart),
+        )
         .map((message) => textParts(message).trim())
         .filter(Boolean)
     const assistantFacts = messages
@@ -971,6 +1077,10 @@ function textParts(message: WithParts): string {
         .join("\n\n")
 }
 
+function isIgnoredPart(part: MessagePart): boolean {
+    return "ignored" in part && part.ignored === true
+}
+
 function createMessageEstimator(reservedTokens: number): MessageEstimator {
     return { reservedTokens }
 }
@@ -983,7 +1093,12 @@ function estimateMessages(messages: WithParts[], estimator: MessageEstimator): n
 function findRawTailStartIndex(messages: WithParts[], minMessages: number, minUserTurns: number): number {
     let userTurns = 0
     for (let index = messages.length - 1; index >= 0; index--) {
-        if (messages[index].info.role !== "user") continue
+        if (
+            messages[index].info.role !== "user" ||
+            messages[index].parts.every(isIgnoredPart)
+        ) {
+            continue
+        }
         userTurns++
         if (userTurns >= minUserTurns) return index
     }
@@ -1021,16 +1136,17 @@ function formatTodoInput(input: unknown): string {
 
 function transcriptPath(messages: WithParts[], compacted: WithParts[]): string {
     const sessionId = messages[0]?.info.sessionID ?? "unknown-session"
-    return `${TRANSCRIPT_ROOT}/${safePathPart(sessionId)}/${rangeHash(compacted)}.md`
-}
-
-function rangeHash(messages: WithParts[]): string {
-    const seed = messages.map((message) => `${message.info.id}:${message.info.time.created}`).join("|")
-    return createHash("sha256").update(seed).digest("hex").slice(0, 16)
+    return `${TRANSCRIPT_ROOT}/${safePathPart(sessionId)}/${boundaryRangeHash(compacted)}.md`
 }
 
 function assistantRunKey(messages: WithParts[]): string {
-    return rangeHash(messages)
+    const seed = messages
+        .map(
+            (message) =>
+                `${message.info.role}:${message.info.time.created}:${"providerID" in message.info ? message.info.providerID ?? "" : ""}:${"modelID" in message.info ? message.info.modelID ?? "" : ""}`,
+        )
+        .join("|")
+    return createHash("sha256").update(seed).digest("hex").slice(0, 16)
 }
 
 function safePathPart(value: string): string {

@@ -23,6 +23,11 @@ export function getCurrentTokenUsage(state: SessionState, messages: WithParts[])
             return 0
         }
 
+        const total = assistantInfo.tokens?.total
+        if (typeof total === "number" && Number.isFinite(total) && total > 0) {
+            return total
+        }
+
         const input = assistantInfo.tokens?.input || 0
         const output = assistantInfo.tokens?.output || 0
         const reasoning = assistantInfo.tokens?.reasoning || 0

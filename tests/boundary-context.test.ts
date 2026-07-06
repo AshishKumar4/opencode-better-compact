@@ -1,12 +1,19 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { mkdtempSync, readFileSync, statSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import type { WithParts } from "../lib/state"
+import { createSessionState } from "../lib/state"
 import {
     applyBoundaryContextPlan,
     buildBoundaryContextPlan,
     formatBoundaryReport,
+    storeBoundaryPlan,
+    writeBoundaryTranscript,
 } from "../lib/boundary/context"
 import { estimateOpenCodeMessages } from "../lib/context-estimate"
+import { Logger } from "../lib/logger"
 
 const sessionID = "ses_boundary_context"
 
@@ -215,6 +222,117 @@ test("boundary projection does not scale transformed context by raw provider rat
     assert.ok(plan.afterPruneTokens > oldScaledAfter * 2)
 })
 
+test("active-plan trigger usage can stay below threshold despite larger raw history", () => {
+    const messages = buildLargeConversation()
+    const estimate = estimateOpenCodeMessages(messages)
+    const contextLimit = Math.max(1, Math.floor(estimate / 0.9))
+    const triggerTokens = Math.floor(contextLimit * 0.85)
+    assert.ok(estimate > triggerTokens)
+
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit,
+        providerReportedTokens: Math.floor(triggerTokens / 2),
+        triggerUsageTokens: Math.floor(triggerTokens / 2),
+    })
+
+    assert.equal(plan, null)
+})
+
+test("boundary transcript is lossless and private", async () => {
+    const messages = buildLargeConversation()
+    const marker = `private-tool-input-${"x".repeat(25_000)}-end`
+    const tool = messages[1]?.parts.find((part) => part.type === "tool")
+    assert.ok(tool?.type === "tool")
+    tool.state.input = { marker }
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 10_000,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(plan)
+    const directory = mkdtempSync(join(tmpdir(), "better-compact-private-transcript-"))
+
+    await writeBoundaryTranscript(directory, plan, new Logger(false))
+
+    const path = join(directory, plan.transcript.relativePath)
+    const content = readFileSync(path, "utf8")
+    assert.match(content, /private-tool-input-/)
+    assert.match(content, /-end/)
+    assert.equal(statSync(path).mode & 0o777, 0o600)
+    assert.equal(statSync(dirname(path)).mode & 0o777, 0o700)
+})
+
+test("replacement plans keep prior pruning stages as a monotonic floor", () => {
+    const messages = buildLargeConversation()
+    const first = buildBoundaryContextPlan(messages, {
+        contextLimit: 10_000,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(first)
+    assert.ok(first.stages.some((stage) => stage.name === "reasoning"))
+    const state = createSessionState("ses_boundary_context")
+    storeBoundaryPlan(state, first)
+
+    const replacement = buildBoundaryContextPlan(messages, {
+        contextLimit: 1_000_000,
+        force: true,
+        recentToolResultBudgetTokens: 80_000,
+        priorPlan: state.boundary.activePlan ?? undefined,
+    })
+
+    assert.ok(replacement)
+    assert.ok(replacement.stages.some((stage) => stage.name === "reasoning"))
+    const priorPreserved = new Set(first.preservedToolCallIds)
+    for (const callID of replacement.preservedToolCallIds) {
+        if (!priorPreserved.has(callID)) {
+            const toolWasPreviouslyCompacted = messages
+                .slice(0, first.rawTailStartIndex)
+                .some((message) =>
+                    message.parts.some(
+                        (part) => part.type === "tool" && part.callID === callID,
+                    ),
+                )
+            assert.equal(toolWasPreviouslyCompacted, false)
+        }
+    }
+})
+
+test("expanded prefix summaries include newly compacted user context", () => {
+    const firstMessages = [
+        message("u1", "user", [textPart("u1", "old user")], 1),
+        message("a1", "assistant", [textPart("a1", "old detail ".repeat(2_000))], 2),
+        message("u2", "user", [textPart("u2", "middle user")], 3),
+        message("a2", "assistant", [textPart("a2", "middle detail ".repeat(2_000))], 4),
+        message("u3", "user", [textPart("u3", "newly crossed requirement")], 5),
+    ]
+    const first = buildBoundaryContextPlan(firstMessages, {
+        contextLimit: 100,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(first?.requiresCustomCompaction)
+    const state = createSessionState(sessionID)
+    storeBoundaryPlan(state, first)
+    const grown = [
+        ...firstMessages,
+        message("a3", "assistant", [textPart("a3", "later detail ".repeat(2_000))], 6),
+        message("u4", "user", [textPart("u4", "later user")], 7),
+        message("a4", "assistant", [textPart("a4", "latest assistant")], 8),
+        message("u5", "user", [textPart("u5", "latest user")], 9),
+    ]
+
+    const replacement = buildBoundaryContextPlan(grown, {
+        contextLimit: 100,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+        priorPlan: state.boundary.activePlan ?? undefined,
+    })
+
+    assert.ok(replacement?.requiresCustomCompaction)
+    assert.match(replacement.prefixSummary ?? "", /newly crossed requirement/)
+})
+
 test("boundary planner marks custom compaction as last resort only after pruning is still too large", () => {
     const messages = buildLargeConversation()
     const plan = buildBoundaryContextPlan(messages, { contextLimit: 500, reservedTokens: 1_000, recentToolResultBudgetTokens: 0 })
@@ -251,6 +369,29 @@ test("boundary planner preserves the latest two user turns as raw tail", () => {
         assert.match(oldAssistant.parts[0].text, /tool calls\/results cleared|Assistant turn summary/)
         assert.doesNotMatch(oldAssistant.parts[0].text, /old output/)
     }
+})
+
+test("ignored Better Compact messages do not count as protected user turns", () => {
+    const ignored = textPart("msg-ignored", "Better Compact report") as ReturnType<
+        typeof textPart
+    > & { ignored: boolean }
+    ignored.ignored = true
+    const messages = [
+        message("msg-user-1", "user", [textPart("msg-user-1", "old user")], 1),
+        message("msg-assistant-1", "assistant", [textPart("msg-assistant-1", "old detail ".repeat(2_000))], 2),
+        message("msg-user-2", "user", [textPart("msg-user-2", "middle user")], 3),
+        message("msg-ignored", "user", [ignored], 4),
+        message("msg-assistant-2", "assistant", [textPart("msg-assistant-2", "middle assistant")], 5),
+        message("msg-user-3", "user", [textPart("msg-user-3", "latest user")], 6),
+    ]
+
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 10_000,
+        force: true,
+    })
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, "msg-user-2")
 })
 
 test("boundary planner compactifies contiguous assistant messages within an old turn", () => {

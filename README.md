@@ -15,7 +15,7 @@ opencode plugin better-compact --global
 Install an explicit version:
 
 ```bash
-opencode plugin better-compact@0.1.4 --global
+opencode plugin better-compact@0.1.5 --global
 ```
 
 OpenCode downloads the prebuilt package with its embedded package manager and updates both plugin configurations:
@@ -137,8 +137,8 @@ CI uses pnpm and verifies every push/PR with:
 Tag releases as `v*`:
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 The release workflow verifies that the tag matches `package.json`, builds and tests the compiled server and TUI artifacts, publishes the package to npm with provenance, and creates the GitHub Release.

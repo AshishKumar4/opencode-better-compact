@@ -275,11 +275,11 @@ function ContextWindowMeters(props: { theme: Theme; job: BoundaryJobProgress }) 
             <text fg={props.theme.primary} attributes={TextAttributes.BOLD}>Context window</text>
             {limit() > 0 ? (
                 <>
-                    <ContextMeterRow theme={props.theme} label="Before" tokens={before()} limit={limit()} color="warning" />
-                    <ContextMeterRow theme={props.theme} label="Now" tokens={current()} limit={limit()} color="primary" />
+                    <ContextMeterRow theme={props.theme} label="Provider before" tokens={before()} limit={limit()} color="warning" />
+                    <ContextMeterRow theme={props.theme} label="Estimated now" tokens={current()} limit={limit()} color="primary" />
                     <box height={1} flexDirection="row" gap={1}>
-                        <box width={8}>
-                            <text fg={props.theme.textMuted}>Saved:</text>
+                        <box width={16}>
+                            <text fg={props.theme.textMuted}>Estimated saved:</text>
                         </box>
                         <text fg={props.theme.success} attributes={TextAttributes.BOLD}>{formatTokenCount(cleared(), true)}</text>
                     </box>
@@ -300,7 +300,7 @@ function ContextMeterRow(props: { theme: Theme; label: string; tokens: number; l
     const percent = Math.round((props.tokens / Math.max(1, props.limit)) * 100)
     return (
         <box height={1} flexDirection="row" gap={1}>
-            <box width={8}>
+            <box width={16}>
                 <text fg={props.theme.textMuted}>{`${props.label}:`}</text>
             </box>
             <box width={18}>
