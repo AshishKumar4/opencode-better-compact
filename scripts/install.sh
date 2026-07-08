@@ -37,7 +37,7 @@ sha256_file() {
     shasum -a 256 "$1" | awk '{print $1}'
     return
   fi
-  echo ""
+  node -e 'const crypto = require("crypto"); const fs = require("fs"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"
 }
 
 need tar
@@ -61,10 +61,10 @@ download "$base/checksums.txt" "$checksums"
 
 expected="$(grep '  better-compact.tar.gz$' "$checksums" | awk '{print $1}')"
 actual="$(sha256_file "$archive")"
-if [ -n "$actual" ] && [ "$expected" != "$actual" ]; then
-  echo "checksum mismatch for better-compact.tar.gz" >&2
-  echo "expected: $expected" >&2
-  echo "actual:   $actual" >&2
+if [ -z "$expected" ] || [ -z "$actual" ] || [ "$expected" != "$actual" ]; then
+  echo "checksum verification failed for better-compact.tar.gz" >&2
+  echo "expected: ${expected:-(missing)}" >&2
+  echo "actual:   ${actual:-(missing)}" >&2
   exit 1
 fi
 
@@ -83,9 +83,9 @@ rm -rf "$current"
 ln -s "$target" "$current"
 
 mkdir -p "$CONFIG_DIR"
-SERVER_PATH="$current/dist/index.js" \
-TUI_PATH="$current/dist/tui.js" \
-CONFIG_DIR="$CONFIG_DIR" \
+SERVER_PATH="$current/dist/index.js"
+TUI_PATH="$current/dist/tui.js"
+export SERVER_PATH TUI_PATH CONFIG_DIR
 node <<'NODE'
 const fs = require("fs")
 const path = require("path")
