@@ -6,7 +6,6 @@ import {
     buildSessionState,
     loadSessionData,
     loadTuiCompactionSettings,
-    logger,
     saveTuiCompactionSettings,
     sessionMessages,
 } from "./data"
@@ -54,7 +53,7 @@ export function openStatsModal(api: TuiApi, config: PluginConfig) {
             showStatusDialog(api, "Stats", "No session", "Open a session first.")
             return
         }
-        const report = await buildStatsReport(data.state, logger)
+        const report = buildStatsReport(data.state)
         showDialog(api, () => (
             <StatsDialog api={api} report={report} onBack={() => openPanelModal(api, config)} />
         ))

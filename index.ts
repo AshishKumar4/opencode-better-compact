@@ -3,7 +3,6 @@ import { getConfig } from "./lib/config"
 import { compressDisabledByOpencode, type HostPermissionSnapshot } from "./lib/host-permissions"
 import { Logger } from "./lib/logger"
 import { createSessionState } from "./lib/state"
-import { PromptStore } from "./lib/prompts/store"
 import {
     createChatMessageTransformHandler,
     createChatMessageHandler,
@@ -24,7 +23,6 @@ const server: Plugin = (async (ctx) => {
 
     const logger = new Logger(config.debug)
     const state = createSessionState()
-    const prompts = new PromptStore(logger, ctx.directory, config.experimental.customPrompts)
     const hostPermissions: HostPermissionSnapshot = {
         global: undefined,
         agents: {},
@@ -35,25 +33,17 @@ const server: Plugin = (async (ctx) => {
         // logger.info("Secure mode detected, configured client authentication")
     }
 
-    logger.info("Better Compact initialized", {
-        strategies: config.strategies,
-    })
+    logger.info("Better Compact initialized")
 
     startAutoUpdate(ctx, config.autoUpdate)
 
     return {
-        "experimental.chat.system.transform": createSystemPromptHandler(
-            state,
-            logger,
-            config,
-            prompts,
-        ),
+        "experimental.chat.system.transform": createSystemPromptHandler(state, logger, config),
         "experimental.chat.messages.transform": createChatMessageTransformHandler(
             ctx.client,
             state,
             logger,
             config,
-            prompts,
             hostPermissions,
             ctx.directory,
         ) as any,

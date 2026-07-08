@@ -32,8 +32,7 @@
         "typecheck": "tsc --noEmit",
         "test": "node --import tsx --test tests/*.test.ts",
         "format": "prettier --write .",
-        "format:check": "prettier --check .",
-        "better-compact": "tsx scripts/print.ts"
+        "format:check": "prettier --check ."
     },
     "keywords": [
         "opencode",

@@ -1,4 +1,3 @@
-import type { PluginConfig } from "../config"
 import type { WithParts } from "../state"
 import { isMessageWithInfo } from "./shape"
 
@@ -17,22 +16,6 @@ export const getLastUserMessage = (
         }
     }
     return null
-}
-
-export const messageHasCompress = (message: WithParts): boolean => {
-    if (!isMessageWithInfo(message)) {
-        return false
-    }
-
-    if (message.info.role !== "assistant") {
-        return false
-    }
-
-    const parts = Array.isArray(message.parts) ? message.parts : []
-    return parts.some(
-        (part) =>
-            part.type === "tool" && part.tool === "compress" && part.state?.status === "completed",
-    )
 }
 
 export const isIgnoredUserMessage = (message: WithParts): boolean => {
@@ -56,17 +39,4 @@ export const isIgnoredUserMessage = (message: WithParts): boolean => {
     }
 
     return true
-}
-
-export function isProtectedUserMessage(config: PluginConfig, message: WithParts): boolean {
-    if (!isMessageWithInfo(message)) {
-        return false
-    }
-
-    return (
-        config.compress.mode === "message" &&
-        config.compress.protectUserMessages &&
-        message.info.role === "user" &&
-        !isIgnoredUserMessage(message)
-    )
 }

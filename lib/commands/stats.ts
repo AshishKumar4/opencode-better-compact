@@ -1,15 +1,13 @@
 /**
  * Better Compact Stats command handler.
- * Shows pruning statistics for the current session and all-time totals.
+ * Reports the live boundary pruning plan for the current session.
  */
 
 import type { Logger } from "../logger"
-import type { SessionState, WithParts } from "../state"
+import type { BoundaryJobStatus, SessionState, WithParts } from "../state"
 import { sendIgnoredMessage } from "../ui/notification"
 import { formatTokenCount } from "../ui/utils"
-import { loadAllSessionStats, type AggregatedStats } from "../state/persistence"
 import { getCurrentParams } from "../token-utils"
-import { getActiveCompressionTargets } from "./compression-targets"
 
 export interface StatsCommandContext {
     client: any
@@ -19,141 +17,116 @@ export interface StatsCommandContext {
     messages: WithParts[]
 }
 
-export function formatStatsMessage(
-    sessionTokens: number,
-    sessionSummaryTokens: number,
-    sessionTools: number,
-    sessionMessages: number,
-    sessionDurationMs: number,
-    allTime: AggregatedStats,
-): string {
+export interface StatsStageSummary {
+    label: string
+    clearedTokens: number
+    status: string
+}
+
+export interface StatsReport {
+    hasPlan: boolean
+    status: BoundaryJobStatus | null
+    beforeTokens: number
+    afterTokens: number
+    clearedTokens: number
+    targetTokens: number
+    contextLimit: number
+    transcriptPath: string | null
+    createdAt: number | null
+    stages: StatsStageSummary[]
+}
+
+export function buildStatsReport(state: SessionState): StatsReport {
+    const plan = state.boundary.activePlan
+    const status = state.boundary.job?.status ?? null
+
+    if (!plan || plan.sessionId !== state.sessionId) {
+        return {
+            hasPlan: false,
+            status,
+            beforeTokens: 0,
+            afterTokens: 0,
+            clearedTokens: 0,
+            targetTokens: 0,
+            contextLimit: 0,
+            transcriptPath: null,
+            createdAt: null,
+            stages: [],
+        }
+    }
+
+    return {
+        hasPlan: true,
+        status,
+        beforeTokens: plan.beforeTokens,
+        afterTokens: plan.afterPruneTokens,
+        clearedTokens: Math.max(0, plan.beforeTokens - plan.afterPruneTokens),
+        targetTokens: plan.targetTokens,
+        contextLimit: plan.contextLimit,
+        transcriptPath: plan.transcriptRelativePath || null,
+        createdAt: plan.createdAt ?? null,
+        stages: (plan.stages ?? []).map((stage) => ({
+            label: stage.label,
+            clearedTokens: stage.clearedTokens,
+            status: stage.status,
+        })),
+    }
+}
+
+export function formatStatsMessage(report: StatsReport): string {
     const lines: string[] = []
 
     lines.push("╭───────────────────────────────────────────────────────────╮")
     lines.push("│                Better Compact Statistics                  │")
     lines.push("╰───────────────────────────────────────────────────────────╯")
     lines.push("")
-    lines.push("Compression:")
+
+    if (!report.hasPlan) {
+        lines.push("No Better Compact plan is active for this session yet.")
+        lines.push("Run /better-compact to prune historical context.")
+        return lines.join("\n")
+    }
+
+    lines.push("Active pruning plan:")
     lines.push("─".repeat(60))
+    lines.push(`  Status:           ${report.status ?? "unknown"}`)
     lines.push(
-        `  Tokens in|out:    ~${formatTokenCount(sessionTokens)} | ~${formatTokenCount(sessionSummaryTokens)}`,
+        `  Context:          ~${formatTokenCount(report.beforeTokens)} -> ~${formatTokenCount(report.afterTokens)}`,
     )
-    lines.push(`  Ratio:            ${formatCompressionRatio(sessionTokens, sessionSummaryTokens)}`)
-    lines.push(`  Time:             ${formatCompressionTime(sessionDurationMs)}`)
-    lines.push(`  Messages:         ${sessionMessages}`)
-    lines.push(`  Tools:            ${sessionTools}`)
-    lines.push("")
-    lines.push("All-time:")
-    lines.push("─".repeat(60))
-    lines.push(`  Tokens saved:    ~${formatTokenCount(allTime.totalTokens)}`)
-    lines.push(`  Tools pruned:     ${allTime.totalTools}`)
-    lines.push(`  Messages pruned:  ${allTime.totalMessages}`)
-    lines.push(`  Sessions:         ${allTime.sessionCount}`)
+    lines.push(`  Cleared:          ~${formatTokenCount(report.clearedTokens)}`)
+    lines.push(`  Target:           ~${formatTokenCount(report.targetTokens)}`)
+    lines.push(`  Context limit:    ~${formatTokenCount(report.contextLimit)}`)
+    if (report.createdAt) {
+        lines.push(`  Created:          ${new Date(report.createdAt).toISOString()}`)
+    }
+    if (report.transcriptPath) {
+        lines.push(`  Transcript:       ${report.transcriptPath}`)
+    }
+
+    const appliedStages = report.stages.filter((stage) => stage.clearedTokens > 0)
+    if (appliedStages.length > 0) {
+        lines.push("")
+        lines.push("Stages:")
+        for (const stage of appliedStages) {
+            lines.push(`  → ${stage.label}: ~${formatTokenCount(stage.clearedTokens)} cleared`)
+        }
+    }
 
     return lines.join("\n")
-}
-
-function formatCompressionRatio(inputTokens: number, outputTokens: number): string {
-    if (inputTokens <= 0) {
-        return "0:1"
-    }
-
-    if (outputTokens <= 0) {
-        return "∞:1"
-    }
-
-    const ratio = Math.max(1, Math.round(inputTokens / outputTokens))
-    return `${ratio}:1`
-}
-
-function formatCompressionTime(ms: number): string {
-    const safeMs = Math.max(0, Math.round(ms))
-    if (safeMs < 1000) {
-        return `${safeMs} ms`
-    }
-
-    const totalSeconds = safeMs / 1000
-    if (totalSeconds < 60) {
-        return `${totalSeconds.toFixed(1)} s`
-    }
-
-    const wholeSeconds = Math.floor(totalSeconds)
-    const hours = Math.floor(wholeSeconds / 3600)
-    const minutes = Math.floor((wholeSeconds % 3600) / 60)
-    const seconds = wholeSeconds % 60
-
-    if (hours > 0) {
-        return `${hours}h ${minutes}m ${seconds}s`
-    }
-
-    return `${minutes}m ${seconds}s`
 }
 
 export async function handleStatsCommand(ctx: StatsCommandContext): Promise<void> {
     const { client, state, logger, sessionId, messages } = ctx
 
-    const report = await buildStatsReport(state, logger)
-    const message = formatStatsMessage(
-        report.sessionTokens,
-        report.sessionSummaryTokens,
-        report.sessionTools,
-        report.sessionMessages,
-        report.sessionDurationMs,
-        report.allTime,
-    )
+    const report = buildStatsReport(state)
+    const message = formatStatsMessage(report)
 
     const params = getCurrentParams(state, messages, logger)
     await sendIgnoredMessage(client, sessionId, message, params, logger)
 
     logger.info("Stats command executed", {
-        sessionTokens: report.sessionTokens,
-        sessionSummaryTokens: report.sessionSummaryTokens,
-        sessionTools: report.sessionTools,
-        sessionMessages: report.sessionMessages,
-        sessionDurationMs: report.sessionDurationMs,
-        allTimeTokens: report.allTime.totalTokens,
-        allTimeTools: report.allTime.totalTools,
-        allTimeMessages: report.allTime.totalMessages,
+        hasPlan: report.hasPlan,
+        clearedTokens: report.clearedTokens,
+        status: report.status,
     })
-}
-
-export async function buildStatsReport(state: SessionState, logger: Logger) {
-    const sessionTokens = state.stats.totalPruneTokens
-    const sessionSummaryTokens = Array.from(state.prune.messages.blocksById.values()).reduce(
-        (total, block) => (block.active ? total + block.summaryTokens : total),
-        0,
-    )
-    const sessionDurationMs = getActiveCompressionTargets(state.prune.messages).reduce(
-        (total, target) => total + target.durationMs,
-        0,
-    )
-
-    const prunedToolIds = new Set<string>(state.prune.tools.keys())
-    for (const block of state.prune.messages.blocksById.values()) {
-        if (block.active) {
-            for (const toolId of block.effectiveToolIds) {
-                prunedToolIds.add(toolId)
-            }
-        }
-    }
-    const sessionTools = prunedToolIds.size
-
-    let sessionMessages = 0
-    for (const entry of state.prune.messages.byMessageId.values()) {
-        if (entry.activeBlockIds.length > 0) {
-            sessionMessages++
-        }
-    }
-
-    // All-time stats from storage files
-    const allTime = await loadAllSessionStats(logger)
-
-    return {
-        sessionTokens,
-        sessionSummaryTokens,
-        sessionTools,
-        sessionMessages,
-        sessionDurationMs,
-        allTime,
-    }
 }

@@ -4,7 +4,6 @@ import { applyBoundaryPlanSnapshot } from "../boundary"
 import { estimateContextBreakdown } from "../context-estimate"
 import { sendIgnoredMessage } from "../ui/notification"
 import { formatTokenCount } from "../ui/utils"
-import { isIgnoredUserMessage } from "../messages/query"
 import { getCurrentParams, getCurrentTokenUsage } from "../token-utils"
 
 export interface ContextCommandContext {
@@ -27,9 +26,6 @@ export interface TokenBreakdown {
     unattributed: number
     toolCount: number
     toolsInContextCount: number
-    prunedTokens: number
-    prunedToolCount: number
-    prunedMessageCount: number
 }
 
 export function analyzeContextTokens(state: SessionState, messages: WithParts[]): TokenBreakdown {
@@ -40,7 +36,6 @@ export function analyzeContextTokens(state: SessionState, messages: WithParts[])
 
     const estimated = estimateContextBreakdown(activeMessages)
     const reportedTotal = getCurrentTokenUsage(state, messages)
-    const pruned = countPrunedTargets(state, messages)
 
     return {
         reportedTotal,
@@ -54,9 +49,6 @@ export function analyzeContextTokens(state: SessionState, messages: WithParts[])
         unattributed: Math.max(0, reportedTotal - estimated.total),
         toolCount: estimated.toolCount,
         toolsInContextCount: estimated.toolCount,
-        prunedTokens: state.stats.totalPruneTokens,
-        prunedToolCount: pruned.tools,
-        prunedMessageCount: pruned.messages,
     }
 }
 
@@ -106,14 +98,6 @@ export function formatContextMessage(breakdown: TokenBreakdown): string {
     lines.push("  Reported usage is provider/OpenCode token accounting and should match the footer.")
     lines.push("  Category percentages are OpenCode-style estimates over visible active history, not exact provider attribution.")
 
-    if (breakdown.prunedTokens > 0) {
-        const pruned = []
-        if (breakdown.prunedToolCount > 0) pruned.push(`${breakdown.prunedToolCount} tools`)
-        if (breakdown.prunedMessageCount > 0) pruned.push(`${breakdown.prunedMessageCount} messages`)
-        lines.push("")
-        lines.push(`  Better Compact pruned: ${pruned.join(", ")} (~${formatTokenCount(breakdown.prunedTokens)})`)
-    }
-
     lines.push("")
     return lines.join("\n")
 }
@@ -129,18 +113,6 @@ function createBar(value: number, maxValue: number, width: number, char: string)
     if (maxValue <= 0) return ""
     const filled = Math.round((value / maxValue) * width)
     return char.repeat(Math.max(0, filled))
-}
-
-function countPrunedTargets(state: SessionState, messages: WithParts[]): { tools: number; messages: number } {
-    const visibleMessageIds = new Set(messages.filter((message) => !isIgnoredUserMessage(message)).map((message) => message.info.id))
-    let prunedMessages = 0
-    for (const [id, entry] of state.prune.messages.byMessageId) {
-        if (visibleMessageIds.has(id) && entry.activeBlockIds.length > 0) prunedMessages++
-    }
-    return {
-        tools: state.prune.tools.size,
-        messages: prunedMessages,
-    }
 }
 
 function cloneMessages(messages: WithParts[]): WithParts[] {

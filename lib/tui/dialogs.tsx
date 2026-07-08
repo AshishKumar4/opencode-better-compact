@@ -16,7 +16,7 @@ import { formatTokenCount } from "../ui/utils"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createSignal, onCleanup } from "solid-js"
-import { formatDuration, formatRatio } from "./format"
+import { formatDuration } from "./format"
 import { ActionRow, BetterCompactFrame, Card, Metric, Progress, PromptRow, StatusPill } from "./ui"
 import type { StatsReport, Theme, TuiApi } from "./types"
 
@@ -46,7 +46,6 @@ export function ContextDialog(props: {
     const theme = props.api.theme.current
     const breakdown = analyzeContextTokens(props.state, props.messages)
     const estimatedTotal = Math.max(0, breakdown.estimatedTotal)
-    const activePruned = breakdown.prunedToolCount + breakdown.prunedMessageCount
 
     return (
         <BetterCompactFrame api={props.api} title="Context" eyebrow="Better Compact" onBack={props.onBack}>
@@ -62,14 +61,6 @@ export function ContextDialog(props: {
                     value={`~${formatTokenCount(breakdown.estimatedTotal)}`}
                 />
                 <Metric theme={theme} label="Unattributed overhead" value={`~${formatTokenCount(breakdown.unattributed)}`} />
-            </Card>
-            <Card theme={theme} title="Better Compact State">
-                <Metric theme={theme} label="Active pruned targets" value={`${activePruned}`} />
-                <Metric
-                    theme={theme}
-                    label="Tokens pruned"
-                    value={`~${formatTokenCount(breakdown.prunedTokens)}`}
-                />
             </Card>
             <Card theme={theme} title="Estimated Active History">
                 <Progress
@@ -127,58 +118,71 @@ export function ContextDialog(props: {
 
 export function StatsDialog(props: { api: TuiApi; report: StatsReport; onBack: () => void }) {
     const theme = props.api.theme.current
-    const ratio = formatRatio(props.report.sessionTokens, props.report.sessionSummaryTokens)
+    const report = props.report
+
+    if (!report.hasPlan) {
+        return (
+            <BetterCompactFrame api={props.api} title="Stats" eyebrow="Better Compact" onBack={props.onBack}>
+                <Card theme={theme} title="No plan yet">
+                    <text fg={theme.textMuted}>
+                        Run /better-compact to prune historical context for this session.
+                    </text>
+                </Card>
+            </BetterCompactFrame>
+        )
+    }
+
+    const appliedStages = report.stages.filter((stage) => stage.clearedTokens > 0)
+
     return (
         <BetterCompactFrame api={props.api} title="Stats" eyebrow="Better Compact" onBack={props.onBack}>
-            <Card theme={theme} title="Session">
+            <Card theme={theme} title="Active Plan">
+                <Metric theme={theme} label="Status" value={report.status ?? "unknown"} />
                 <Metric
                     theme={theme}
-                    label="Tokens saved"
-                    value={`~${formatTokenCount(props.report.sessionTokens)}`}
+                    label="Before"
+                    value={`~${formatTokenCount(report.beforeTokens)}`}
                     hint="tokens"
                 />
                 <Metric
                     theme={theme}
-                    label="Summary size"
-                    value={`~${formatTokenCount(props.report.sessionSummaryTokens)}`}
+                    label="After"
+                    value={`~${formatTokenCount(report.afterTokens)}`}
                     hint="tokens"
                 />
-                <Metric theme={theme} label="Compression ratio" value={ratio} />
                 <Metric
                     theme={theme}
-                    label="Compression time"
-                    value={formatDuration(props.report.sessionDurationMs)}
+                    label="Cleared"
+                    value={`~${formatTokenCount(report.clearedTokens)}`}
+                    hint="tokens"
                 />
-                <Metric theme={theme} label="Tools pruned" value={`${props.report.sessionTools}`} />
                 <Metric
                     theme={theme}
-                    label="Messages pruned"
-                    value={`${props.report.sessionMessages}`}
+                    label="Target"
+                    value={`~${formatTokenCount(report.targetTokens)}`}
+                    hint="tokens"
+                />
+                <Metric
+                    theme={theme}
+                    label="Context limit"
+                    value={`~${formatTokenCount(report.contextLimit)}`}
+                    hint="tokens"
                 />
             </Card>
-            <Card theme={theme} title="All time">
-                <Metric
-                    theme={theme}
-                    label="Tokens saved"
-                    value={`~${formatTokenCount(props.report.allTime.totalTokens)}`}
-                    hint="tokens"
-                />
-                <Metric
-                    theme={theme}
-                    label="Tools pruned"
-                    value={`${props.report.allTime.totalTools}`}
-                />
-                <Metric
-                    theme={theme}
-                    label="Messages pruned"
-                    value={`${props.report.allTime.totalMessages}`}
-                />
-                <Metric
-                    theme={theme}
-                    label="Sessions with Better Compact history"
-                    value={`${props.report.allTime.sessionCount}`}
-                />
-            </Card>
+            {appliedStages.length > 0 ? (
+                <Card theme={theme} title="Stages">
+                    <box flexDirection="column" gap={0}>
+                        {appliedStages.map((stage) => (
+                            <Metric
+                                theme={theme}
+                                label={stage.label}
+                                value={`~${formatTokenCount(stage.clearedTokens)}`}
+                                hint="cleared"
+                            />
+                        ))}
+                    </box>
+                </Card>
+            ) : null}
         </BetterCompactFrame>
     )
 }

@@ -123,15 +123,6 @@ export function countToolTokens(part: any): number {
     return estimateTokensBatch(contents)
 }
 
-export function getTotalToolTokens(state: SessionState, toolIds: string[]): number {
-    let total = 0
-    for (const id of toolIds) {
-        const entry = state.toolParameters.get(id)
-        total += entry?.tokenCount ?? 0
-    }
-    return total
-}
-
 export function countMessageTextTokens(msg: WithParts): number {
     const texts: string[] = []
     const parts = Array.isArray(msg.parts) ? msg.parts : []

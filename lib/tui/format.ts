@@ -13,12 +13,6 @@ export function formatDuration(ms: number): string {
     return `${minutes}m ${seconds}s`
 }
 
-export function formatRatio(inputTokens: number, outputTokens: number): string {
-    if (inputTokens <= 0) return "0:1"
-    if (outputTokens <= 0) return "∞:1"
-    return `${Math.max(1, Math.round(inputTokens / outputTokens))}:1`
-}
-
 export function pct(value: number, total: number): string {
     if (total <= 0) return "0.0%"
     return `${((value / total) * 100).toFixed(1)}%`

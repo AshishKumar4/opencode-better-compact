@@ -1,6 +1,6 @@
 /**
- * State persistence module for Better Compact plugin.
- * Persists pruned tool IDs across sessions so they survive OpenCode restarts.
+ * State persistence for the Better Compact plugin.
+ * Persists the boundary pruning plan across sessions so it survives OpenCode restarts.
  * Storage location: ~/.local/share/opencode/storage/plugin/better-compact/{sessionId}.json
  */
 
@@ -8,41 +8,16 @@ import * as fs from "fs/promises"
 import { existsSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
-import type { CompressionBlock, PrunedMessageEntry, SessionState, SessionStats } from "./types"
+import type { SessionState } from "./types"
 import type { Logger } from "../logger"
-import { serializePruneMessagesState } from "./utils"
-
-/** Prune state as stored on disk */
-export interface PersistedPruneMessagesState {
-    byMessageId: Record<string, PrunedMessageEntry>
-    blocksById: Record<string, CompressionBlock>
-    activeBlockIds: number[]
-    activeByAnchorMessageId: Record<string, number>
-    nextBlockId: number
-    nextRunId: number
-}
-
-export interface PersistedPrune {
-    tools?: Record<string, number>
-    messages?: PersistedPruneMessagesState
-}
-
-export interface PersistedNudges {
-    contextLimitAnchors: string[]
-    turnNudgeAnchors?: string[]
-    iterationNudgeAnchors?: string[]
-}
 
 export interface PersistedSessionState {
     sessionName?: string
     manualMode?: boolean
-    prune: PersistedPrune
     boundary?: {
         activePlan?: SessionState["boundary"]["activePlan"]
         job?: SessionState["boundary"]["job"]
     }
-    nudges: PersistedNudges
-    stats: SessionStats
     lastUpdated: string
 }
 
@@ -75,10 +50,7 @@ async function writePersistedSessionState(
     const content = JSON.stringify(state, null, 2)
     await fs.writeFile(filePath, content, "utf-8")
 
-    logger.info("Saved session state to disk", {
-        sessionId,
-        totalTokensSaved: state.stats.totalPruneTokens,
-    })
+    logger.info("Saved session state to disk", { sessionId })
 }
 
 export async function saveSessionState(
@@ -94,20 +66,10 @@ export async function saveSessionState(
         const state: PersistedSessionState = {
             sessionName: sessionName,
             manualMode: !!sessionState.manualMode,
-            prune: {
-                tools: Object.fromEntries(sessionState.prune.tools),
-                messages: serializePruneMessagesState(sessionState.prune.messages),
-            },
             boundary: {
                 activePlan: sessionState.boundary.activePlan,
                 job: sessionState.boundary.job,
             },
-            nudges: {
-                contextLimitAnchors: Array.from(sessionState.nudges.contextLimitAnchors),
-                turnNudgeAnchors: Array.from(sessionState.nudges.turnNudgeAnchors),
-                iterationNudgeAnchors: Array.from(sessionState.nudges.iterationNudgeAnchors),
-            },
-            stats: sessionState.stats,
             lastUpdated: new Date().toISOString(),
         }
 
@@ -134,74 +96,12 @@ export async function loadSessionState(
         const content = await fs.readFile(filePath, "utf-8")
         const state = JSON.parse(content) as PersistedSessionState
 
-        const hasPruneTools = state?.prune?.tools && typeof state.prune.tools === "object"
-        const hasPruneMessages = state?.prune?.messages && typeof state.prune.messages === "object"
-        const hasNudgeFormat = state?.nudges && typeof state.nudges === "object"
-        if (
-            !state ||
-            !state.prune ||
-            !hasPruneTools ||
-            !hasPruneMessages ||
-            !state.stats ||
-            !hasNudgeFormat
-        ) {
-            logger.warn("Invalid session state file, ignoring", {
-                sessionId: sessionId,
-            })
+        if (!state || typeof state !== "object") {
+            logger.warn("Invalid session state file, ignoring", { sessionId })
             return null
         }
 
-        const rawContextLimitAnchors = Array.isArray(state.nudges.contextLimitAnchors)
-            ? state.nudges.contextLimitAnchors
-            : []
-        const validAnchors = rawContextLimitAnchors.filter(
-            (entry): entry is string => typeof entry === "string",
-        )
-        const dedupedAnchors = [...new Set(validAnchors)]
-        if (validAnchors.length !== rawContextLimitAnchors.length) {
-            logger.warn("Filtered out malformed contextLimitAnchors entries", {
-                sessionId: sessionId,
-                original: rawContextLimitAnchors.length,
-                valid: validAnchors.length,
-            })
-        }
-        state.nudges.contextLimitAnchors = dedupedAnchors
-
-        const rawTurnNudgeAnchors = Array.isArray(state.nudges.turnNudgeAnchors)
-            ? state.nudges.turnNudgeAnchors
-            : []
-        const validSoftAnchors = rawTurnNudgeAnchors.filter(
-            (entry): entry is string => typeof entry === "string",
-        )
-        const dedupedSoftAnchors = [...new Set(validSoftAnchors)]
-        if (validSoftAnchors.length !== rawTurnNudgeAnchors.length) {
-            logger.warn("Filtered out malformed turnNudgeAnchors entries", {
-                sessionId: sessionId,
-                original: rawTurnNudgeAnchors.length,
-                valid: validSoftAnchors.length,
-            })
-        }
-        state.nudges.turnNudgeAnchors = dedupedSoftAnchors
-
-        const rawIterationNudgeAnchors = Array.isArray(state.nudges.iterationNudgeAnchors)
-            ? state.nudges.iterationNudgeAnchors
-            : []
-        const validIterationAnchors = rawIterationNudgeAnchors.filter(
-            (entry): entry is string => typeof entry === "string",
-        )
-        const dedupedIterationAnchors = [...new Set(validIterationAnchors)]
-        if (validIterationAnchors.length !== rawIterationNudgeAnchors.length) {
-            logger.warn("Filtered out malformed iterationNudgeAnchors entries", {
-                sessionId: sessionId,
-                original: rawIterationNudgeAnchors.length,
-                valid: validIterationAnchors.length,
-            })
-        }
-        state.nudges.iterationNudgeAnchors = dedupedIterationAnchors
-
-        logger.info("Loaded session state from disk", {
-            sessionId: sessionId,
-        })
+        logger.info("Loaded session state from disk", { sessionId })
 
         return state
     } catch (error: any) {
@@ -216,29 +116,9 @@ export async function loadSessionState(
 function emptyPersistedState(manualMode: boolean): PersistedSessionState {
     return {
         manualMode,
-        prune: {
-            tools: {},
-            messages: {
-                byMessageId: {},
-                blocksById: {},
-                activeBlockIds: [],
-                activeByAnchorMessageId: {},
-                nextBlockId: 1,
-                nextRunId: 1,
-            },
-        },
         boundary: {
             activePlan: null,
             job: null,
-        },
-        nudges: {
-            contextLimitAnchors: [],
-            turnNudgeAnchors: [],
-            iterationNudgeAnchors: [],
-        },
-        stats: {
-            pruneTokenCounter: 0,
-            totalPruneTokens: 0,
         },
         lastUpdated: new Date().toISOString(),
     }
@@ -262,56 +142,4 @@ export async function saveManualModeSetting(
     state.manualMode = manualMode
     state.lastUpdated = new Date().toISOString()
     await writePersistedSessionState(sessionId, state, logger)
-}
-
-export interface AggregatedStats {
-    totalTokens: number
-    totalTools: number
-    totalMessages: number
-    sessionCount: number
-}
-
-export async function loadAllSessionStats(logger: Logger): Promise<AggregatedStats> {
-    const result: AggregatedStats = {
-        totalTokens: 0,
-        totalTools: 0,
-        totalMessages: 0,
-        sessionCount: 0,
-    }
-
-    try {
-        if (!existsSync(STORAGE_DIR)) {
-            return result
-        }
-
-        const files = await fs.readdir(STORAGE_DIR)
-        const jsonFiles = files.filter((f) => f.endsWith(".json"))
-
-        for (const file of jsonFiles) {
-            try {
-                const filePath = join(STORAGE_DIR, file)
-                const content = await fs.readFile(filePath, "utf-8")
-                const state = JSON.parse(content) as PersistedSessionState
-
-                if (state?.stats?.totalPruneTokens && state?.prune) {
-                    result.totalTokens += state.stats.totalPruneTokens
-                    result.totalTools += state.prune.tools
-                        ? Object.keys(state.prune.tools).length
-                        : 0
-                    result.totalMessages += state.prune.messages?.byMessageId
-                        ? Object.keys(state.prune.messages.byMessageId).length
-                        : 0
-                    result.sessionCount++
-                }
-            } catch {
-                // Skip invalid files
-            }
-        }
-
-        logger.debug("Loaded all-time stats", result)
-    } catch (error: any) {
-        logger.warn("Failed to load all-time stats", { error: error?.message })
-    }
-
-    return result
 }

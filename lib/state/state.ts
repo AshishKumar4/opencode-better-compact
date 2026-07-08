@@ -1,16 +1,11 @@
-import type { SessionState, ToolParameterEntry, WithParts } from "./types"
+import type { SessionState, WithParts } from "./types"
 import type { Logger } from "../logger"
-import { applyPendingCompressionDurations } from "../compress/timing"
 import { loadManualModeSetting, loadSessionState, saveSessionState } from "./persistence"
 import {
     isSubAgentSession,
     findLastCompactionTimestamp,
     countTurns,
     resetOnCompaction,
-    createPruneMessagesState,
-    loadPruneMessagesState,
-    loadPruneMap,
-    collectTurnNudgeAnchors,
 } from "./utils"
 import { getLastUserMessage } from "../messages/query"
 
@@ -69,37 +64,11 @@ export function createSessionState(): SessionState {
         isSubAgent: false,
         manualMode: false,
         compressPermission: undefined,
-        pendingManualTrigger: null,
-        prune: {
-            tools: new Map<string, number>(),
-            messages: createPruneMessagesState(),
-        },
-        nudges: {
-            contextLimitAnchors: new Set<string>(),
-            turnNudgeAnchors: new Set<string>(),
-            iterationNudgeAnchors: new Set<string>(),
-        },
         boundary: {
             compactingSessionId: null,
             scratchSessionIds: new Set<string>(),
             job: null,
             activePlan: null,
-        },
-        stats: {
-            pruneTokenCounter: 0,
-            totalPruneTokens: 0,
-        },
-        compressionTiming: {
-            startsByCallId: new Map<string, number>(),
-            pendingByCallId: new Map(),
-        },
-        toolParameters: new Map<string, ToolParameterEntry>(),
-        subAgentResultCache: new Map<string, string>(),
-        toolIdList: [],
-        messageIds: {
-            byRawId: new Map<string, string>(),
-            byRef: new Map<string, string>(),
-            nextRef: 1,
         },
         lastCompaction: 0,
         currentTurn: 0,
@@ -112,33 +81,11 @@ export function resetSessionState(state: SessionState): void {
     state.isSubAgent = false
     state.manualMode = false
     state.compressPermission = undefined
-    state.pendingManualTrigger = null
-    state.prune = {
-        tools: new Map<string, number>(),
-        messages: createPruneMessagesState(),
-    }
-    state.nudges = {
-        contextLimitAnchors: new Set<string>(),
-        turnNudgeAnchors: new Set<string>(),
-        iterationNudgeAnchors: new Set<string>(),
-    }
     state.boundary = {
         compactingSessionId: null,
         scratchSessionIds: new Set<string>(),
         job: null,
         activePlan: null,
-    }
-    state.stats = {
-        pruneTokenCounter: 0,
-        totalPruneTokens: 0,
-    }
-    state.toolParameters.clear()
-    state.subAgentResultCache.clear()
-    state.toolIdList = []
-    state.messageIds = {
-        byRawId: new Map<string, string>(),
-        byRef: new Map<string, string>(),
-        nextRef: 1,
     }
     state.lastCompaction = 0
     state.currentTurn = 0
@@ -170,7 +117,6 @@ export async function ensureSessionInitialized(
 
     state.lastCompaction = findLastCompactionTimestamp(messages)
     state.currentTurn = countTurns(state, messages)
-    state.nudges.turnNudgeAnchors = collectTurnNudgeAnchors(messages)
 
     const persisted = await loadSessionState(sessionId, logger)
     if (persisted === null) {
@@ -181,27 +127,8 @@ export async function ensureSessionInitialized(
         state.manualMode = persisted.manualMode ? "active" : false
     }
 
-    state.prune.tools = loadPruneMap(persisted.prune.tools)
-    state.prune.messages = loadPruneMessagesState(persisted.prune.messages)
     state.boundary.activePlan = persisted.boundary?.activePlan ?? null
     state.boundary.job = persisted.boundary?.job ?? null
-    state.nudges.contextLimitAnchors = new Set<string>(persisted.nudges.contextLimitAnchors || [])
-    state.nudges.turnNudgeAnchors = new Set<string>([
-        ...state.nudges.turnNudgeAnchors,
-        ...(persisted.nudges.turnNudgeAnchors || []),
-    ])
-    state.nudges.iterationNudgeAnchors = new Set<string>(
-        persisted.nudges.iterationNudgeAnchors || [],
-    )
-    state.stats = {
-        pruneTokenCounter: persisted.stats?.pruneTokenCounter || 0,
-        totalPruneTokens: persisted.stats?.totalPruneTokens || 0,
-    }
-
-    const applied = applyPendingCompressionDurations(state)
-    if (applied > 0) {
-        await saveSessionState(state, logger)
-    }
 }
 
 export async function refreshManualMode(
