@@ -2,7 +2,6 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
     compressDisabledByOpencode,
-    hasExplicitToolPermission,
     resolveEffectiveCompressPermission,
 } from "../lib/host-permissions"
 
@@ -82,23 +81,5 @@ test("compress permission resolution works without Array.findLast", () => {
         )
     } finally {
         Array.prototype.findLast = originalFindLast
-    }
-})
-
-test("explicit compress permissions are detected", () => {
-    assert.equal(hasExplicitToolPermission({ compress: "ask" }, "compress"), true)
-    assert.equal(hasExplicitToolPermission({ "*": "deny" }, "compress"), false)
-})
-
-test("explicit permission detection works without Object.hasOwn", () => {
-    const originalHasOwn = Object.hasOwn
-
-    try {
-        delete (Object as typeof Object & { hasOwn?: unknown }).hasOwn
-
-        assert.equal(hasExplicitToolPermission({ compress: "ask" }, "compress"), true)
-        assert.equal(hasExplicitToolPermission({ "*": "deny" }, "compress"), false)
-    } finally {
-        Object.hasOwn = originalHasOwn
     }
 })

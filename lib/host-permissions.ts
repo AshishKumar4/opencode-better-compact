@@ -92,10 +92,3 @@ export const resolveEffectiveCompressPermission = (
         ? "deny"
         : basePermission
 }
-
-export const hasExplicitToolPermission = (
-    permissionConfig: PermissionConfig,
-    tool: string,
-): boolean => {
-    return permissionConfig ? Object.prototype.hasOwnProperty.call(permissionConfig, tool) : false
-}
