@@ -172,6 +172,94 @@ test("boundary planner compactifies old assistant/tool context and preserves raw
     }
 })
 
+function buildMultiRunConversation(): WithParts[] {
+    return [
+        message("msg-user-1", "user", [textPart("msg-user-1", "First task, keep this requirement.")], 1),
+        message(
+            "msg-assistant-big",
+            "assistant",
+            [
+                reasoningPart("msg-assistant-big", "big private reasoning ".repeat(500)),
+                textPart("msg-assistant-big", "big assistant detail ".repeat(7_000)),
+                toolPart("msg-assistant-big", "read", "big tool output ".repeat(500)),
+            ],
+            2,
+        ),
+        message("msg-user-2", "user", [textPart("msg-user-2", "Second task.")], 3),
+        message(
+            "msg-assistant-small",
+            "assistant",
+            [
+                reasoningPart("msg-assistant-small", "small private reasoning ".repeat(200)),
+                textPart("msg-assistant-small", "small assistant detail"),
+                toolPart("msg-assistant-small", "grep", "small tool output ".repeat(200), { pattern: "needle" }),
+            ],
+            4,
+        ),
+        message("msg-user-3", "user", [textPart("msg-user-3", "Third task stays raw.")], 5),
+        message("msg-assistant-tail", "assistant", [textPart("msg-assistant-tail", "tail assistant")], 6),
+        message("msg-user-4", "user", [textPart("msg-user-4", "Latest user stays raw.")], 7),
+    ]
+}
+
+test("applied output matches the simulated plan when assistant runs are summarized", () => {
+    const messages = buildMultiRunConversation()
+    const options = {
+        contextLimit: 40_000,
+        recentToolResultBudgetTokens: 0,
+    }
+    const firstPass = buildBoundaryContextPlan(messages, options)
+    assert.ok(firstPass)
+    assert.ok(firstPass.stages.some((stage) => stage.name === "assistant-runs" && stage.status === "applied"))
+    assert.ok(firstPass.summaryJobs.length > 0)
+
+    const assistantSummaries = Object.fromEntries(
+        firstPass.assistantSummaryKeys.map((key) => [key, "Accepted summary: shipped the first task end to end."]),
+    )
+    const plan = buildBoundaryContextPlan(messages, { ...options, assistantSummaries })
+    assert.ok(plan)
+    assert.equal(plan.summaryJobs.length, 0)
+
+    applyBoundaryContextPlan(messages, plan)
+
+    assert.equal(plan.afterPruneTokens, estimateOpenCodeMessages(messages))
+    assert.ok(!plan.stages.some((stage) => stage.name === "prefix-summary"))
+    assert.ok(estimateOpenCodeMessages(messages) < plan.triggerTokens)
+
+    const selectedRun = messages.find((item) => item.info.id === "msg-assistant-big")
+    assert.equal(selectedRun?.parts.length, 1)
+    assert.equal(selectedRun?.parts[0]?.type, "text")
+    if (selectedRun?.parts[0]?.type === "text") {
+        assert.match(selectedRun.parts[0].text, /Accepted summary: shipped the first task end to end\./)
+    }
+
+    // The core drift bug: non-selected prefix runs must keep the stage 1-4
+    // pruning (no tool/reasoning parts) in the applied output.
+    const nonSelectedRun = messages.find((item) => item.info.id === "msg-assistant-small")
+    assert.ok(nonSelectedRun)
+    assert.ok(!nonSelectedRun.parts.some((part) => part.type === "tool" || part.type === "reasoning"))
+
+    const tailAssistant = messages.find((item) => item.info.id === "msg-assistant-tail")
+    assert.ok(tailAssistant)
+})
+
+test("prefix summary fires when pruning cannot get the applied output below trigger", () => {
+    const messages = buildMultiRunConversation()
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 500,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(plan)
+    assert.equal(plan.requiresCustomCompaction, true)
+    assert.ok(plan.stages.some((stage) => stage.name === "prefix-summary"))
+
+    applyBoundaryContextPlan(messages, plan)
+
+    assert.equal(plan.afterPruneTokens, estimateOpenCodeMessages(messages))
+    assert.ok(messages[0]?.info.id.startsWith("msg_better_compact_summary_"))
+    assert.equal(messages.at(-1)?.info.id, "msg-user-4")
+})
+
 test("boundary report shows visual context bars without internal threshold jargon", () => {
     const plan = buildBoundaryContextPlan(buildLargeConversation(), {
         contextLimit: 20_000,

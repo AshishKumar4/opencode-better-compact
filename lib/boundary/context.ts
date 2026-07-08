@@ -147,6 +147,11 @@ export function buildBoundaryContextPlan(
         triggerTokens,
         targetTokens: Math.floor(contextLimit * targetRatio),
     }
+    // The applied output always carries a reference message; gates must account
+    // for it so a "trigger met" claim holds for the real transformed context.
+    const reference = createReferenceMessage(messages, compactedRange, transcriptRelativePath)
+    const referenceTokens = reference ? estimateOpenCodeMessages([reference]) : 0
+    const projectedTokens = () => estimateMessages(working, estimator) + referenceTokens
 
     runStage(stages, working, range, "skills", "Pruned loaded skills", () =>
         stripSkillToolParts(working, rawTailStartIndex),
@@ -154,21 +159,21 @@ export function buildBoundaryContextPlan(
     runStage(stages, working, range, "tools-old", "Pruned old tool calls/results", () =>
         stripToolParts(working, rawTailStartIndex, transcriptRelativePath, preservedToolCallIds),
     )
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (projectedTokens() < triggerTokens) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "reasoning", "Pruned thinking tokens", () =>
             stripReasoningParts(working, rawTailStartIndex),
         )
     }
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (projectedTokens() < triggerTokens) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "tools-remaining", "Pruned remaining tool calls/results", () =>
             stripToolParts(working, rawTailStartIndex, transcriptRelativePath, new Set()),
         )
     }
-    if (isBelowTrigger(working, estimator, triggerTokens)) {
+    if (projectedTokens() < triggerTokens) {
         markTargetMet(stages)
     } else {
         runStage(stages, working, range, "assistant-runs", "Summarized assistant turns", () =>
@@ -177,17 +182,17 @@ export function buildBoundaryContextPlan(
                 latestTodoCallId: findLatestTodoCallId(compactedRange),
                 assistantSummaries,
                 assistantSummaryKeys,
-            }, summaryJobs, estimator, range.targetTokens),
+            }, summaryJobs, estimator, range.targetTokens, referenceTokens),
         )
     }
 
     let requiresCustomCompaction = false
     let prefixSummary = options.prefixSummary
-    if (!isBelowTrigger(working, estimator, triggerTokens)) {
+    if (projectedTokens() >= triggerTokens) {
         const currentTailStartIndex = working.findIndex(
             (message) => message.info.id === messages[rawTailStartIndex]?.info.id,
         )
-        const beforePrefix = estimateMessages(working, estimator)
+        const beforePrefix = projectedTokens()
         const result = applyPrefixSummary(
             working,
             currentTailStartIndex > 0 ? currentTailStartIndex : rawTailStartIndex,
@@ -428,10 +433,6 @@ function markTargetMet(stages: BoundaryStageReport[]): void {
     last.status = "target-met"
 }
 
-function isBelowTrigger(messages: WithParts[], estimator: MessageEstimator, triggerTokens: number): boolean {
-    return estimateMessages(messages, estimator) < triggerTokens
-}
-
 function findRecentToolCallTail(
     messages: WithParts[],
     estimator: MessageEstimator,
@@ -547,23 +548,28 @@ function compactAssistantRuns(
     summaryJobs: BoundarySummaryJob[],
     estimator: MessageEstimator,
     targetTokens: number,
+    referenceTokens: number,
 ): StageMutationResult {
     const compacted = messages.slice(0, rawTailStartIndex)
-    const selectedKeys = selectAssistantRunsToSummarize(compacted, messages, estimator, targetTokens)
+    const selectedKeys = selectAssistantRunsToSummarize(compacted, messages, estimator, targetTokens, referenceTokens)
     for (const key of selectedKeys) context.assistantSummaryKeys.add(key)
     const transformed = transformCompactedPrefix(compacted, context, summaryJobs)
     const tail = messages.slice(rawTailStartIndex)
     const changedMessages = new Set<string>()
+    let changedParts = 0
     for (const group of assistantGroups(compacted)) {
         if (!selectedKeys.has(group.key)) continue
-        for (const message of group.messages) changedMessages.add(message.info.id)
+        let groupParts = 0
+        for (const message of group.messages) {
+            changedMessages.add(message.info.id)
+            groupParts += message.parts.length
+        }
+        // Each selected group collapses into a single replacement text part.
+        changedParts += Math.max(0, groupParts - 1)
     }
     messages.length = 0
     messages.push(...transformed, ...tail)
-    return {
-        changedMessages,
-        changedParts: Math.max(0, compacted.reduce((sum, message) => sum + message.parts.length, 0) - transformed.length),
-    }
+    return { changedMessages, changedParts }
 }
 
 function selectAssistantRunsToSummarize(
@@ -571,8 +577,9 @@ function selectAssistantRunsToSummarize(
     allMessages: WithParts[],
     estimator: MessageEstimator,
     targetTokens: number,
+    referenceTokens: number,
 ): Set<string> {
-    const needed = estimateMessages(allMessages, estimator) - targetTokens
+    const needed = estimateMessages(allMessages, estimator) + referenceTokens - targetTokens
     if (needed <= 0) return new Set()
 
     let selectedSavings = 0
@@ -690,37 +697,36 @@ function transformMessages(messages: WithParts[], rawTailStartIndex: number, pla
             ...messages.slice(rawTailStartIndex),
         ]
     }
+    // Replay the recorded strip stages exactly as the planner simulated them,
+    // then summarize assistant runs over the stripped prefix. This keeps the
+    // applied output identical to the simulation used for the plan's numbers.
     const stageNames = new Set<string>(plan.stages.map((stage) => stage.name))
-    if (!stageNames.has("assistant-runs")) {
-        const working = cloneMessages(messages)
-        if (stageNames.has("skills")) stripSkillToolParts(working, rawTailStartIndex)
-        if (stageNames.has("tools-old")) {
-            stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set(plan.preservedToolCallIds))
-        }
-        if (stageNames.has("reasoning")) stripReasoningParts(working, rawTailStartIndex)
-        if (stageNames.has("tools-remaining") || stageNames.has("tools")) {
-            stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set())
-        }
-        const result = working.slice(0, rawTailStartIndex)
-        const reference = createReferenceMessage(working, working.slice(0, rawTailStartIndex), plan.transcript.relativePath)
-        if (reference) result.push(reference)
-        result.push(...working.slice(rawTailStartIndex))
-        return result
+    const working = cloneMessages(messages)
+    if (stageNames.has("skills")) stripSkillToolParts(working, rawTailStartIndex)
+    if (stageNames.has("tools-old")) {
+        stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set(plan.preservedToolCallIds))
     }
-    const summaryJobs: BoundarySummaryJob[] = []
-    const result = transformCompactedPrefix(
-        messages.slice(0, rawTailStartIndex),
-        {
-            transcriptRelativePath: plan.transcript.relativePath,
-            latestTodoCallId: findLatestTodoCallId(messages.slice(0, rawTailStartIndex)),
-            assistantSummaries: plan.assistantSummaries,
-            assistantSummaryKeys: new Set(plan.assistantSummaryKeys),
-        },
-        summaryJobs,
-    )
+    if (stageNames.has("reasoning")) stripReasoningParts(working, rawTailStartIndex)
+    if (stageNames.has("tools-remaining")) {
+        stripToolParts(working, rawTailStartIndex, plan.transcript.relativePath, new Set())
+    }
+    let prefix = working.slice(0, rawTailStartIndex)
+    if (stageNames.has("assistant-runs")) {
+        prefix = transformCompactedPrefix(
+            prefix,
+            {
+                transcriptRelativePath: plan.transcript.relativePath,
+                latestTodoCallId: findLatestTodoCallId(messages.slice(0, rawTailStartIndex)),
+                assistantSummaries: plan.assistantSummaries,
+                assistantSummaryKeys: new Set(plan.assistantSummaryKeys),
+            },
+            [],
+        )
+    }
+    const result = [...prefix]
     const reference = createReferenceMessage(messages, messages.slice(0, rawTailStartIndex), plan.transcript.relativePath)
     if (reference) result.push(reference)
-    result.push(...messages.slice(rawTailStartIndex))
+    result.push(...working.slice(rawTailStartIndex))
     return result
 }
 
