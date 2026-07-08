@@ -256,13 +256,16 @@ export function applyBoundaryPlanSnapshot(
 ): boolean {
     const rawTailStartIndex = messages.findIndex((message) => message.info.id === plan.rawTailStartMessageId)
     if (rawTailStartIndex <= 0) return false
+    // A stale plan must never apply to an edited prefix.
+    if (rangeHash(messages.slice(0, rawTailStartIndex)) !== plan.rangeHash) return false
+    const overheadTokens = plan.overheadTokens ?? 0
     const transformed = transformMessages(messages, rawTailStartIndex, {
         sessionId: plan.sessionId,
         rangeHash: plan.rangeHash,
         contextLimit: plan.contextLimit ?? Math.max(plan.beforeTokens, plan.targetTokens, 1),
         beforeTokens: plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
-        overheadTokens: plan.overheadTokens ?? 0,
+        overheadTokens,
         triggerTokens: plan.triggerTokens,
         targetTokens: plan.targetTokens,
         rawTailStartIndex,
@@ -280,6 +283,9 @@ export function applyBoundaryPlanSnapshot(
         assistantSummaries: plan.assistantSummaries ?? {},
         prefixSummary: plan.prefixSummary,
     })
+    // Once new turns regrow the context past the trigger, the frozen plan no
+    // longer suffices; refuse so the caller rebuilds with a fresh boundary.
+    if (estimateOpenCodeMessages(transformed) + overheadTokens >= plan.triggerTokens) return false
     messages.length = 0
     messages.push(...transformed)
     return true

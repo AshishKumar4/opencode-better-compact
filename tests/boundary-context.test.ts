@@ -3,9 +3,12 @@ import test from "node:test"
 import type { WithParts } from "../lib/state"
 import {
     applyBoundaryContextPlan,
+    applyBoundaryPlanSnapshot,
     buildBoundaryContextPlan,
     formatBoundaryReport,
+    storeBoundaryPlan,
 } from "../lib/boundary/context"
+import { createSessionState } from "../lib/state"
 import { estimateOpenCodeMessages } from "../lib/context-estimate"
 
 const sessionID = "ses_boundary_context"
@@ -301,6 +304,53 @@ test("boundary projection does not scale transformed context by raw provider rat
     assert.equal(plan.beforeTokens, providerReportedTokens)
     assert.equal(plan.afterPruneTokens, directAfter)
     assert.ok(plan.afterPruneTokens > oldScaledAfter * 2)
+})
+
+function storedPlanFor(messages: WithParts[]) {
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 40_000,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(plan)
+    const state = createSessionState()
+    state.sessionId = sessionID
+    storeBoundaryPlan(state, plan)
+    assert.ok(state.boundary.activePlan)
+    return state.boundary.activePlan
+}
+
+test("plan snapshot refuses to apply when the prefix was edited", () => {
+    const activePlan = storedPlanFor(buildMultiRunConversation())
+
+    const replayMessages = buildMultiRunConversation()
+    assert.equal(applyBoundaryPlanSnapshot(replayMessages, activePlan), true)
+    assert.ok(replayMessages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
+
+    const editedMessages = buildMultiRunConversation()
+    editedMessages[1].info.time.created = 999
+    const before = JSON.stringify(editedMessages)
+    assert.equal(applyBoundaryPlanSnapshot(editedMessages, activePlan), false)
+    assert.equal(JSON.stringify(editedMessages), before)
+})
+
+test("plan snapshot refuses to apply once the transformed output regrows past trigger", () => {
+    const activePlan = storedPlanFor(buildMultiRunConversation())
+
+    const regrown = buildMultiRunConversation()
+    for (let index = 0; index < 12; index++) {
+        regrown.push(
+            message(`msg-user-new-${index}`, "user", [textPart(`msg-user-new-${index}`, "next task")], 100 + index * 2),
+            message(
+                `msg-assistant-new-${index}`,
+                "assistant",
+                [textPart(`msg-assistant-new-${index}`, "fresh assistant output ".repeat(2_000))],
+                101 + index * 2,
+            ),
+        )
+    }
+    const before = JSON.stringify(regrown)
+    assert.equal(applyBoundaryPlanSnapshot(regrown, activePlan), false)
+    assert.equal(JSON.stringify(regrown), before)
 })
 
 test("provider-reported totals keep plan accounting on a single scale", () => {
