@@ -53,6 +53,8 @@ export function countTurns(state: SessionState, messages: WithParts[]): number {
 export function resetOnCompaction(state: SessionState): void {
     state.boundary = {
         scratchSessionIds: new Set<string>(),
+        // Keep the instance so an in-flight run still releases its guard.
+        runningSessionIds: state.boundary.runningSessionIds,
         job: null,
         activePlan: null,
     }

@@ -51,6 +51,8 @@ export interface BoundaryJobProgress {
 
 export interface BoundaryState {
     scratchSessionIds: Set<string>
+    // In-memory only (never persisted): sessions with a Better Compact run in flight.
+    runningSessionIds: Set<string>
     job: BoundaryJobProgress | null
     activePlan: {
         sessionId: string

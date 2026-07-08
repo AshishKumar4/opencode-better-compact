@@ -66,6 +66,7 @@ export function createSessionState(): SessionState {
         compressPermission: undefined,
         boundary: {
             scratchSessionIds: new Set<string>(),
+            runningSessionIds: new Set<string>(),
             job: null,
             activePlan: null,
         },
@@ -82,6 +83,8 @@ export function resetSessionState(state: SessionState): void {
     state.compressPermission = undefined
     state.boundary = {
         scratchSessionIds: new Set<string>(),
+        // Keep the instance so an in-flight run still releases its guard.
+        runningSessionIds: state.boundary.runningSessionIds,
         job: null,
         activePlan: null,
     }

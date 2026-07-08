@@ -414,6 +414,53 @@ test("better-compact stores virtual plan and reports progress without native sum
     assert.ok(state.boundary.job?.logs.some((line) => line.includes("Transcript written")))
 })
 
+test("concurrent better-compact runs for a session are rejected while one is in flight", async () => {
+    const messages = [
+        buildUserMessage("user-1", "old user request", 1),
+        buildAssistantToolMessage("assistant-1", 2),
+        buildUserMessage("user-2", "middle user request", 3),
+        buildMessage("assistant-2", "assistant", "middle assistant response"),
+        buildUserMessage("user-3", "latest user request", 5),
+    ]
+    const prompts: any[] = []
+    const releases: Array<() => void> = []
+    const state = createSessionState()
+    const handler = createCommandExecuteHandler(
+        {
+            session: {
+                get: async () => ({ data: { parentID: null } }),
+                messages: async () => ({ data: messages }),
+                prompt: async (input: any) => {
+                    prompts.push(input)
+                    await new Promise<void>((resolve) => releases.push(resolve))
+                    return { data: true }
+                },
+            },
+        } as any,
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-concurrent-")),
+        { global: undefined, agents: {} },
+    )
+
+    const first = handler({ command: "better-compact", sessionID: "session-1", arguments: "" }, { parts: [] as any[] })
+    const second = handler({ command: "better-compact", sessionID: "session-1", arguments: "" }, { parts: [] as any[] })
+    await Promise.all([first, second])
+
+    // First run blocks on its deferred final report; the second must have
+    // been turned away without starting a job of its own.
+    await waitFor(() => prompts.length === 2)
+    releases.splice(0).forEach((release) => release())
+    await waitFor(() => state.boundary.job?.status === "completed")
+    releases.splice(0).forEach((release) => release())
+
+    const texts = prompts.map((prompt) => prompt.body.parts[0].text)
+    assert.equal(texts.filter((text) => /already running/.test(text)).length, 1)
+    assert.equal(texts.filter((text) => /Better Compact Complete/.test(text)).length, 1)
+    assert.equal(state.boundary.runningSessionIds.size, 0)
+})
+
 test("chat message sentinel runs better-compact as no-reply TUI action", async () => {
     const messages = [
         buildUserMessage("user-1", "old user request", 1),

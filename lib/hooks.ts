@@ -300,6 +300,17 @@ async function runBetterCompact(input: {
     currentTokens?: number
 }): Promise<void> {
     const params = input.params ?? getCurrentParams(input.state, input.messages, input.logger)
+    if (input.state.boundary.runningSessionIds.has(input.sessionId)) {
+        await sendIgnoredMessage(
+            input.client,
+            input.sessionId,
+            "Better Compact is already running for this session.",
+            params,
+            input.logger,
+        )
+        return
+    }
+    input.state.boundary.runningSessionIds.add(input.sessionId)
     const profile = resolveCompactionProfile(input.config, input.compaction)
     const contextLimit = input.contextLimit && input.contextLimit > 0 ? input.contextLimit : (input.state.modelContextLimit ?? 200_000)
     const reportedCurrentTokens = input.currentTokens && input.currentTokens > 0 ? input.currentTokens : getCurrentTokenUsage(input.state, input.messages)
@@ -507,6 +518,8 @@ async function runBetterCompact(input: {
         await saveSessionState(input.state, input.logger)
         await sendIgnoredMessage(input.client, input.sessionId, `Better Compact failed: ${message}`, params, input.logger)
         throw error
+    } finally {
+        input.state.boundary.runningSessionIds.delete(input.sessionId)
     }
 }
 
