@@ -258,6 +258,50 @@ test("auto transform path prunes over-trigger context when compress is allowed",
     assert.ok(!messages.some((item) => item.parts.some((part) => part.type === "tool")))
 })
 
+test("auto transform path honors the configured compaction profile", async () => {
+    const sessionId = `ses-transform-profile-${Date.now()}`
+    // ~17K estimated tokens on a 200K limit: far below the default 85%
+    // trigger, above a custom 5% one.
+    const messages = buildOverTriggerConversation(sessionId)
+    const state = await initializedTransformState(sessionId, messages)
+    state.modelContextLimit = 200_000
+    const config = buildConfig("allow")
+    config.compaction = {
+        preset: "custom",
+        custom: { triggerPercent: 5, targetPercent: 3, recentToolTokens: 0, summarizerConcurrency: 4 },
+    }
+    const handler = createChatMessageTransformHandler(
+        stubClient(),
+        state,
+        new Logger(false),
+        config,
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-transform-")),
+    )
+
+    await handler({}, { messages })
+
+    assert.ok(state.boundary.activePlan, "custom low trigger must produce a plan where the default would not")
+    assert.equal(state.boundary.activePlan.triggerTokens, Math.floor(200_000 * 0.05))
+
+    const controlSessionId = `${sessionId}-control`
+    const untouched = buildOverTriggerConversation(controlSessionId)
+    const defaultState = await initializedTransformState(controlSessionId, untouched)
+    defaultState.modelContextLimit = 200_000
+    const defaultHandler = createChatMessageTransformHandler(
+        stubClient(),
+        defaultState,
+        new Logger(false),
+        buildConfig("allow"),
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-transform-")),
+    )
+
+    await defaultHandler({}, { messages: untouched })
+
+    assert.equal(defaultState.boundary.activePlan, null, "default 85% trigger must not fire at ~8% usage")
+})
+
 test("auto transform path never prunes when compress permission is deny", async () => {
     const sessionId = `ses-transform-deny-${Date.now()}`
     const messages = buildOverTriggerConversation(sessionId)

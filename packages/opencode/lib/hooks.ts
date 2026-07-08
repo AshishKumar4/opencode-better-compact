@@ -84,7 +84,7 @@ export function createChatMessageTransformHandler(
             // A rejected transform hook breaks the user's request upstream, so
             // any boundary failure degrades to sending the request unpruned.
             try {
-                await processBoundaryTransform({ state, logger, directory: workingDirectory, messages })
+                await processBoundaryTransform({ state, logger, config, directory: workingDirectory, messages })
             } catch (error) {
                 logger.error("Better Compact boundary pruning failed; request continues unpruned", {
                     error: error instanceof Error ? error.message : String(error),

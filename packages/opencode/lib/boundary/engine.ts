@@ -1,4 +1,5 @@
-import { createEngine, type EnginePorts } from "@better-compact/core"
+import { createEngine, resolveCompactionProfile, type EnginePorts } from "@better-compact/core"
+import type { PluginConfig } from "../config"
 import type { Logger } from "../logger"
 import { openCodeCodec, openCodeSpec, sessionKeyOf } from "../codec"
 import { saveSessionState, type SessionState, type WithParts } from "../state"
@@ -10,6 +11,7 @@ import { createTranscriptStore } from "./transcripts"
 export async function processBoundaryTransform(input: {
     state: SessionState
     logger: Logger
+    config: PluginConfig
     directory: string
     messages: WithParts[]
 }): Promise<void> {
@@ -24,11 +26,15 @@ export async function processBoundaryTransform(input: {
         },
         logger: input.logger,
     }
+    const profile = resolveCompactionProfile(input.config)
     const engine = createEngine(openCodeSpec, ports)
     const result = await engine.process({
         sessionKey: sessionKeyOf(input.messages),
         turns: openCodeCodec.encode(input.messages),
         contextLimit: input.state.modelContextLimit,
+        triggerRatio: profile.triggerPercent / 100,
+        targetRatio: profile.targetPercent / 100,
+        recentToolResultBudgetTokens: profile.recentToolTokens,
     })
     if (result.outcome === "unchanged") return
     const decoded = openCodeCodec.decode(result.turns, input.messages)

@@ -263,14 +263,21 @@ export type ProcessResult =
     | { outcome: "planned"; turns: Turn[]; plan: BoundaryContextPlan }
 
 export interface Engine {
-    process(request: { sessionKey: string; turns: Turn[]; contextLimit?: number }): Promise<ProcessResult>
+    process(request: {
+        sessionKey: string
+        turns: Turn[]
+        contextLimit?: number
+        triggerRatio?: number
+        targetRatio?: number
+        recentToolResultBudgetTokens?: number
+    }): Promise<ProcessResult>
 }
 
 // The boundary-time transform: replay the cached plan when it still holds,
 // otherwise discard it and build, persist, and apply a fresh one.
 export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
     return {
-        async process({ sessionKey, turns, contextLimit }) {
+        async process({ sessionKey, turns, contextLimit, triggerRatio, targetRatio, recentToolResultBudgetTokens }) {
             let staleSnapshotCleared = false
             const cached = await ports.plans.load(sessionKey)
             if (cached && cached.sessionId === sessionKey) {
@@ -279,7 +286,18 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                 staleSnapshotCleared = true
             }
 
-            const plan = buildPlan(turns, { contextLimit, sessionKey, citablePath: ports.transcripts.citablePath }, spec)
+            const plan = buildPlan(
+                turns,
+                {
+                    contextLimit,
+                    triggerRatio,
+                    targetRatio,
+                    recentToolResultBudgetTokens,
+                    sessionKey,
+                    citablePath: ports.transcripts.citablePath,
+                },
+                spec,
+            )
             if (!plan) {
                 if (staleSnapshotCleared) await ports.plans.save(sessionKey, null)
                 return { outcome: "unchanged" }
