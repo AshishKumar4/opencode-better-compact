@@ -16,12 +16,7 @@ import {
     resolveCompressionDuration,
 } from "./compress/timing"
 import { filterMessages, filterMessagesInPlace } from "./messages/shape"
-import {
-    handleContextCommand,
-    handleHelpCommand,
-    handleStatsCommand,
-    handleSweepCommand,
-} from "./commands"
+import { handleContextCommand, handleHelpCommand, handleStatsCommand } from "./commands"
 import { type HostPermissionSnapshot } from "./host-permissions"
 import { compressPermission, syncCompressPermissionState } from "./compress-permission"
 import { checkSession, ensureSessionInitialized, saveSessionState } from "./state"
@@ -164,7 +159,6 @@ export function createCommandExecuteHandler(
 
             const args = (input.arguments || "").trim().split(/\s+/).filter(Boolean)
             const subcommand = input.command === "better-compact-settings" ? "settings" : args[0]?.toLowerCase() || "compress"
-            const subArgs = input.command === "better-compact-settings" ? args : args.slice(1)
 
             const commandCtx = {
                 client,
@@ -202,16 +196,6 @@ export function createCommandExecuteHandler(
                     params,
                     logger,
                 )
-                output.parts.length = 0
-                return
-            }
-
-            if (subcommand === "sweep") {
-                await handleSweepCommand({
-                    ...commandCtx,
-                    args: subArgs,
-                    workingDirectory,
-                })
                 output.parts.length = 0
                 return
             }
