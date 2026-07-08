@@ -25,12 +25,10 @@ import {
 function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConfig {
     return {
         enabled: true,
+        autoUpdate: false,
         debug: false,
-        pruneNotification: "off",
-        pruneNotificationType: "chat",
         commands: {
             enabled: true,
-            protectedTools: [],
         },
         compaction: {
             preset: "light",
@@ -45,38 +43,11 @@ function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConf
             enabled: false,
             automaticStrategies: true,
         },
-        turnProtection: {
-            enabled: false,
-            turns: 4,
-        },
         experimental: {
             allowSubAgents: false,
-            customPrompts: false,
         },
-        protectedFilePatterns: [],
         compress: {
-            mode: "message",
             permission,
-            showCompression: false,
-            maxContextLimit: 150000,
-            minContextLimit: 50000,
-            nudgeFrequency: 5,
-            iterationNudgeThreshold: 15,
-            nudgeForce: "soft",
-            protectedTools: ["task"],
-            protectTags: false,
-            protectUserMessages: false,
-        },
-        strategies: {
-            deduplication: {
-                enabled: true,
-                protectedTools: [],
-            },
-            purgeErrors: {
-                enabled: true,
-                turns: 4,
-                protectedTools: [],
-            },
         },
     }
 }

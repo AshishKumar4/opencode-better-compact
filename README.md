@@ -36,6 +36,9 @@ Restart OpenCode after installation.
 ## Commands
 
 - `/better-compact` runs staged pruning immediately.
+- `/better-compact context` shows the token-usage breakdown for the current session.
+- `/better-compact stats` shows the active pruning plan for the current session.
+- `/better-compact help` lists the available commands.
 - `/better-compact-settings` opens the TUI panel for presets and custom thresholds.
 
 ## How It Works
