@@ -104,6 +104,8 @@ Restart OpenCode.
 
 ## Development
 
+This package is the OpenCode adapter in the Better Compact pnpm workspace; the platform-neutral pruning ladder lives in `@better-compact/core` and is bundled into the published artifacts. From the repository root:
+
 ```bash
 pnpm install
 pnpm run typecheck
@@ -128,24 +130,6 @@ For the TUI plugin, add this to `~/.config/opencode/tui.json`:
 ```
 
 Restart OpenCode after changing plugin config.
-
-## Releases
-
-CI uses pnpm and verifies every push/PR with:
-
-- typecheck
-- tests
-- production build
-- package verification
-
-Tag releases as `v*`:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow builds compiled server and TUI artifacts, packages `better-compact.tar.gz`, writes `checksums.txt`, and uploads both with `install.sh` to GitHub Releases.
 
 ## Upstream
 

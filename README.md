@@ -1,10 +1,32 @@
 # Better Compact
 
-OpenCode plugin that keeps long-running sessions usable with staged, pruning-first context management.
+I got tired of watching coding agents hit their context limit and replace hours of careful work with a single lossy summary. Better Compact is my answer: a staged, pruning-first context ladder that preserves raw user intent, prunes old tool-heavy context first, writes transcript references for exact recall, and summarizes old assistant turns only when lighter pruning is not enough.
 
-Better Compact preserves raw user intent, prunes old tool-heavy context first, writes transcript references for exact recall, and summarizes old assistant turns only when lighter pruning is not enough.
+The ladder is the product. It runs the same stages everywhere:
 
-## Install
+1. Prune loaded skill context.
+2. Prune old tool calls/results while preserving a recent-tool budget.
+3. Prune thinking/reasoning, only if still needed.
+4. Prune remaining tool calls/results, only if still needed.
+5. Summarize high-value old assistant turns, only if still needed.
+6. Fall back to a prefix summary as a last resort.
+
+Every step writes raw transcripts to disk and injects a reference message, so the agent can always read back the exact history it lost. Plans are cached, validated with a range hash, replayed deterministically across requests (which keeps provider prompt caches warm), and rebuilt when the context regrows past the trigger.
+
+## Platforms
+
+The ladder lives in a platform-neutral core (`packages/core`) that operates on a canonical message IR; each platform gets a thin codec/adapter around it:
+
+| Platform | Status | How it integrates |
+| --- | --- | --- |
+| [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`) | In-process message transform plugin |
+| pi | Designed (Phase 2) | In-process `context` event extension |
+| Claude Code | Designed (Phase 3) | Local proxy on `ANTHROPIC_BASE_URL` |
+| Codex | Designed (Phase 4) | Local proxy on `openai_base_url` |
+
+The full design, including the IR, the codec contract, and the proxy engine, lives in [docs/architecture.md](docs/architecture.md).
+
+## Install (OpenCode)
 
 Install the latest GitHub release:
 
@@ -18,134 +40,49 @@ Install an explicit version:
 VERSION=v0.1.0 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
 ```
 
-The installer downloads the prebuilt release tarball, verifies its checksum when `sha256sum` or `shasum` is available, installs it under:
+The installer downloads the prebuilt release tarball, verifies its checksum, installs it under `~/.local/share/opencode/plugins/better-compact/<version>`, and registers the server and TUI plugins in `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json`. Restart OpenCode after installation.
 
-```text
-~/.local/share/opencode/plugins/better-compact/<version>
-```
-
-Then it updates:
-
-```text
-~/.config/opencode/opencode.json
-~/.config/opencode/tui.json
-```
-
-Restart OpenCode after installation.
-
-## Commands
-
-- `/better-compact` runs staged pruning immediately.
-- `/better-compact context` shows the token-usage breakdown for the current session.
-- `/better-compact stats` shows the active pruning plan for the current session.
-- `/better-compact help` lists the available commands.
-- `/better-compact-settings` opens the TUI panel for presets and custom thresholds.
-
-## How It Works
-
-Better Compact applies a virtual context plan to OpenCode's outgoing model request. It does not rewrite OpenCode's durable session history.
-
-Default light mode:
-
-- Prunes loaded skill context.
-- Prunes old tool calls/results while preserving recent tool context.
-- Prunes thinking/reasoning only if needed.
-- Prunes remaining tool calls/results only if needed.
-- Summarizes high-value old assistant turns only if needed.
-- Writes raw transcripts under `.opencode/better-compact/sessions/...` for exact recall.
-
-The TUI shows live progress, context-window bars, stages completed, and final savings.
-
-## Configuration
-
-Better Compact searches config files in this order:
-
-1. `~/.config/opencode/better-compact.jsonc` or `better-compact.json`
-2. `$OPENCODE_CONFIG_DIR/better-compact.jsonc` or `better-compact.json`
-3. `.opencode/better-compact.jsonc` or `better-compact.json`
-
-Example:
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/better-compact.schema.json",
-  "enabled": true,
-  "autoUpdate": false,
-  "debug": false,
-  "compaction": {
-    "preset": "light"
-  }
-}
-```
-
-Presets:
-
-- `light`: default, preserves more recent tool context.
-- `moderate`: stronger pruning and more parallel summarization.
-- `max`: aggressive pruning for heavily saturated sessions.
-- `custom`: use `/better-compact-settings` to dial trigger, target, recent tool budget, and parallel jobs.
-
-## Uninstall
-
-Remove Better Compact entries from:
-
-```text
-~/.config/opencode/opencode.json
-~/.config/opencode/tui.json
-```
-
-Then remove installed files:
-
-```bash
-rm -rf ~/.local/share/opencode/plugins/better-compact
-```
-
-Restart OpenCode.
+The OpenCode plugin's commands, configuration, presets, and uninstall steps are documented in [packages/opencode/README.md](packages/opencode/README.md).
 
 ## Development
+
+This is a pnpm workspace:
+
+```
+packages/
+├── core/        @better-compact/core — the platform-neutral ladder, pure, zero runtime dependencies
+└── opencode/    better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
+```
 
 ```bash
 pnpm install
 pnpm run typecheck
 pnpm test
 pnpm run build
+pnpm run check:package
 ```
+
+Tests include a golden pre/post harness (`packages/opencode/tests/golden-boundary.test.ts`) that pins the exact transform outputs as JSON fixtures; regenerate deliberately with `GOLDEN_UPDATE=1` only when a behavior change is intentional.
 
 For local development, point OpenCode at this checkout:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/index.ts"]
+  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
 }
 ```
 
-For the TUI plugin, add this to `~/.config/opencode/tui.json`:
+And for the TUI plugin, in `~/.config/opencode/tui.json`:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/tui.tsx"]
+  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
 }
 ```
 
-Restart OpenCode after changing plugin config.
-
 ## Releases
 
-CI uses pnpm and verifies every push/PR with:
-
-- typecheck
-- tests
-- production build
-- package verification
-
-Tag releases as `v*`:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow builds compiled server and TUI artifacts, packages `better-compact.tar.gz`, writes `checksums.txt`, and uploads both with `install.sh` to GitHub Releases.
+CI verifies every push/PR with typecheck, tests, build, and package verification. Tagging `v*` builds the compiled artifacts, packages `better-compact.tar.gz` with `checksums.txt`, and uploads them with `install.sh` to GitHub Releases.
 
 ## Upstream
 
