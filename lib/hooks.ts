@@ -55,7 +55,9 @@ export function createChatMessageTransformHandler(
     hostPermissions: HostPermissionSnapshot,
     workingDirectory = process.cwd(),
 ) {
-    return async (input: {}, output: { messages: WithParts[] }) => {
+    // The incoming array is narrowed to WithParts by filterMessagesInPlace,
+    // the single trust boundary between the host SDK's message types and ours.
+    return async (_input: {}, output: { messages: unknown[] }) => {
         const receivedMessages = Array.isArray(output.messages) ? output.messages.length : 0
         const messages = filterMessagesInPlace(output.messages)
         if (messages.length !== receivedMessages) {
@@ -70,39 +72,49 @@ export function createChatMessageTransformHandler(
             return
         }
 
-        await checkSession(client, state, logger, output.messages, config.manualMode.enabled)
+        await checkSession(client, state, logger, messages, config.manualMode.enabled)
 
-        syncCompressPermissionState(state, config, hostPermissions, output.messages)
+        syncCompressPermissionState(state, config, hostPermissions, messages)
 
         if (state.isSubAgent && !config.experimental.allowSubAgents) {
             return
         }
 
-        stripHallucinations(output.messages)
-        if (state.boundary.activePlan && state.boundary.activePlan.sessionId === state.sessionId) {
-            const applied = applyBoundaryPlanSnapshot(output.messages, state.boundary.activePlan)
-            if (applied) {
-                stripStaleMetadata(output.messages)
-                if (state.sessionId) {
-                    await logger.saveContext(state.sessionId, output.messages)
+        stripHallucinations(messages)
+        if (compressPermission(state, config) !== "deny") {
+            // A rejected transform hook breaks the user's request upstream, so
+            // any boundary failure degrades to sending the request unpruned.
+            try {
+                let staleSnapshotCleared = false
+                let snapshotApplied = false
+                if (state.boundary.activePlan && state.boundary.activePlan.sessionId === state.sessionId) {
+                    snapshotApplied = applyBoundaryPlanSnapshot(messages, state.boundary.activePlan)
+                    if (!snapshotApplied) {
+                        state.boundary.activePlan = null
+                        staleSnapshotCleared = true
+                    }
                 }
-                return
+                const boundaryPlan = snapshotApplied
+                    ? null
+                    : await applyBoundaryContextManagement({
+                          state,
+                          logger,
+                          directory: workingDirectory,
+                          messages,
+                      })
+                if (boundaryPlan || staleSnapshotCleared) {
+                    await saveSessionState(state, logger)
+                }
+            } catch (error) {
+                logger.error("Better Compact boundary pruning failed; request continues unpruned", {
+                    error: error instanceof Error ? error.message : String(error),
+                })
             }
         }
-        const boundaryPlan = await applyBoundaryContextManagement({
-            state,
-            logger,
-            directory: workingDirectory,
-            messages: output.messages,
-            force: state.sessionId !== null && state.boundary.compactingSessionId === state.sessionId,
-        })
-        if (boundaryPlan) {
-            await saveSessionState(state, logger)
-        }
-        stripStaleMetadata(output.messages)
+        stripStaleMetadata(messages)
 
         if (state.sessionId) {
-            await logger.saveContext(state.sessionId, output.messages)
+            await logger.saveContext(state.sessionId, messages)
         }
     }
 }
@@ -512,10 +524,14 @@ export function createTextCompleteHandler() {
     }
 }
 
-export function createEventHandler(state: SessionState, logger: Logger, client?: any) {
+export function createEventHandler(state: SessionState, logger: Logger) {
     return async (input: { event: any }) => {
-        if (input.event.type === "session.compacted") {
-            state.boundary.compactingSessionId = null
+        if (input.event.type === "session.compacted" && input.event.properties?.sessionID === state.sessionId) {
+            // Native compaction rewrote this session's history; the stored
+            // plan and job describe context that no longer exists.
+            state.boundary.activePlan = null
+            state.boundary.job = null
+            await saveSessionState(state, logger)
         }
     }
 }

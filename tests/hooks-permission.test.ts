@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { PluginConfig } from "../lib/config"
@@ -206,6 +206,135 @@ test("chat message transform drops messages without info instead of crashing", a
 
     assert.equal(state.sessionId, null)
     assert.equal(output.messages.length, 0)
+})
+
+function buildOverTriggerConversation(sessionId: string): WithParts[] {
+    const withSession = (message: WithParts): WithParts => {
+        message.info.sessionID = sessionId
+        for (const part of message.parts) part.sessionID = sessionId
+        return message
+    }
+    const big = buildAssistantToolMessage("assistant-big", 2)
+    const tool = big.parts[0] as any
+    tool.state.output = "huge tool output ".repeat(4_000)
+    return [
+        withSession(buildUserMessage("user-1", "old user request", 1)),
+        withSession(big),
+        withSession(buildUserMessage("user-2", "middle user request", 3)),
+        withSession(buildMessage("assistant-2", "assistant", "middle assistant response")),
+        withSession(buildUserMessage("user-3", "latest user request", 5)),
+    ]
+}
+
+function stubClient() {
+    return { session: { get: async () => ({ data: { parentID: null } }) } } as any
+}
+
+async function initializedTransformState(sessionId: string, messages: WithParts[]) {
+    const state = createSessionState()
+    await ensureSessionInitialized(stubClient(), state, sessionId, new Logger(false), messages, false)
+    state.modelContextLimit = 10_000
+    return state
+}
+
+test("auto transform path prunes over-trigger context when compress is allowed", async () => {
+    const sessionId = `ses-transform-allow-${Date.now()}`
+    const messages = buildOverTriggerConversation(sessionId)
+    const state = await initializedTransformState(sessionId, messages)
+    const handler = createChatMessageTransformHandler(
+        stubClient(),
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-transform-")),
+    )
+    const output = { messages }
+
+    await handler({}, output)
+
+    assert.ok(state.boundary.activePlan)
+    assert.ok(messages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
+    assert.ok(!messages.some((item) => item.parts.some((part) => part.type === "tool")))
+})
+
+test("auto transform path never prunes when compress permission is deny", async () => {
+    const sessionId = `ses-transform-deny-${Date.now()}`
+    const messages = buildOverTriggerConversation(sessionId)
+    const state = await initializedTransformState(sessionId, messages)
+    const handler = createChatMessageTransformHandler(
+        stubClient(),
+        state,
+        new Logger(false),
+        buildConfig("deny"),
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-transform-deny-")),
+    )
+    const before = JSON.stringify(messages)
+    const output = { messages }
+
+    await handler({}, output)
+
+    assert.equal(state.boundary.activePlan, null)
+    assert.equal(JSON.stringify(messages), before)
+})
+
+test("auto transform path degrades to an unpruned request when the transcript write fails", async () => {
+    const sessionId = `ses-transform-guard-${Date.now()}`
+    const messages = buildOverTriggerConversation(sessionId)
+    const state = await initializedTransformState(sessionId, messages)
+    const brokenDirectory = join(mkdtempSync(join(tmpdir(), "better-compact-broken-")), "not-a-directory")
+    writeFileSync(brokenDirectory, "regular file blocking mkdir")
+    const handler = createChatMessageTransformHandler(
+        stubClient(),
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        { global: undefined, agents: {} },
+        brokenDirectory,
+    )
+    const output = { messages }
+
+    await handler({}, output)
+
+    assert.ok(!messages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
+    assert.ok(messages.some((item) => item.parts.some((part) => part.type === "tool")))
+})
+
+test("auto transform path clears a stale snapshot and rebuilds a fresh plan", async () => {
+    const sessionId = `ses-transform-stale-${Date.now()}`
+    const messages = buildOverTriggerConversation(sessionId)
+    const state = await initializedTransformState(sessionId, messages)
+    state.boundary.activePlan = {
+        sessionId,
+        rangeHash: "deadbeefdeadbeef",
+        contextLimit: 10_000,
+        rawTailStartMessageId: "user-2",
+        transcriptRelativePath: ".opencode/better-compact/sessions/stale/stale.md",
+        beforeTokens: 9_000,
+        afterPruneTokens: 1_000,
+        overheadTokens: 0,
+        triggerTokens: 8_500,
+        targetTokens: 3_000,
+        requiresCustomCompaction: false,
+        stages: [],
+        createdAt: Date.now(),
+    }
+    const handler = createChatMessageTransformHandler(
+        stubClient(),
+        state,
+        new Logger(false),
+        buildConfig("allow"),
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-transform-stale-")),
+    )
+    const output = { messages }
+
+    await handler({}, output)
+
+    assert.ok(state.boundary.activePlan)
+    assert.notEqual(state.boundary.activePlan?.rangeHash, "deadbeefdeadbeef")
+    assert.ok(messages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
 })
 
 test("command execute exits after effective permission resolves to deny", async () => {

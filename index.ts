@@ -46,7 +46,7 @@ const server: Plugin = (async (ctx) => {
             config,
             hostPermissions,
             ctx.directory,
-        ) as any,
+        ),
         "experimental.text.complete": createTextCompleteHandler(),
         "chat.message": createChatMessageHandler(
             ctx.client,
@@ -64,7 +64,7 @@ const server: Plugin = (async (ctx) => {
             ctx.directory,
             hostPermissions,
         ),
-        event: createEventHandler(state, logger, ctx.client),
+        event: createEventHandler(state, logger),
         tool: {},
         config: async (opencodeConfig) => {
             if (

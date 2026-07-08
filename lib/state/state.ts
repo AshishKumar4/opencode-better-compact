@@ -65,7 +65,6 @@ export function createSessionState(): SessionState {
         manualMode: false,
         compressPermission: undefined,
         boundary: {
-            compactingSessionId: null,
             scratchSessionIds: new Set<string>(),
             job: null,
             activePlan: null,
@@ -82,7 +81,6 @@ export function resetSessionState(state: SessionState): void {
     state.manualMode = false
     state.compressPermission = undefined
     state.boundary = {
-        compactingSessionId: null,
         scratchSessionIds: new Set<string>(),
         job: null,
         activePlan: null,

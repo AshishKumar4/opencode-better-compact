@@ -50,7 +50,6 @@ export interface BoundaryJobProgress {
 }
 
 export interface BoundaryState {
-    compactingSessionId: string | null
     scratchSessionIds: Set<string>
     job: BoundaryJobProgress | null
     activePlan: {

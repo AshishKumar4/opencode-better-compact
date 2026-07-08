@@ -389,11 +389,9 @@ export async function applyBoundaryContextManagement(input: {
     logger: Logger
     directory: string
     messages: WithParts[]
-    force?: boolean
 }): Promise<BoundaryContextPlan | null> {
     const plan = buildBoundaryContextPlan(input.messages, {
-        contextLimit: input.state.modelContextLimit ?? (input.force ? 200_000 : undefined),
-        force: input.force,
+        contextLimit: input.state.modelContextLimit,
     })
     if (!plan) return null
 

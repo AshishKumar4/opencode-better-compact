@@ -52,7 +52,6 @@ export function countTurns(state: SessionState, messages: WithParts[]): number {
 
 export function resetOnCompaction(state: SessionState): void {
     state.boundary = {
-        compactingSessionId: null,
         scratchSessionIds: new Set<string>(),
         job: null,
         activePlan: null,
