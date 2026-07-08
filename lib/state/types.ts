@@ -61,6 +61,8 @@ export interface BoundaryState {
         transcriptRelativePath: string
         beforeTokens: number
         afterPruneTokens: number
+        // Optional: absent in plans persisted before overhead tracking existed.
+        overheadTokens?: number
         triggerTokens: number
         targetTokens: number
         requiresCustomCompaction: boolean

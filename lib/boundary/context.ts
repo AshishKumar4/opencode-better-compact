@@ -57,12 +57,11 @@ interface StageMutationResult {
 }
 
 interface MessageEstimator {
-    reservedTokens: number
+    overheadTokens: number
 }
 
 export interface BoundaryContextOptions {
     contextLimit?: number
-    reservedTokens?: number
     triggerRatio?: number
     targetRatio?: number
     minTailMessages?: number
@@ -88,6 +87,7 @@ export interface BoundaryContextPlan {
     contextLimit: number
     beforeTokens: number
     afterPruneTokens: number
+    overheadTokens: number
     triggerTokens: number
     targetTokens: number
     rawTailStartIndex: number
@@ -109,14 +109,17 @@ export function buildBoundaryContextPlan(
     const contextLimit = options.contextLimit
     if (!contextLimit || contextLimit <= 0 || messages.length === 0) return null
 
-    const reservedTokens = Math.max(0, options.reservedTokens ?? 0)
     const triggerRatio = options.triggerRatio ?? TRIGGER_RATIO
     const targetRatio = options.targetRatio ?? TARGET_RATIO
-    const estimator = createMessageEstimator(reservedTokens)
-    const estimatedBeforeTokens = estimateMessages(messages, estimator)
-    const beforeTokens = options.providerReportedTokens && options.providerReportedTokens > 0
-        ? options.providerReportedTokens
-        : estimatedBeforeTokens
+    const rawEstimateTokens = estimateOpenCodeMessages(messages)
+    const providerReportedTokens =
+        options.providerReportedTokens && options.providerReportedTokens > 0 ? options.providerReportedTokens : 0
+    // Provider totals include system prompt, tool schemas, and cache accounting
+    // that the char-based estimate cannot see. Carrying the delta keeps every
+    // gate and stage number on the provider-equivalent scale.
+    const overheadTokens = providerReportedTokens > 0 ? Math.max(0, providerReportedTokens - rawEstimateTokens) : 0
+    const estimator: MessageEstimator = { overheadTokens }
+    const beforeTokens = providerReportedTokens > 0 ? providerReportedTokens : rawEstimateTokens
     const triggerTokens = Math.floor(contextLimit * triggerRatio)
     if (!options.force && beforeTokens < triggerTokens) return null
 
@@ -133,7 +136,6 @@ export function buildBoundaryContextPlan(
     const working = cloneMessages(messages)
     const preservedToolCallIds = findRecentToolCallTail(
         compactedRange,
-        estimator,
         options.recentToolResultBudgetTokens ?? RECENT_TOOL_RESULT_BUDGET_TOKENS,
     )
     const stages: BoundaryStageReport[] = []
@@ -142,7 +144,6 @@ export function buildBoundaryContextPlan(
     const range = {
         rawTailStartIndex,
         transcriptRelativePath,
-        reservedTokens,
         estimator,
         triggerTokens,
         targetTokens: Math.floor(contextLimit * targetRatio),
@@ -220,6 +221,7 @@ export function buildBoundaryContextPlan(
         contextLimit,
         beforeTokens,
         afterPruneTokens: estimateMessages(working, estimator),
+        overheadTokens,
         triggerTokens,
         targetTokens: range.targetTokens,
         rawTailStartIndex,
@@ -260,6 +262,7 @@ export function applyBoundaryPlanSnapshot(
         contextLimit: plan.contextLimit ?? Math.max(plan.beforeTokens, plan.targetTokens, 1),
         beforeTokens: plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
+        overheadTokens: plan.overheadTokens ?? 0,
         triggerTokens: plan.triggerTokens,
         targetTokens: plan.targetTokens,
         rawTailStartIndex,
@@ -291,6 +294,7 @@ export function storeBoundaryPlan(state: SessionState, plan: BoundaryContextPlan
         transcriptRelativePath: plan.transcript.relativePath,
         beforeTokens: plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,
+        overheadTokens: plan.overheadTokens,
         triggerTokens: plan.triggerTokens,
         targetTokens: plan.targetTokens,
         requiresCustomCompaction: plan.requiresCustomCompaction,
@@ -404,7 +408,6 @@ function runStage(
     stages: BoundaryStageReport[],
     messages: WithParts[],
     range: {
-        reservedTokens: number
         estimator: MessageEstimator
         triggerTokens: number
     },
@@ -433,11 +436,7 @@ function markTargetMet(stages: BoundaryStageReport[]): void {
     last.status = "target-met"
 }
 
-function findRecentToolCallTail(
-    messages: WithParts[],
-    estimator: MessageEstimator,
-    budgetTokens: number,
-): Set<string> {
+function findRecentToolCallTail(messages: WithParts[], budgetTokens: number): Set<string> {
     const preserved = new Set<string>()
     if (budgetTokens <= 0) return preserved
 
@@ -585,7 +584,7 @@ function selectAssistantRunsToSummarize(
     let selectedSavings = 0
     const groups = assistantGroups(compacted)
         .map((group) => {
-            const before = estimateMessages(group.messages, { ...estimator, reservedTokens: 0 })
+            const before = estimateMessages(group.messages, { overheadTokens: 0 })
             const summaryText = group.messages.map(textParts).filter(Boolean).join("\n\n")
             const after = Math.max(1, estimateOpenCodeTokens(truncate(summaryText, ASSISTANT_TEXT_PREVIEW_CHARS)))
             const savings = Math.max(0, Math.round(before - after))
@@ -972,13 +971,8 @@ function textParts(message: WithParts): string {
         .join("\n\n")
 }
 
-function createMessageEstimator(reservedTokens: number): MessageEstimator {
-    return { reservedTokens }
-}
-
 function estimateMessages(messages: WithParts[], estimator: MessageEstimator): number {
-    const messageWeightTotal = estimateOpenCodeMessages(messages)
-    return Math.max(0, Math.round(messageWeightTotal + estimator.reservedTokens))
+    return Math.max(0, Math.round(estimateOpenCodeMessages(messages) + estimator.overheadTokens))
 }
 
 function findRawTailStartIndex(messages: WithParts[], minMessages: number, minUserTurns: number): number {

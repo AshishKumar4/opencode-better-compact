@@ -303,9 +303,35 @@ test("boundary projection does not scale transformed context by raw provider rat
     assert.ok(plan.afterPruneTokens > oldScaledAfter * 2)
 })
 
+test("provider-reported totals keep plan accounting on a single scale", () => {
+    const messages = buildMultiRunConversation()
+    const rawEstimate = estimateOpenCodeMessages(messages)
+    const providerReportedTokens = rawEstimate + 50_000
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 120_000,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+        providerReportedTokens,
+    })
+    assert.ok(plan)
+
+    assert.equal(plan.beforeTokens, providerReportedTokens)
+    assert.equal(plan.overheadTokens, providerReportedTokens - rawEstimate)
+    assert.ok(plan.afterPruneTokens >= plan.overheadTokens)
+    assert.ok(plan.beforeTokens - plan.afterPruneTokens >= 0)
+    for (const stage of plan.stages) {
+        assert.ok(stage.beforeTokens >= plan.overheadTokens)
+        assert.ok(stage.afterTokens >= plan.overheadTokens)
+        assert.ok(stage.clearedTokens <= plan.beforeTokens)
+    }
+
+    applyBoundaryContextPlan(messages, plan)
+    assert.equal(plan.afterPruneTokens, estimateOpenCodeMessages(messages) + plan.overheadTokens)
+})
+
 test("boundary planner marks custom compaction as last resort only after pruning is still too large", () => {
     const messages = buildLargeConversation()
-    const plan = buildBoundaryContextPlan(messages, { contextLimit: 500, reservedTokens: 1_000, recentToolResultBudgetTokens: 0 })
+    const plan = buildBoundaryContextPlan(messages, { contextLimit: 200, recentToolResultBudgetTokens: 0 })
 
     assert.ok(plan)
     assert.equal(plan.requiresCustomCompaction, true)
@@ -390,7 +416,6 @@ test("boundary planner ranks assistant turns and summarizes only enough to meet 
         force: true,
         targetRatio: 0.7,
         recentToolResultBudgetTokens: 0,
-        providerReportedTokens: 100_000,
     })
 
     assert.ok(plan)
