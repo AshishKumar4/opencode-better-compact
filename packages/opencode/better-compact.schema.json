@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/better-compact.schema.json",
+    "$id": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json",
     "title": "Better Compact Plugin Configuration",
     "description": "Configuration schema for the OpenCode Better Compact plugin",
     "type": "object",

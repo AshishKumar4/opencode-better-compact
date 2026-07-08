@@ -7,6 +7,12 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      prettier:
+        specifier: ^3.8.1
+        version: 3.9.4
+
+  packages/opencode:
     dependencies:
       '@opencode-ai/sdk':
         specifier: ^1.4.3
@@ -27,9 +33,6 @@ importers:
       '@types/node':
         specifier: ^25.5.0
         version: 25.9.4
-      prettier:
-        specifier: ^3.8.1
-        version: 3.9.4
       solid-js:
         specifier: ^1.9.12
         version: 1.9.14

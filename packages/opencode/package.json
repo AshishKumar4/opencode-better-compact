@@ -1,0 +1,81 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "better-compact",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "OpenCode plugin that improves long-session context with boundary-time pruning",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./server": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./tui": {
+            "types": "./dist/tui.d.ts",
+            "import": "./dist/tui.js"
+        }
+    },
+    "scripts": {
+        "clean": "rm -rf dist .release",
+        "build": "pnpm run clean && tsup && tsc --emitDeclarationOnly",
+        "verify:package": "node scripts/verify-package.mjs",
+        "package:release": "node scripts/package-release.mjs",
+        "check:package": "pnpm run build && pnpm run verify:package",
+        "prepublishOnly": "pnpm run check:package",
+        "dev": "opencode plugin dev",
+        "typecheck": "tsc --noEmit",
+        "test": "node --import tsx --test tests/*.test.ts"
+    },
+    "keywords": [
+        "opencode",
+        "opencode-plugin",
+        "plugin",
+        "context",
+        "pruning",
+        "optimization",
+        "tokens"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "directory": "packages/opencode"
+    },
+    "bugs": {
+        "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
+    },
+    "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
+    "author": "AshishKumar4",
+    "license": "AGPL-3.0-or-later",
+    "peerDependencies": {
+        "@opencode-ai/plugin": ">=1.4.3",
+        "@opentui/core": "^0.4.2",
+        "@opentui/solid": "^0.4.2",
+        "solid-js": "^1.9.12"
+    },
+    "dependencies": {
+        "@opencode-ai/sdk": "^1.4.3",
+        "jsonc-parser": "^3.3.1"
+    },
+    "devDependencies": {
+        "@opencode-ai/plugin": "^1.4.3",
+        "@opentui/core": "^0.4.2",
+        "@opentui/solid": "^0.4.2",
+        "@types/node": "^25.5.0",
+        "solid-js": "^1.9.12",
+        "tsup": "^8.5.1",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.2"
+    },
+    "files": [
+        "dist/",
+        "lib/",
+        "better-compact.schema.json",
+        "README.md",
+        "LICENSE"
+    ]
+}

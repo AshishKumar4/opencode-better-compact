@@ -29,7 +29,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            .release/better-compact.tar.gz
-            .release/checksums.txt
-            scripts/install.sh
+            packages/opencode/.release/better-compact.tar.gz
+            packages/opencode/.release/checksums.txt
+            packages/opencode/scripts/install.sh
           generate_release_notes: true
