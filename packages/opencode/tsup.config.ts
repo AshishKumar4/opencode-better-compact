@@ -7,7 +7,7 @@ export default defineConfig([
         dts: false,
         clean: true,
         sourcemap: true,
-        noExternal: ["@opencode-ai/sdk", "jsonc-parser"],
+        noExternal: ["@better-compact/core", "@opencode-ai/sdk", "jsonc-parser"],
     },
     {
         entry: { tui: "tui.tsx" },
@@ -16,6 +16,6 @@ export default defineConfig([
         clean: false,
         sourcemap: true,
         external: ["@opencode-ai/plugin", "@opencode-ai/plugin/tui", "@opentui/core", "@opentui/solid", "solid-js"],
-        noExternal: ["@opencode-ai/sdk", "jsonc-parser"],
+        noExternal: ["@better-compact/core", "@opencode-ai/sdk", "jsonc-parser"],
     },
 ])

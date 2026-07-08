@@ -7,7 +7,7 @@ import {
     resolveCompactionProfile,
     type CompactionConfig,
     type CompactionPreset,
-} from "../compaction-settings"
+} from "@better-compact/core"
 import {
     type PluginConfig,
 } from "../config"

@@ -19,10 +19,6 @@ export function estimateOpenCodeMessages(messages: WithParts[]): number {
     return estimateOpenCodeTokens(JSON.stringify(modelLike))
 }
 
-export function estimateOpenCodeMessage(message: WithParts): number {
-    return estimateOpenCodeMessages([message])
-}
-
 export function estimateOpenCodeToolPart(part: Extract<MessagePart, { type: "tool" }>): number {
     return estimateOpenCodeTokens(JSON.stringify(toOpenCodeToolPart(part)))
 }

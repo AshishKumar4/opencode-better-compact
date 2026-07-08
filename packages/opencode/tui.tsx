@@ -3,7 +3,7 @@
 import type { TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { registerCommands } from "./lib/tui/commands"
 import { activeSessionID, currentContextUsage, loadConfig, loadTuiCompactionSettings } from "./lib/tui/data"
-import { resolveCompactionProfile } from "./lib/compaction-settings"
+import { resolveCompactionProfile } from "@better-compact/core"
 import { openPanelModal, openProgressModal } from "./lib/tui/modals"
 
 const tui: TuiPluginModule["tui"] = async (api) => {

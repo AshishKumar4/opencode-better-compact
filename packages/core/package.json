@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@better-compact/core",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Platform-neutral staged context-pruning ladder over a canonical message IR",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "node --import tsx --test tests/*.test.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^25.5.0",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.2"
+    }
+}

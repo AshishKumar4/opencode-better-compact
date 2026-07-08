@@ -7,7 +7,7 @@ import {
     buildBoundaryContextPlan,
     formatBoundaryReport,
     storeBoundaryPlan,
-} from "../lib/boundary/context"
+} from "../lib/boundary"
 import { createSessionState } from "../lib/state"
 import { estimateOpenCodeMessages } from "../lib/context-estimate"
 

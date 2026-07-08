@@ -1,7 +1,7 @@
+import { resolveCompactionProfile, type CompactionConfig } from "@better-compact/core"
 import type { SessionState, WithParts } from "./state"
 import type { Logger } from "./logger"
 import type { PluginConfig } from "./config"
-import { resolveCompactionProfile, type CompactionConfig } from "./compaction-settings"
 import {
     stripHallucinations,
     stripHallucinationsFromString,
@@ -14,11 +14,11 @@ import { compressPermission, syncCompressPermissionState } from "./compress-perm
 import { checkSession, ensureSessionInitialized, saveSessionState } from "./state"
 import {
     buildBoundaryContextPlan,
-    applyBoundaryContextManagement,
     formatBoundaryReport,
     appendBoundaryLog,
     completeBoundaryJob,
     failBoundaryJob,
+    processBoundaryTransform,
     setBoundaryStage,
     startBoundaryJob,
     storeBoundaryPlan,
@@ -26,7 +26,6 @@ import {
     updateBoundaryCounters,
     updateBoundaryPercent,
     writeBoundaryTranscript,
-    applyBoundaryPlanSnapshot,
 } from "./boundary"
 import { getCurrentParams, getCurrentTokenUsage } from "./token-utils"
 import { sendIgnoredMessage } from "./ui/notification"
@@ -85,26 +84,7 @@ export function createChatMessageTransformHandler(
             // A rejected transform hook breaks the user's request upstream, so
             // any boundary failure degrades to sending the request unpruned.
             try {
-                let staleSnapshotCleared = false
-                let snapshotApplied = false
-                if (state.boundary.activePlan && state.boundary.activePlan.sessionId === state.sessionId) {
-                    snapshotApplied = applyBoundaryPlanSnapshot(messages, state.boundary.activePlan)
-                    if (!snapshotApplied) {
-                        state.boundary.activePlan = null
-                        staleSnapshotCleared = true
-                    }
-                }
-                const boundaryPlan = snapshotApplied
-                    ? null
-                    : await applyBoundaryContextManagement({
-                          state,
-                          logger,
-                          directory: workingDirectory,
-                          messages,
-                      })
-                if (boundaryPlan || staleSnapshotCleared) {
-                    await saveSessionState(state, logger)
-                }
+                await processBoundaryTransform({ state, logger, directory: workingDirectory, messages })
             } catch (error) {
                 logger.error("Better Compact boundary pruning failed; request continues unpruned", {
                     error: error instanceof Error ? error.message : String(error),

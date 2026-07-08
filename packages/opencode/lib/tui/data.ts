@@ -3,7 +3,7 @@ import {
     type CompactionConfig,
     type PluginConfig,
 } from "../config"
-import { normalizeCompactionCustom, normalizePreset } from "../compaction-settings"
+import { normalizeCompactionCustom, normalizePreset } from "@better-compact/core"
 import { Logger } from "../logger"
 import { filterMessages } from "../messages/shape"
 import { createSessionState, type SessionState, type WithParts } from "../state"

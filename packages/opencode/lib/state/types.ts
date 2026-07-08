@@ -1,3 +1,4 @@
+import type { PlanSnapshot } from "@better-compact/core"
 import { Message, Part } from "@opencode-ai/sdk/v2"
 
 export interface WithParts {
@@ -54,35 +55,7 @@ export interface BoundaryState {
     // In-memory only (never persisted): sessions with a Better Compact run in flight.
     runningSessionIds: Set<string>
     job: BoundaryJobProgress | null
-    activePlan: {
-        sessionId: string
-        rangeHash: string
-        contextLimit: number
-        rawTailStartMessageId: string
-        transcriptRelativePath: string
-        beforeTokens: number
-        afterPruneTokens: number
-        // Optional: absent in plans persisted before overhead tracking existed.
-        overheadTokens?: number
-        triggerTokens: number
-        targetTokens: number
-        requiresCustomCompaction: boolean
-        preservedToolCallIds?: string[]
-        assistantSummaryKeys?: string[]
-        assistantSummaries?: Record<string, string>
-        prefixSummary?: string
-        stages?: Array<{
-            name: string
-            label: string
-            beforeTokens: number
-            afterTokens: number
-            clearedTokens: number
-            changedMessages: number
-            changedParts: number
-            status: string
-        }>
-        createdAt: number
-    } | null
+    activePlan: PlanSnapshot | null
 }
 
 export interface SessionState {

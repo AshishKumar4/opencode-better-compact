@@ -1,3 +1,4 @@
+import { countTokens } from "@better-compact/core"
 import { SessionState, WithParts } from "./state"
 import { AssistantMessage, UserMessage } from "@opencode-ai/sdk/v2"
 import { Logger } from "./logger"
@@ -63,11 +64,7 @@ export function getCurrentParams(
     return { providerId, modelId, agent, variant }
 }
 
-export function countTokens(text: string): number {
-    if (!text) return 0
-    return Math.max(0, Math.round(text.length / 4))
-}
-
+export { countTokens }
 export const estimateOpenCodeTokens = countTokens
 
 export function estimateTokensBatch(texts: string[]): number {

@@ -16,7 +16,7 @@ import {
     writeBoundaryTranscript,
     type BoundaryContextOptions,
     type BoundaryContextPlan,
-} from "../lib/boundary/context"
+} from "../lib/boundary"
 
 // Golden pre/post-refactor harness: feeds representative conversations through
 // the boundary transform surface and pins the exact outputs (plans, transformed

@@ -8,15 +8,15 @@ import {
     normalizeCompactionCustom,
     normalizePreset,
     type CompactionConfig,
-} from "./compaction-settings"
+} from "@better-compact/core"
 
 export type {
     CompactionConfig,
     CompactionCustomSettings,
     CompactionPreset,
     CompactionProfile,
-} from "./compaction-settings"
-export { COMPACTION_PRESETS, DEFAULT_CUSTOM_COMPACTION, normalizeCompactionCustom, normalizePreset, resolveCompactionProfile } from "./compaction-settings"
+} from "@better-compact/core"
+export { COMPACTION_PRESETS, DEFAULT_CUSTOM_COMPACTION, normalizeCompactionCustom, normalizePreset, resolveCompactionProfile } from "@better-compact/core"
 
 type Permission = "ask" | "allow" | "deny"
 

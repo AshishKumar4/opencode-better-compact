@@ -12,6 +12,18 @@ importers:
         specifier: ^3.8.1
         version: 3.9.4
 
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.9.4
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.5
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+
   packages/opencode:
     dependencies:
       '@opencode-ai/sdk':
@@ -21,6 +33,9 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1
     devDependencies:
+      '@better-compact/core':
+        specifier: workspace:*
+        version: link:../core
       '@opencode-ai/plugin':
         specifier: ^1.4.3
         version: 1.17.13(@opentui/core@0.4.2(typescript@6.0.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.4.2(solid-js@1.9.14)(typescript@6.0.3)(web-tree-sitter@0.25.10))
