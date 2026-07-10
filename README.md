@@ -17,12 +17,12 @@ Every step writes raw transcripts to disk and injects a reference message, so th
 
 The ladder lives in a platform-neutral core (`packages/core`) that operates on a canonical message IR; each platform gets a thin codec/adapter around it:
 
-| Platform | Status | How it integrates |
-| --- | --- | --- |
-| [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`) | In-process message transform plugin |
-| pi | Designed (Phase 2) | In-process `context` event extension |
-| Claude Code | Designed (Phase 3) | Local proxy on `ANTHROPIC_BASE_URL` |
-| Codex | Designed (Phase 4) | Local proxy on `openai_base_url` |
+| Platform                        | Status                                               | How it integrates                    |
+| ------------------------------- | ---------------------------------------------------- | ------------------------------------ |
+| [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`)                       | In-process message transform plugin  |
+| pi                              | Shipping (`packages/pi`)                             | In-process `context` event extension |
+| Claude Code                     | Shipping (`packages/proxy` + `packages/claude-code`) | Local proxy on `ANTHROPIC_BASE_URL`  |
+| Codex                           | Designed (Phase 4)                                   | Local proxy on `openai_base_url`     |
 
 The full design, including the IR, the codec contract, and the proxy engine, lives in [docs/architecture.md](docs/architecture.md).
 
@@ -50,8 +50,11 @@ This is a pnpm workspace:
 
 ```
 packages/
-├── core/        @better-compact/core — the platform-neutral ladder, pure, zero runtime dependencies
-└── opencode/    better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
+├── core/         @better-compact/core — the platform-neutral ladder, pure, zero runtime dependencies
+├── opencode/     better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
+├── pi/           @better-compact/pi — the pi extension (codec, plan store, summarizer)
+├── proxy/        @better-compact/proxy — the better-compact-proxy daemon (Anthropic wire codec)
+└── claude-code/  @better-compact/claude-code — the Claude Code plugin shell over the proxy
 ```
 
 ```bash
@@ -68,7 +71,7 @@ For local development, point OpenCode at this checkout:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
+    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
 }
 ```
 
@@ -76,7 +79,7 @@ And for the TUI plugin, in `~/.config/opencode/tui.json`:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
+    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
 }
 ```
 
