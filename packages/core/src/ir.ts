@@ -37,6 +37,10 @@ export interface CodecOps {
     estimateItem(item: Extract<Item, { kind: "tool" }>): number
     // One transcript block for the item, rendering native payload detail.
     transcriptLine(item: Item): string
+    // Optional whole-document override for the reference transcript. A codec
+    // that can render its native payloads losslessly (e.g. raw JSON) should,
+    // so the model can recover exact prior detail instead of a preview.
+    transcriptDocument?(turns: Turn[]): string
 }
 
 export interface Codec<Native> extends CodecOps {

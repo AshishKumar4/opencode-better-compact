@@ -59,6 +59,20 @@ export const openCodeCodec: Codec<WithParts> = {
         if (item.kind === "synthetic") return item.text
         return formatPart(partOf(item))
     },
+
+    // Raw JSON keeps the transcript lossless: previews truncate long tool
+    // payloads, and the transcript exists precisely for exact recall.
+    transcriptDocument(turns) {
+        const messages = turns.filter((turn) => turn.handle).map(messageOf)
+        return [
+            "# Better Compact Raw Transcript",
+            "",
+            "```json",
+            JSON.stringify(messages, null, 2),
+            "```",
+            "",
+        ].join("\n")
+    },
 }
 
 export const openCodeConventions: Conventions = {

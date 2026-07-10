@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { mkdtempSync, readFileSync, statSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { Logger } from "../lib/logger"
 import type { WithParts } from "../lib/state"
-import { buildBoundaryContextPlan } from "../lib/boundary"
+import { buildBoundaryContextPlan, writeBoundaryTranscript } from "../lib/boundary"
 
 const sessionID = "ses_boundary_context"
 
@@ -47,4 +51,53 @@ test("ignored Better Compact messages do not count as protected user turns", () 
 
     assert.ok(plan)
     assert.equal(plan.rawTailStartMessageId, "msg-user-2")
+})
+
+test("boundary transcript is lossless and private", async () => {
+    const bigInput = { marker: `private-tool-input-${"x".repeat(25_000)}-end` }
+    const messages = [
+        message("msg-user-1", "user", [textPart("msg-user-1", "old user")], 1),
+        message(
+            "msg-assistant-1",
+            "assistant",
+            [
+                {
+                    id: "msg-assistant-1-tool",
+                    messageID: "msg-assistant-1",
+                    sessionID,
+                    type: "tool" as const,
+                    callID: "msg-assistant-1-call",
+                    tool: "read",
+                    state: {
+                        status: "completed" as const,
+                        input: bigInput,
+                        output: "old detail ".repeat(2_000),
+                        title: "read",
+                        metadata: {},
+                        time: { start: 1, end: 2 },
+                    },
+                } as any,
+            ],
+            2,
+        ),
+        message("msg-user-2", "user", [textPart("msg-user-2", "middle user")], 3),
+        message("msg-assistant-2", "assistant", [textPart("msg-assistant-2", "middle assistant")], 4),
+        message("msg-user-3", "user", [textPart("msg-user-3", "latest user")], 5),
+    ]
+    const plan = buildBoundaryContextPlan(messages, {
+        contextLimit: 10_000,
+        force: true,
+        recentToolResultBudgetTokens: 0,
+    })
+    assert.ok(plan)
+    const directory = mkdtempSync(join(tmpdir(), "better-compact-private-transcript-"))
+
+    await writeBoundaryTranscript(directory, plan, new Logger(false))
+
+    const path = join(directory, plan.transcript.relativePath)
+    const content = readFileSync(path, "utf8")
+    assert.match(content, /private-tool-input-/)
+    assert.match(content, /-end/)
+    assert.equal(statSync(path).mode & 0o777, 0o600)
+    assert.equal(statSync(dirname(path)).mode & 0o777, 0o700)
 })

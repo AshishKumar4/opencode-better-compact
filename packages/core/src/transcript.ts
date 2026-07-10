@@ -20,7 +20,10 @@ export async function writeTranscript(
     plan: BoundaryContextPlan,
     deps: { transcripts: TranscriptStore; logger: Logger; codec: CodecOps },
 ): Promise<void> {
-    const content = plan.transcript.content || formatTranscript(plan.transcript.turns ?? [], deps.codec)
+    const turns = plan.transcript.turns ?? []
+    const content =
+        plan.transcript.content ||
+        (deps.codec.transcriptDocument ? deps.codec.transcriptDocument(turns) : formatTranscript(turns, deps.codec))
     const { absolutePath } = await deps.transcripts.write(plan.transcript.relativePath, content)
     plan.transcript.content = content
     plan.transcript.turns = undefined
