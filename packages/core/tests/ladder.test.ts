@@ -4,6 +4,7 @@ import {
     assistantRunsStage,
     buildPlan,
     countTokens,
+    createEngine,
     reasoningStage,
     replayPlanSnapshot,
     skillsStage,
@@ -546,4 +547,28 @@ test("planner removes errored tool details from compactified turns", () => {
     assert.match(compactedText, /tool calls\/results cleared|Assistant turn summary/)
     assert.doesNotMatch(compactedText, /ENOENT: missing config/)
     assert.doesNotMatch(compactedText, /npm run test/)
+})
+
+test("engine prunes on provider-reported usage the raw estimate alone misses", async () => {
+    const turns = buildMultiRunConversation()
+    const contextLimit = codec.estimateTurns(turns) * 2
+    const engine = createEngine(spec, {
+        transcripts: {
+            citablePath: (key, hash) => `transcripts/${key}/${hash}.md`,
+            write: async () => ({}),
+        },
+        plans: { load: () => null, save: () => {} },
+        logger: { info() {}, debug() {}, warn() {}, error() {} },
+    })
+
+    const withoutUsage = await engine.process({ sessionKey, turns, contextLimit })
+    assert.equal(withoutUsage.outcome, "unchanged")
+
+    const withUsage = await engine.process({
+        sessionKey,
+        turns,
+        contextLimit,
+        providerReportedTokens: Math.floor(contextLimit * 0.9),
+    })
+    assert.equal(withUsage.outcome, "planned")
 })

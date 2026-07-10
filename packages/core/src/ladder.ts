@@ -270,6 +270,7 @@ export interface Engine {
         triggerRatio?: number
         targetRatio?: number
         recentToolResultBudgetTokens?: number
+        providerReportedTokens?: number
     }): Promise<ProcessResult>
 }
 
@@ -277,7 +278,15 @@ export interface Engine {
 // otherwise discard it and build, persist, and apply a fresh one.
 export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
     return {
-        async process({ sessionKey, turns, contextLimit, triggerRatio, targetRatio, recentToolResultBudgetTokens }) {
+        async process({
+            sessionKey,
+            turns,
+            contextLimit,
+            triggerRatio,
+            targetRatio,
+            recentToolResultBudgetTokens,
+            providerReportedTokens,
+        }) {
             let staleSnapshotCleared = false
             const cached = await ports.plans.load(sessionKey)
             if (cached && cached.sessionId === sessionKey) {
@@ -293,6 +302,7 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                     triggerRatio,
                     targetRatio,
                     recentToolResultBudgetTokens,
+                    providerReportedTokens,
                     sessionKey,
                     citablePath: ports.transcripts.citablePath,
                 },
