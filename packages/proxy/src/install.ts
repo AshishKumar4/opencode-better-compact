@@ -25,7 +25,10 @@ const KEY = "openai_base_url"
 // refused so we never corrupt a config we do not fully understand.
 export function editCodexConfig(content: string, proxyBaseUrl: string): CodexConfigEdit {
     const lines = content.split("\n")
-    const firstTableIndex = lines.findIndex((line) => /^\s*\[/.test(line))
+    // A table header is a line that is exactly `[section]` (optionally trailed
+    // by a comment). Matching any line that merely starts with `[` would treat
+    // a multiline-array element like `["nested"],` as a section boundary.
+    const firstTableIndex = lines.findIndex((line) => /^\s*\[[^\]]*\]\s*(#.*)?$/.test(line))
     const rootEnd = firstTableIndex === -1 ? lines.length : firstTableIndex
 
     if (lines.some((line) => /^\s*\[\s*model_providers\.openai\b/.test(line))) {

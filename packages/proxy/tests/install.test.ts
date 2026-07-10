@@ -46,6 +46,17 @@ test("is idempotent: re-running does not record the proxy as its own upstream", 
     assert.equal(edit.action, "replaced")
 })
 
+test("edits a root-level key that follows a multiline array, not treating `[...]` array elements as table headers", () => {
+    const edit = editCodexConfig(
+        'sandbox_writable_roots = [\n  "/tmp",\n  ["nested", "value"],\n]\nopenai_base_url = "https://gw/v1"\n',
+        PROXY,
+    )
+    assert.ok(edit.ok)
+    assert.equal(edit.action, "replaced")
+    assert.equal(edit.previousBaseUrl, "https://gw/v1")
+    assert.match(edit.content, /openai_base_url = "http:\/\/127\.0\.0\.1:42817\/openai"/)
+})
+
 test("refuses when a custom [model_providers.openai] provider is configured", () => {
     const edit = editCodexConfig(
         '[model_providers.openai]\nbase_url = "https://gw/v1"\nwire_api = "responses"\n',
