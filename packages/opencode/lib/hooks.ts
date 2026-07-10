@@ -102,7 +102,8 @@ export function createChatMessageTransformHandler(
 
         stripHallucinations(messages)
 
-        if (!state.boundary.activePlan && messages.length >= 3) {
+        const effectivePermission = compressPermission(state, currentConfig)
+        if (effectivePermission !== "deny" && !state.boundary.activePlan && messages.length >= 3) {
             const inherited = await findMatchingBoundaryPlan(sessionId, messages, workingDirectory, logger)
             if (inherited) {
                 state.boundary.activePlan = inherited
@@ -114,8 +115,7 @@ export function createChatMessageTransformHandler(
             }
         }
 
-        const automaticAllowed =
-            currentConfig.compaction.automatic && compressPermission(state, currentConfig) === "allow"
+        const automaticAllowed = currentConfig.compaction.automatic && effectivePermission === "allow"
         if (automaticAllowed) {
             await runAutomaticTransform({
                 client,
@@ -128,7 +128,7 @@ export function createChatMessageTransformHandler(
                 messages,
                 params: currentParams,
             })
-        } else if (state.boundary.activePlan && compressPermission(state, currentConfig) !== "deny") {
+        } else if (state.boundary.activePlan && effectivePermission !== "deny") {
             // Automatic replanning is off; a stale-but-valid plan still beats
             // sending raw history.
             applyBoundaryPlanSnapshot(messages, state.boundary.activePlan, { allowRegrown: true })
@@ -178,15 +178,16 @@ async function runAutomaticTransform(input: {
             })
         })
         const active = input.runtime.activeCompaction(input.sessionId)
-        if (active) await active
-        if (started) {
-            if (planned) await showAutomaticCompactionToast(input.client, planned)
+        if (!started) {
+            await active?.catch(() => {})
+            const latestPlan = input.state.boundary.activePlan
+            if (latestPlan) {
+                applyBoundaryPlanSnapshot(input.messages, latestPlan, { allowRegrown: true })
+            }
             return
         }
-        const latestPlan = input.state.boundary.activePlan
-        if (latestPlan) {
-            applyBoundaryPlanSnapshot(input.messages, latestPlan, { allowRegrown: true })
-        }
+        if (active) await active
+        if (planned) await showAutomaticCompactionToast(input.client, planned)
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         input.logger.error("Automatic Better Compact failed; request continues unpruned", { error: message })
@@ -208,7 +209,7 @@ async function showAutomaticCompactionToast(client: any, plan: BoundaryContextPl
         await client.tui.showToast({
             body: {
                 title: "Better Compact applied",
-                message: `${formatCompactTokens(visibleBeforeTokens(plan))} → ${formatCompactTokens(plan.afterPruneTokens)} estimated active history`,
+                message: `${formatCompactTokens(plan.beforeTokens)} → ${formatCompactTokens(plan.afterPruneTokens)} projected context`,
                 variant: "success",
                 duration: 5000,
             },
@@ -532,10 +533,10 @@ async function runBetterCompact(input: {
             targetTokens: plan.targetTokens,
             contextLimit: plan.contextLimit,
             stageClearedTokens: 0,
-            clearedTokens: Math.max(0, visibleBeforeTokens(plan) - plan.afterPruneTokens),
+            clearedTokens: Math.max(0, plan.beforeTokens - plan.afterPruneTokens),
         })
-        setBoundaryStage(input.state, "scan", "completed", `Estimated active history ${formatCompactTokens(visibleBeforeTokens(plan))} -> ${formatCompactTokens(plan.afterPruneTokens)}`)
-        appendBoundaryLog(input.state, `Estimated active-history reduction: ${formatCompactTokens(visibleBeforeTokens(plan))} -> ${formatCompactTokens(plan.afterPruneTokens)}.`)
+        setBoundaryStage(input.state, "scan", "completed", `Projected ${formatCompactTokens(plan.beforeTokens)} -> ${formatCompactTokens(plan.afterPruneTokens)}`)
+        appendBoundaryLog(input.state, `Projected context reduction: ${formatCompactTokens(plan.beforeTokens)} -> ${formatCompactTokens(plan.afterPruneTokens)}.`)
         await saveProgress()
 
         setBoundaryStage(input.state, "transcript", "running", "Writing raw transcript reference")
@@ -575,7 +576,7 @@ async function runBetterCompact(input: {
             updateBoundaryCounters(input.state, {
                 currentTokens: stage.afterTokens,
                 stageClearedTokens: stage.clearedTokens,
-                clearedTokens: Math.max(0, visibleBeforeTokens(plan) - stage.afterTokens),
+                clearedTokens: Math.max(0, plan.beforeTokens - stage.afterTokens),
             })
             appendBoundaryLog(input.state, `${stage.label}: ${formatCompactTokens(stage.clearedTokens)} cleared.`)
             await saveProgress()
@@ -647,8 +648,8 @@ async function runBetterCompact(input: {
             )
             updateBoundaryCounters(input.state, {
                 currentTokens: finalPlan.afterPruneTokens,
-                stageClearedTokens: Math.max(0, visibleBeforeTokens(plan) - finalPlan.afterPruneTokens),
-                clearedTokens: Math.max(0, visibleBeforeTokens(finalPlan) - finalPlan.afterPruneTokens),
+                stageClearedTokens: Math.max(0, plan.beforeTokens - finalPlan.afterPruneTokens),
+                clearedTokens: Math.max(0, finalPlan.beforeTokens - finalPlan.afterPruneTokens),
             })
             const finalPrefixStage = finalPlan.stages.find((stage) => stage.name === "prefix-summary")
             if (finalPrefixStage) {
@@ -680,7 +681,7 @@ async function runBetterCompact(input: {
             afterTokens: finalPlan.afterPruneTokens,
             currentTokens: finalPlan.afterPruneTokens,
             targetTokens: finalPlan.targetTokens,
-            clearedTokens: Math.max(0, visibleBeforeTokens(finalPlan) - finalPlan.afterPruneTokens),
+            clearedTokens: Math.max(0, finalPlan.beforeTokens - finalPlan.afterPruneTokens),
         })
         setBoundaryStage(input.state, "store", "completed", "Virtual context plan stored")
         appendBoundaryLog(input.state, "Stored Better Compact plan for future model requests.")
@@ -712,13 +713,6 @@ async function runBetterCompact(input: {
         await sendIgnoredMessage(input.client, input.sessionId, `Better Compact failed: ${message}`, params, input.logger)
         throw error
     }
-}
-
-// Provider totals include invisible overhead (system prompt, tool schemas,
-// cache accounting); the plan's overhead delta backs it out so user-facing
-// numbers describe the visible active history on the estimate scale.
-function visibleBeforeTokens(plan: BoundaryContextPlan): number {
-    return Math.max(0, plan.beforeTokens - plan.overheadTokens)
 }
 
 function validBoundaryJobId(value: unknown): string | undefined {
