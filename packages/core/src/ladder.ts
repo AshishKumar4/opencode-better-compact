@@ -58,7 +58,10 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     const estimator: Estimator = { overheadTokens }
     const beforeTokens = providerReportedTokens > 0 ? providerReportedTokens : rawEstimateTokens
     const triggerTokens = Math.floor(contextLimit * triggerRatio)
-    if (!inputs.force && beforeTokens < triggerTokens) return null
+    // Either scale crossing the trigger means the request is in danger: the
+    // provider total sees overhead the estimate cannot, and the estimate sees
+    // fresh turns the provider has not priced yet.
+    if (!inputs.force && Math.max(beforeTokens, rawEstimateTokens) < triggerTokens) return null
 
     const rawTailStartIndex = findRawTailStartIndex(
         turns,
@@ -74,21 +77,33 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     const stages: BoundaryStageReport[] = []
     const summaryJobs: BoundarySummaryJob[] = []
     const targetTokens = Math.floor(contextLimit * targetRatio)
+    const prior = inputs.priorPlan
+    const priorTailIndex = prior ? turns.findIndex((item) => item.key === prior.rawTailStartMessageId) : -1
+    const preservedToolCallIds = findRecentToolCallTail(
+        compactedRange,
+        inputs.recentToolResultBudgetTokens ?? RECENT_TOOL_RESULT_BUDGET_TOKENS,
+        spec.codec,
+        spec.conventions,
+    )
+    applyPreservationFloor(turns, preservedToolCallIds, prior, priorTailIndex)
+    const priorStages = new Set(
+        (prior?.stages ?? [])
+            .filter((stage) => stage.status !== "skipped" && stage.status !== "failed")
+            .map((stage) => stage.name),
+    )
     const ctx: StageContext = {
         codec: spec.codec,
         conventions: spec.conventions,
         estimator,
         rawTailStartIndex,
         transcriptRelativePath,
-        preservedToolCallIds: findRecentToolCallTail(
-            compactedRange,
-            inputs.recentToolResultBudgetTokens ?? RECENT_TOOL_RESULT_BUDGET_TOKENS,
-            spec.codec,
-            spec.conventions,
-        ),
+        preservedToolCallIds,
         latestTodoCallId: findLatestTodoCallId(compactedRange, spec.conventions),
-        assistantSummaries: inputs.assistantSummaries ?? {},
-        assistantSummaryKeys: new Set<string>(),
+        assistantSummaries: {
+            ...(prior?.assistantSummaries ?? {}),
+            ...(inputs.assistantSummaries ?? {}),
+        },
+        assistantSummaryKeys: new Set<string>(prior?.assistantSummaryKeys ?? []),
         summaryJobs,
         selectRuns: true,
         targetTokens,
@@ -101,7 +116,7 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     const projectedTokens = () => estimateTurns(working, spec.codec, estimator) + ctx.referenceTokens
 
     for (const stage of spec.stages) {
-        if (!stage.always && projectedTokens() < triggerTokens) {
+        if (!stage.always && projectedTokens() < triggerTokens && !priorStages.has(stage.name)) {
             markTargetMet(stages)
             continue
         }
@@ -109,8 +124,9 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     }
 
     let requiresCustomCompaction = false
-    let prefixSummary = inputs.prefixSummary
-    if (projectedTokens() >= triggerTokens) {
+    const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
+    let prefixSummary = inputs.prefixSummary ?? (expandedPrefix ? undefined : prior?.prefixSummary)
+    if (projectedTokens() >= triggerTokens || prior?.requiresCustomCompaction) {
         const tailKey = turns[rawTailStartIndex]?.key
         const currentTailStartIndex = working.findIndex((turn) => turn.key === tailKey)
         const beforePrefix = projectedTokens()
@@ -307,11 +323,13 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
             summarize,
         }) {
             let staleSnapshotCleared = false
+            let priorPlan: PlanSnapshot | undefined
             const cached = await ports.plans.load(sessionKey)
             if (cached && cached.sessionId === sessionKey) {
                 const replayed = replayPlanSnapshot(turns, cached, spec)
                 if (replayed) return { outcome: "replayed", turns: replayed }
                 staleSnapshotCleared = true
+                priorPlan = cached
             }
 
             const inputs: BuildPlanInputs = {
@@ -320,6 +338,7 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                 targetRatio,
                 recentToolResultBudgetTokens,
                 providerReportedTokens,
+                priorPlan,
                 sessionKey,
                 citablePath: ports.transcripts.citablePath,
             }
@@ -371,6 +390,31 @@ function runStage(
         changedParts: result.changedItems,
         status: result.changedTurns.size > 0 || result.changedItems > 0 ? "applied" : "skipped",
     })
+}
+
+// Tool results the model already lost to the prior plan must not resurface
+// in the replacement: drop newly-preserved call ids that live inside the
+// prior plan's compacted prefix unless the prior plan preserved them too.
+function applyPreservationFloor(
+    turns: Turn[],
+    preservedToolCallIds: Set<string>,
+    prior: PlanSnapshot | undefined,
+    priorTailIndex: number,
+): void {
+    if (!prior || priorTailIndex <= 0) return
+    const previouslyPreserved = new Set(prior.preservedToolCallIds ?? [])
+    for (let index = 0; index < priorTailIndex; index++) {
+        for (const item of turns[index].items) {
+            if (
+                item.kind === "tool" &&
+                item.callId &&
+                preservedToolCallIds.has(item.callId) &&
+                !previouslyPreserved.has(item.callId)
+            ) {
+                preservedToolCallIds.delete(item.callId)
+            }
+        }
+    }
 }
 
 function markTargetMet(stages: BoundaryStageReport[]): void {

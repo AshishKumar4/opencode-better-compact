@@ -572,3 +572,131 @@ test("engine prunes on provider-reported usage the raw estimate alone misses", a
     })
     assert.equal(withUsage.outcome, "planned")
 })
+
+test("planner triggers when either the provider total or the raw estimate crosses the trigger", () => {
+    const turns = buildLargeConversation()
+    const estimate = codec.estimateTurns(turns)
+    const contextLimit = Math.max(1, Math.floor(estimate / 0.9))
+    assert.ok(estimate > Math.floor(contextLimit * 0.85))
+
+    // Provider total lags behind fresh turns the estimate already sees.
+    const plan = buildPlan(turns, inputs({ contextLimit, providerReportedTokens: 10 }), spec)
+    assert.ok(plan)
+
+    // Neither scale over the trigger: no plan.
+    const calm = buildPlan(turns, inputs({ contextLimit: estimate * 4, providerReportedTokens: 10 }), spec)
+    assert.equal(calm, null)
+})
+
+test("replacement plans keep prior pruning stages and preserved tools as a monotonic floor", () => {
+    const turns = buildLargeConversation()
+    const first = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    assert.ok(first)
+    assert.ok(first.stages.some((stage) => stage.name === "reasoning" && stage.status !== "skipped"))
+
+    const replacement = buildPlan(
+        turns,
+        inputs({
+            contextLimit: 1_000_000,
+            force: true,
+            recentToolResultBudgetTokens: 80_000,
+            priorPlan: toPlanSnapshot(first),
+        }),
+        spec,
+    )
+
+    assert.ok(replacement)
+    // A generous limit alone would skip reasoning; the prior plan already
+    // pruned it, so the replacement must not resurrect it.
+    assert.ok(replacement.stages.some((stage) => stage.name === "reasoning" && stage.status !== "skipped"))
+    // Tool results the model already lost inside the prior compacted prefix
+    // stay lost even under a larger recent-tool budget.
+    const priorPreserved = new Set(first.preservedToolCallIds)
+    for (const callId of replacement.preservedToolCallIds) {
+        if (priorPreserved.has(callId)) continue
+        const previouslyCompacted = turns
+            .slice(0, first.rawTailStartIndex)
+            .some((item) => item.items.some((part) => part.kind === "tool" && part.callId === callId))
+        assert.equal(previouslyCompacted, false)
+    }
+})
+
+test("replacement plans reuse prior assistant summaries without new summary jobs", () => {
+    const turns = buildMultiRunConversation()
+    const first = buildPlan(turns, inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }), spec)
+    assert.ok(first)
+    assert.ok(first.summaryJobs.length > 0)
+    const summaries = Object.fromEntries(first.summaryJobs.map((job) => [job.key, "Accepted summary."]))
+    const settled = buildPlan(
+        turns,
+        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true, assistantSummaries: summaries }),
+        spec,
+    )
+    assert.ok(settled)
+    assert.equal(settled.summaryJobs.length, 0)
+
+    const replacement = buildPlan(
+        turns,
+        inputs({
+            contextLimit: 9_000,
+            recentToolResultBudgetTokens: 0,
+            force: true,
+            priorPlan: toPlanSnapshot(settled),
+        }),
+        spec,
+    )
+
+    assert.ok(replacement)
+    assert.equal(replacement.summaryJobs.length, 0)
+    assert.deepEqual(replacement.assistantSummaries, settled.assistantSummaries)
+})
+
+test("expanded prefix summaries include newly compacted user context", () => {
+    const firstTurns = [
+        turn("u1", "user", [textItem("u1", "old user")], 1),
+        turn("a1", "assistant", [textItem("a1", "old detail ".repeat(2_000))], 2),
+        turn("u2", "user", [textItem("u2", "middle user")], 3),
+        turn("a2", "assistant", [textItem("a2", "middle detail ".repeat(2_000))], 4),
+        turn("u3", "user", [textItem("u3", "newly crossed requirement")], 5),
+    ]
+    const first = buildPlan(
+        firstTurns,
+        inputs({ contextLimit: 100, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(first?.requiresCustomCompaction)
+    const grown = [
+        ...firstTurns,
+        turn("a3", "assistant", [textItem("a3", "later detail ".repeat(2_000))], 6),
+        turn("u4", "user", [textItem("u4", "later user")], 7),
+        turn("a4", "assistant", [textItem("a4", "latest assistant")], 8),
+        turn("u5", "user", [textItem("u5", "latest user")], 9),
+    ]
+
+    const replacement = buildPlan(
+        grown,
+        inputs({ contextLimit: 100, force: true, recentToolResultBudgetTokens: 0, priorPlan: toPlanSnapshot(first) }),
+        spec,
+    )
+
+    assert.ok(replacement?.requiresCustomCompaction)
+    assert.match(replacement.prefixSummary ?? "", /newly crossed requirement/)
+})
+
+test("custom compaction stays sticky for replacement plans", () => {
+    const turns = buildMultiRunConversation()
+    const first = buildPlan(turns, inputs({ contextLimit: 500, recentToolResultBudgetTokens: 0 }), spec)
+    assert.ok(first?.requiresCustomCompaction)
+
+    // A huge limit would normally clear custom compaction entirely, but the
+    // model already saw a summarized prefix; reverting would resurrect it.
+    const replacement = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, priorPlan: toPlanSnapshot(first) }),
+        spec,
+    )
+
+    assert.ok(replacement)
+    assert.equal(replacement.requiresCustomCompaction, true)
+    assert.equal(replacement.prefixSummary, first.prefixSummary)
+})

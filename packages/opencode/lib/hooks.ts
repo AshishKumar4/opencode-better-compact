@@ -508,6 +508,7 @@ async function runBetterCompact(input: {
             targetRatio: profile.targetPercent / 100,
             recentToolResultBudgetTokens: profile.recentToolTokens,
             providerReportedTokens: reportedCurrentTokens,
+            priorPlan: input.state.boundary.activePlan ?? undefined,
         })
         if (!plan) {
             setBoundaryStage(input.state, "scan", "skipped", "No eligible historical context found")
@@ -635,6 +636,7 @@ async function runBetterCompact(input: {
                         targetRatio: profile.targetPercent / 100,
                         recentToolResultBudgetTokens: profile.recentToolTokens,
                         providerReportedTokens: reportedCurrentTokens,
+                        priorPlan: input.state.boundary.activePlan ?? undefined,
                     }) ?? plan
             }
             setBoundaryStage(

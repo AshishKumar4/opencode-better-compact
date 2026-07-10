@@ -46,6 +46,12 @@ export interface BoundaryContextOptions {
     assistantSummaries?: Record<string, string>
     prefixSummary?: string
     providerReportedTokens?: number
+    // The snapshot this plan replaces. Replacement plans treat what the
+    // prior plan already pruned as a monotonic floor: applied stages stay
+    // applied, tool results the model already lost are not resurrected,
+    // paid-for assistant summaries are reused, and custom compaction stays
+    // sticky. A prefix summary carries over unless the boundary advanced.
+    priorPlan?: PlanSnapshot
 }
 
 export interface BoundaryContextPlan {
