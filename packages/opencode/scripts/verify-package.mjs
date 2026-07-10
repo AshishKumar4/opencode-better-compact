@@ -43,6 +43,7 @@ const requiredTarballFiles = [
 const forbiddenTarballPatterns = [
     /^node_modules\//,
     /^index\.ts$/,
+    /^lib\//,
     /^tests\//,
     /^scripts\//,
     /^docs\//,
@@ -88,10 +89,13 @@ function assertPackageJsonShape() {
     }
 
     const files = Array.isArray(pkg.files) ? pkg.files : []
-    for (const entry of ["dist/", "lib/", "better-compact.schema.json", "README.md", "LICENSE"]) {
+    for (const entry of ["dist/", "better-compact.schema.json", "README.md", "LICENSE"]) {
         if (!files.includes(entry)) {
             fail(`package.json files must include ${entry}`)
         }
+    }
+    if (files.includes("lib/")) {
+        fail("package.json files must not include lib/ (raw source referencing the unpublished @better-compact/core; the plugin loads dist/ only)")
     }
 }
 
