@@ -73,7 +73,7 @@ The ladder emits `synthetic` items (reference message, prefix summary, `[tool ca
 OpenCode and pi have stable ids; Anthropic messages and Codex ResponseItems do not. One identity concept, two derivations:
 
 - `ItemKey` = native id when the platform has one; else `sha256(stableJson(nativePayload)).slice(0,16)` with an occurrence-ordinal suffix (`#2`) for identical payloads. `TurnKey` = key of the turn's first item.
-- `rangeHash` = sha256 over the ordered ItemKeys of the compacted range (replaces today's id+timestamp seed in `rangeHash()` at lib/boundary/context.ts).
+- `rangeHash` = sha256 over the compacted range's ordered per-turn `${key}:${stamp}` seed — byte-identical to the historical id+timestamp seed, so an edit-sensitive stamp (OpenCode's message creation time; folded into the content-hash key on id-less platforms) still participates in the hash.
 - **Plan replay on id-less platforms:** the plan stores the tail-start TurnKey. On the next request, locate it by scanning keys from the end (append-only transcripts guarantee the prefix is stable), validate the prefix `rangeHash`, and replay deterministically. Hash mismatch — e.g. CC microcompaction rewrote an old tool_result, changing its content hash — means the prefix genuinely changed: discard and rebuild the plan against the new reality. That is correct behavior, not a failure; microcompaction already invalidated the provider prompt cache, so the one-time re-prune costs nothing extra.
 
 ---
@@ -104,7 +104,7 @@ better-compact/
 
 **Judgment calls:**
 
-- **One proxy package, not three.** Rejected `proxy` + `proxy-anthropic` + `proxy-openai-responses`: the codecs are not independently consumable (nothing imports an Anthropic codec except the proxy), and one daemon serving both dialects by route (`/anthropic/v1/messages`, `/openai/v1/responses`) is one deployable, one lifecycle, one install story. Codecs are modules inside the package.
+- **One proxy package, not three.** Rejected `proxy` + `proxy-anthropic` + `proxy-openai-responses`: the codecs are not independently consumable (nothing imports an Anthropic codec except the proxy), and one daemon serving both dialects by route (`/anthropic/v1/messages`, `/openai/responses`) is one deployable, one lifecycle, one install story. Codecs are modules inside the package.
 - **Codecs live with their consumer**, not in core: OpenCode codec in `packages/opencode`, pi codec in `packages/pi`, wire codecs in `packages/proxy`. Core stays dependency-free and platform-blind.
 - **No `codex` package.** Codex's only extension surface is prompt-file slash commands; its entire adapter *is* the openai codec plus installer edits to `config.toml` (`openai_base_url`, custom `compact_prompt`). A package with no code fails the deletion test — Codex setup ships as `better-compact-proxy install codex`.
 - **What stays OpenCode-specific:** TUI (`tui.tsx`, lib/tui, lib/ui), commands, host-permissions, compress-permission, auth, auto-update, hallucination stripping (lib/messages/reasoning-strip et al.), scratch-session summarizer. None of it generalizes; none of it should.
@@ -118,47 +118,51 @@ better-compact/
 Core is one deep module. The entire external surface:
 
 ```ts
-// packages/core/src/ports.ts
-interface EnginePorts {
-    summarizer: Summarizer
-    transcripts: TranscriptStore
-    plans: PlanStore
-    logger: Logger                    // today's lib/logger.ts becomes the reference impl
-    now?: () => number
-}
-interface Summarizer {                // side-model; adapter owns transport
-    complete(prompt: string, opts: { signal?: AbortSignal }): Promise<string>
+// packages/core/src/ports.ts — the entire port surface (as shipped)
+interface EnginePorts { transcripts: TranscriptStore; plans: PlanStore; logger: Logger }
+
+interface Summarizer {                // side-model; the adapter owns transport AND scheduling
+    complete(job: BoundarySummaryJob): Promise<string | null>
 }
 interface TranscriptStore {
-    write(sessionKey: string, rangeHash: string, content: string): Promise<{ citablePath: string }>
-}   // citablePath is what the reference message prints: OpenCode keeps project-relative
-    // ".opencode/better-compact/sessions/…" (agent-readable, ignorable); the proxy has no cwd,
-    // so it uses an absolute "~/.better-compact/transcripts/<session>/<hash>.md". The port hides this.
+    // citablePath is known before anything is written (stage output embeds it),
+    // so the reference message can cite it; the store hides the path scheme.
+    citablePath(sessionKey: string, rangeHash: string): string
+    write(relativePath: string, content: string): Promise<{ absolutePath?: string }>
+}   // OpenCode keeps a project-relative ".opencode/better-compact/…" path (agent-readable,
+    // ignorable); the proxy has no cwd, so it uses an absolute "~/.better-compact/transcripts/…".
 interface PlanStore {
-    load(sessionKey: string): Promise<PlanSnapshot | null>
-    save(sessionKey: string, plan: PlanSnapshot): Promise<void>
+    load(sessionKey: string): Promise<PlanSnapshot | null> | PlanSnapshot | null
+    save(sessionKey: string, snapshot: PlanSnapshot | null): Promise<void> | void  // null clears a stale plan
 }
 
-// packages/core/src/ladder.ts
-function createEngine(ports: EnginePorts, spec: {
-    stages: Stage[]                   // §5 — declared per platform, ordered
-    profile: CompactionProfile        // profiles.ts, verbatim from lib/compaction-settings.ts
-}): Engine
+// packages/core/src/ladder.ts — the LadderSpec (codec + conventions + ordered
+// stages) comes first, the ports second.
+function createEngine(spec: LadderSpec, ports: EnginePorts): Engine
 
 interface Engine {
     process(req: {
         sessionKey: string
         turns: Turn[]
-        contextLimit: number
-        reportedTokens?: number       // last provider-reported total, when the platform has it
-        force?: boolean               // manual command
-    }): Promise<{ turns: Turn[]; plan: PlanSnapshot | null; report: BoundaryReport | null }>
+        contextLimit?: number
+        triggerRatio?: number
+        targetRatio?: number
+        recentToolResultBudgetTokens?: number
+        providerReportedTokens?: number   // last provider-reported total, when the platform has it
+    }): Promise<ProcessResult>
 }
+
+type ProcessResult =
+    | { outcome: "unchanged" }
+    | { outcome: "replayed"; turns: Turn[] }
+    | { outcome: "planned"; turns: Turn[]; plan: BoundaryContextPlan }
 ```
 
-`process` owns the whole post-fix control flow — load cached plan, validate rangeHash, replay deterministically, re-prune on regrowth past trigger, in-flight guard (one build per sessionKey), transcript write, background summary-job scheduling with the concurrency loop from lib/boundary/summarizer.ts (the scheduling/dedupe is core; only `complete()` is the port). Summarization never blocks a request: the deterministic stages apply synchronously; assistant-run summaries land in the plan between requests and upgrade the replayed prefix — this matches the existing OpenCode split between the auto transform path and the background `runBetterCompact` job, now unified as one engine behavior instead of two code paths.
+*(The original design sketched a `summarizer` port on `EnginePorts`, a `now` hook, and a `{turns, plan, report}` return with a `force` flag; the shipped surface is the above. Summary scheduling moved out of the engine to the adapter, so the port set is exactly `{transcripts, plans, logger}` and `process` returns the discriminated union.)*
 
-**Estimator:** core-owned, single-scale (post-fix semantics). `estimate(turns) = Σ chars(codec.encodedSize(item))/4 + overheadOffset`, where `overheadOffset` is measured as `reportedTokens − rawEstimate` on each response that reports usage (EMA-smoothed), replacing today's split between `estimateOpenCodeMessages` totals and `providerReportedTokens` overrides. The codec's `encodedSize` prices items as *that platform* serializes them — today's `toOpenCodeModelLikeMessage` in lib/context-estimate.ts is exactly the OpenCode implementation of this.
+`process` owns the deterministic boundary transform: load the cached plan, validate its rangeHash, replay it when it still holds, otherwise discard it and build, persist, and apply a fresh one (re-pruning once the context regrows past the trigger), and write the transcript. **Summarization is adapter-owned**, not part of `process`: the adapter schedules `summarizeJobs` (core's concurrency/dedupe loop) in the background under its own in-flight guard, then persists the upgraded plan so it applies from the next request. The deterministic stages apply synchronously and never block a request; assistant-run summaries land between requests and upgrade the replayed prefix — the OpenCode auto-transform and background `runBetterCompact` paths, unified as one engine behavior plus one adapter-scheduled upgrade.
+
+**Estimator:** core-owned, single-scale. `estimate(turns) = Σ chars(codec.estimateTurns …)/4 + overheadTokens`, where `overheadTokens` is the **last-value delta** `providerReportedTokens − rawEstimate` carried from the request's own reported usage (not an EMA). Provider totals include the system prompt, tool schemas, and cache accounting the char estimate cannot see, so carrying the delta keeps every gate and stage number on the provider-equivalent scale. The codec prices items as *that platform* serializes them — today's `toOpenCodeModelLikeMessage` in lib/context-estimate.ts is exactly the OpenCode implementation of this.
 
 **File-by-file mapping of today's lib/:**
 
@@ -186,7 +190,7 @@ Per-platform port implementations: **pi** — Summarizer via pi-ai `complete` + 
 One daemon, `better-compact-proxy`, binding `127.0.0.1` on a fixed default port (e.g. 42817), serving both dialects by route:
 
 - `POST /anthropic/v1/messages` → rewrite → `api.anthropic.com` (or the pre-existing `ANTHROPIC_BASE_URL` value, read at install time and composed as upstream, so existing gateway users keep working)
-- `POST /openai/v1/responses` → rewrite → configured OpenAI upstream
+- `POST /openai/responses` → rewrite → configured OpenAI upstream
 - everything else on those prefixes → transparent passthrough (token counting, models, etc.)
 
 **Lifecycle.** The CC plugin's SessionStart hook ensures the daemon is up (spawn-if-absent, idempotent via `~/.better-compact/proxy.json` `{port, pid}` lockfile); the Codex installer prints/installs the same. Fixed port beats discovery: `ANTHROPIC_BASE_URL` must be present in settings `env` *before* `claude` launches, and `openai_base_url` lives in static `config.toml` — neither can chase a dynamic port. Port conflict with a foreign process → fail loud at start, never silently degrade. Multi-instance is a non-goal: one shared per-user daemon serves all sessions concurrently, keyed by correlation id. Rejected per-session proxies: N lifecycles and N ports for zero isolation benefit.
@@ -195,7 +199,7 @@ One daemon, `better-compact-proxy`, binding `127.0.0.1` on a fixed default port 
 
 **Failure posture.** Every per-request rewrite is wrapped: any internal error (codec, engine, store) → log, forward the *original* body and headers unmodified — the user's session must never break because of us. Upstream 4xx after a rewrite passes through unchanged, and the proxy dumps the offending rewritten body to `~/.better-compact/debug/` for fixture-ing. Rejected retry-once-with-original-on-400: it masks codec bugs, doubles cost and latency, and offline golden/property testing (§6) is the right place to earn validity confidence.
 
-**Claude Code specifics.** OAuth against a custom base URL rides on `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL` — flagged for live verification in Phase 3 before anything ships (the API-key path needs nothing). Native auto-compact needs no fighting: the API usage CC observes comes from our pruned requests, so it stays below CC's threshold naturally; `DISABLE_AUTO_COMPACT` is set by the installer as belt-and-braces since the knob officially exists. Microcompaction has no disable knob, so we *compose*: cleared tool outputs arrive as cheap placeholders the estimator prices honestly, and if microcompaction rewrites prefix content the rangeHash rebuild (§1.4) re-prunes correctly. `cache_control` breakpoints: a marker on a block we prune migrates to the nearest surviving earlier item (or the synthetic replacement) so CC's cache-anchoring intent survives; markers in the raw tail are untouched by construction.
+**Claude Code specifics.** OAuth against a custom base URL was verified working live on Claude Code 2.1.205 through the loopback proxy with no extra configuration (the API-key path needs nothing either). `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL` exists in that binary and also works; it is kept as a documented contingency should a future version gate OAuth behind it. Native auto-compact needs no fighting: the API usage CC observes comes from our pruned requests, so it stays below CC's threshold naturally; `DISABLE_AUTO_COMPACT` is set by the installer as belt-and-braces since the knob officially exists. Microcompaction has no disable knob, so we *compose*: cleared tool outputs arrive as cheap placeholders the estimator prices honestly, and if microcompaction rewrites prefix content the rangeHash rebuild (§1.4) re-prunes correctly. `cache_control` breakpoints: a marker on a block we prune migrates to the nearest surviving earlier item (or the synthetic replacement) so CC's cache-anchoring intent survives; markers in the raw tail are untouched by construction.
 
 **Codex pre-emption.** Native compaction (90% trigger, 100% backstop, non-disableable) keys off API-reported usage — which, behind our proxy, reflects the *pruned* request. Our default 85% trigger (light profile) therefore keeps Codex's own gauge permanently below 90%: pre-emption is a free consequence of the architecture, not a fought battle. Residual: a raw tail alone exceeding 90% of the window can still trip native compaction; the installer sets a custom `compact_prompt` directing any native summary to cite our transcript paths, so even that path degrades gracefully. `prompt_cache_key` and `client_metadata` pass through untouched.
 

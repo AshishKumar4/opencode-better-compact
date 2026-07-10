@@ -2,14 +2,16 @@
 
 I got tired of watching coding agents hit their context limit and replace hours of careful work with a single lossy summary. Better Compact is my answer: a staged, pruning-first context ladder that preserves raw user intent, prunes old tool-heavy context first, writes transcript references for exact recall, and summarizes old assistant turns only when lighter pruning is not enough.
 
-The ladder is the product. It runs the same stages everywhere:
+The ladder is the product. Each platform declares its own ordered stage array — the same stages in the same order, minus the ones that platform has no concept of (skill and todo preservation exist only where the platform has skills/todos: OpenCode and Claude Code have both; pi and Codex have neither):
 
-1. Prune loaded skill context.
+1. Prune loaded skill context. _(skill-aware platforms only)_
 2. Prune old tool calls/results while preserving a recent-tool budget.
 3. Prune thinking/reasoning, only if still needed.
 4. Prune remaining tool calls/results, only if still needed.
 5. Summarize high-value old assistant turns, only if still needed.
 6. Fall back to a prefix summary as a last resort.
+
+Todo state, where a platform exposes it in-band, is preserved through the tool-pruning stages so the model never loses its task list.
 
 Every step writes raw transcripts to disk and injects a reference message, so the agent can always read back the exact history it lost. Plans are cached, validated with a range hash, replayed deterministically across requests (which keeps provider prompt caches warm), and rebuilt when the context regrows past the trigger.
 
