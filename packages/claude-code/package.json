@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@better-compact/claude-code",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Claude Code plugin shell for Better Compact: daemon lifecycle hook, status command, installer",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "directory": "packages/claude-code"
+    },
+    "author": "AshishKumar4",
+    "license": "AGPL-3.0-or-later"
+}
