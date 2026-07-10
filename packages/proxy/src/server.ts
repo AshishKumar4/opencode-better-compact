@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { CompactionProfile, Logger } from "@better-compact/core"
 import { createAnthropicRoute } from "./anthropic/route"
 import { createOpenAIRoute } from "./openai/route"
+import { errorEnvelope } from "./route"
 import { createSessionTracker } from "./sessions"
 import { createPlanStore, createTranscriptStore } from "./stores"
 
@@ -57,13 +58,12 @@ export function createProxyServer(options: ProxyServerOptions): Server {
             dispatch(url, "/openai", openai, req, res, options.logger)
         if (dispatched) return
         res.writeHead(404, { "content-type": "application/json" })
-        res.end(
-            JSON.stringify({
-                type: "error",
-                error: { type: "not_found_error", message: "unknown route" },
-            }),
-        )
+        res.end(JSON.stringify(errorEnvelope(dialectOf(url), "not_found_error", "unknown route")))
     })
+}
+
+function dialectOf(url: string): "anthropic" | "openai" {
+    return url === "/openai" || url.startsWith("/openai/") ? "openai" : "anthropic"
 }
 
 function dispatch(
@@ -79,12 +79,7 @@ function dispatch(
     route(req, res, path).catch((error) => {
         logger.error("Request handling failed", { error: String(error) })
         if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" })
-        res.end(
-            JSON.stringify({
-                type: "error",
-                error: { type: "api_error", message: "proxy failure" },
-            }),
-        )
+        res.end(JSON.stringify(errorEnvelope(dialectOf(url), "api_error", "proxy failure")))
     })
     return true
 }

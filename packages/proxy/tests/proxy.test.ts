@@ -622,6 +622,16 @@ test("passes other /anthropic paths through untouched", async () => {
     assert.deepEqual(seen.body, body)
 })
 
+test("unknown routes 404 with the Anthropic error envelope", async () => {
+    const harness = await startHarness()
+    const response = await post(harness.proxyPort, "/nope", Buffer.from("{}"), CLIENT_HEADERS)
+    assert.equal(response.status, 404)
+    assert.deepEqual(JSON.parse(response.body.toString("utf-8")), {
+        type: "error",
+        error: { type: "not_found_error", message: "unknown route" },
+    })
+})
+
 test("health check distinguishes ours, foreign, and down", async () => {
     const harness = await startHarness()
     assert.equal((await checkHealth(harness.proxyPort)).kind, "ours")
