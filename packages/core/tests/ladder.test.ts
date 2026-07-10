@@ -718,3 +718,22 @@ test("ephemeral turns do not count as protected user turns", () => {
     assert.ok(plan)
     assert.equal(plan.rawTailStartMessageId, "msg-user-2")
 })
+
+test("assistant summaries survive a fork that mints new turn keys", () => {
+    const turns = buildMultiRunConversation()
+    const first = buildPlan(turns, inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }), spec)
+    assert.ok(first)
+    assert.ok(first.summaryJobs.length > 0)
+    const summaries = Object.fromEntries(first.summaryJobs.map((job) => [job.key, "Accepted summary."]))
+
+    const forked = buildMultiRunConversation().map((item) => ({ ...item, key: `fork-${item.key}` }))
+    const replay = buildPlan(
+        forked,
+        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true, assistantSummaries: summaries }),
+        spec,
+    )
+
+    assert.ok(replay)
+    assert.equal(replay.summaryJobs.length, 0)
+    assert.deepEqual(Object.keys(replay.assistantSummaries).sort(), Object.keys(summaries).sort())
+})
