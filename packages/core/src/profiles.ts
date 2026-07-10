@@ -1,4 +1,5 @@
 export type CompactionPreset = "light" | "moderate" | "max" | "custom"
+export type SummaryEffort = "inherit" | "low" | "medium" | "high" | "max"
 
 export interface CompactionCustomSettings {
     triggerPercent: number
@@ -8,7 +9,9 @@ export interface CompactionCustomSettings {
 }
 
 export interface CompactionConfig {
+    automatic: boolean
     preset: CompactionPreset
+    summaryEffort: SummaryEffort
     custom: CompactionCustomSettings
 }
 
@@ -47,16 +50,34 @@ export const DEFAULT_CUSTOM_COMPACTION: CompactionCustomSettings = {
     summarizerConcurrency: 4,
 }
 
-export function normalizeCompactionCustom(input: Partial<CompactionCustomSettings> | undefined): CompactionCustomSettings {
+export function normalizeCompactionCustom(
+    input: Partial<CompactionCustomSettings> | undefined,
+): CompactionCustomSettings {
     return {
-        triggerPercent: clampPercent(input?.triggerPercent, DEFAULT_CUSTOM_COMPACTION.triggerPercent),
+        triggerPercent: clampPercent(
+            input?.triggerPercent,
+            DEFAULT_CUSTOM_COMPACTION.triggerPercent,
+        ),
         targetPercent: clampPercent(input?.targetPercent, DEFAULT_CUSTOM_COMPACTION.targetPercent),
-        recentToolTokens: clampInteger(input?.recentToolTokens, 0, 200_000, DEFAULT_CUSTOM_COMPACTION.recentToolTokens),
-        summarizerConcurrency: clampInteger(input?.summarizerConcurrency, 1, 16, DEFAULT_CUSTOM_COMPACTION.summarizerConcurrency),
+        recentToolTokens: clampInteger(
+            input?.recentToolTokens,
+            0,
+            200_000,
+            DEFAULT_CUSTOM_COMPACTION.recentToolTokens,
+        ),
+        summarizerConcurrency: clampInteger(
+            input?.summarizerConcurrency,
+            1,
+            16,
+            DEFAULT_CUSTOM_COMPACTION.summarizerConcurrency,
+        ),
     }
 }
 
-export function resolveCompactionProfile(config: { compaction: CompactionConfig }, override?: Partial<CompactionConfig>): CompactionProfile {
+export function resolveCompactionProfile(
+    config: { compaction: CompactionConfig },
+    override?: Partial<CompactionConfig>,
+): CompactionProfile {
     const preset = normalizePreset(override?.preset ?? config.compaction.preset)
     const custom = normalizeCompactionCustom({
         ...config.compaction.custom,
@@ -67,7 +88,15 @@ export function resolveCompactionProfile(config: { compaction: CompactionConfig 
 }
 
 export function normalizePreset(value: unknown): CompactionPreset {
-    return value === "light" || value === "moderate" || value === "max" || value === "custom" ? value : "light"
+    return value === "light" || value === "moderate" || value === "max" || value === "custom"
+        ? value
+        : "light"
+}
+
+export function normalizeSummaryEffort(value: unknown): SummaryEffort {
+    return value === "low" || value === "medium" || value === "high" || value === "max"
+        ? value
+        : "inherit"
 }
 
 function clampPercent(value: unknown, fallback: number): number {
@@ -75,6 +104,7 @@ function clampPercent(value: unknown, fallback: number): number {
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
-    const numeric = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback
+    const numeric =
+        typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback
     return Math.max(min, Math.min(max, numeric))
 }

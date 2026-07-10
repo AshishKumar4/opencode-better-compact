@@ -1,12 +1,24 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "fs"
+import {
+    closeSync,
+    existsSync,
+    fsyncSync,
+    mkdirSync,
+    openSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "fs"
 import { join, dirname } from "path"
 import { homedir } from "os"
-import { parse } from "jsonc-parser/lib/esm/main.js"
+import { applyEdits, modify, parse, type ParseError } from "jsonc-parser/lib/esm/main.js"
 import type { PluginInput } from "@opencode-ai/plugin"
 import {
     DEFAULT_CUSTOM_COMPACTION,
     normalizeCompactionCustom,
     normalizePreset,
+    normalizeSummaryEffort,
     type CompactionConfig,
 } from "@better-compact/core"
 
@@ -15,8 +27,16 @@ export type {
     CompactionCustomSettings,
     CompactionPreset,
     CompactionProfile,
+    SummaryEffort,
 } from "@better-compact/core"
-export { COMPACTION_PRESETS, DEFAULT_CUSTOM_COMPACTION, normalizeCompactionCustom, normalizePreset, resolveCompactionProfile } from "@better-compact/core"
+export {
+    COMPACTION_PRESETS,
+    DEFAULT_CUSTOM_COMPACTION,
+    normalizeCompactionCustom,
+    normalizePreset,
+    normalizeSummaryEffort,
+    resolveCompactionProfile,
+} from "@better-compact/core"
 
 type Permission = "ask" | "allow" | "deny"
 
@@ -58,7 +78,9 @@ export const VALID_CONFIG_KEYS = new Set([
     "commands",
     "commands.enabled",
     "compaction",
+    "compaction.automatic",
     "compaction.preset",
+    "compaction.summaryEffort",
     "compaction.custom",
     "compaction.custom.triggerPercent",
     "compaction.custom.targetPercent",
@@ -148,6 +170,13 @@ export function validateConfigTypes(config: Record<string, any>): ValidationErro
         if (typeof compaction !== "object" || compaction === null || Array.isArray(compaction)) {
             errors.push({ key: "compaction", expected: "object", actual: typeof compaction })
         } else {
+            if (compaction.automatic !== undefined && typeof compaction.automatic !== "boolean") {
+                errors.push({
+                    key: "compaction.automatic",
+                    expected: "boolean",
+                    actual: typeof compaction.automatic,
+                })
+            }
             if (
                 compaction.preset !== undefined &&
                 compaction.preset !== "light" &&
@@ -159,6 +188,16 @@ export function validateConfigTypes(config: Record<string, any>): ValidationErro
                     key: "compaction.preset",
                     expected: '"light" | "moderate" | "max" | "custom"',
                     actual: JSON.stringify(compaction.preset),
+                })
+            }
+            if (
+                compaction.summaryEffort !== undefined &&
+                !["inherit", "low", "medium", "high", "max"].includes(compaction.summaryEffort)
+            ) {
+                errors.push({
+                    key: "compaction.summaryEffort",
+                    expected: '"inherit" | "low" | "medium" | "high" | "max"',
+                    actual: JSON.stringify(compaction.summaryEffort),
                 })
             }
 
@@ -276,7 +315,9 @@ const defaultConfig: PluginConfig = {
         enabled: true,
     },
     compaction: {
+        automatic: true,
         preset: "light",
+        summaryEffort: "inherit",
         custom: { ...DEFAULT_CUSTOM_COMPACTION },
     },
     manualMode: {
@@ -296,6 +337,106 @@ const GLOBAL_CONFIG_DIR = process.env.XDG_CONFIG_HOME
     : join(homedir(), ".config", "opencode")
 const GLOBAL_CONFIG_PATH_JSONC = join(GLOBAL_CONFIG_DIR, "better-compact.jsonc")
 const GLOBAL_CONFIG_PATH_JSON = join(GLOBAL_CONFIG_DIR, "better-compact.json")
+const SCHEMA_URL =
+    "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json"
+
+function globalConfigPath(): string {
+    if (existsSync(GLOBAL_CONFIG_PATH_JSONC)) return GLOBAL_CONFIG_PATH_JSONC
+    if (existsSync(GLOBAL_CONFIG_PATH_JSON)) return GLOBAL_CONFIG_PATH_JSON
+    return GLOBAL_CONFIG_PATH_JSONC
+}
+
+export function hasGlobalCompactionConfig(): boolean {
+    const path = globalConfigPath()
+    if (!existsSync(path)) return false
+    const result = loadConfigFile(path)
+    return !!result.data?.compaction && typeof result.data.compaction === "object"
+}
+
+export function loadGlobalCompactionConfig(): CompactionConfig {
+    const path = globalConfigPath()
+    if (!existsSync(path)) return deepCloneConfig(defaultConfig).compaction
+    const result = loadConfigFile(path)
+    return mergeCompaction(deepCloneConfig(defaultConfig).compaction, result.data?.compaction)
+}
+
+export type SaveGlobalCompactionResult =
+    | { ok: true; path: string }
+    | { ok: false; path: string; error: string }
+
+export function saveGlobalCompactionConfig(compaction: CompactionConfig): SaveGlobalCompactionResult {
+    const path = globalConfigPath()
+    const temp = `${path}.${process.pid}.${Date.now()}.tmp`
+    try {
+        if (!existsSync(GLOBAL_CONFIG_DIR)) mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true })
+        const original = existsSync(path)
+            ? readFileSync(path, "utf-8")
+            : `{
+  "$schema": "${SCHEMA_URL}"
+}
+`
+        const errors: ParseError[] = []
+        const parsed = parse(original, errors, { allowTrailingComma: true })
+        if (errors.length > 0 || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return { ok: false, path, error: "The global Better Compact config is invalid JSONC." }
+        }
+
+        const normalized = mergeCompaction(deepCloneConfig(defaultConfig).compaction, compaction)
+        const values: Array<{ path: Array<string>; value: unknown }> = [
+            { path: ["compaction", "automatic"], value: normalized.automatic },
+            { path: ["compaction", "preset"], value: normalized.preset },
+            { path: ["compaction", "summaryEffort"], value: normalized.summaryEffort },
+            {
+                path: ["compaction", "custom", "triggerPercent"],
+                value: normalized.custom.triggerPercent,
+            },
+            {
+                path: ["compaction", "custom", "targetPercent"],
+                value: normalized.custom.targetPercent,
+            },
+            {
+                path: ["compaction", "custom", "recentToolTokens"],
+                value: normalized.custom.recentToolTokens,
+            },
+            {
+                path: ["compaction", "custom", "summarizerConcurrency"],
+                value: normalized.custom.summarizerConcurrency,
+            },
+        ]
+        let updated = original
+        for (const item of values) {
+            updated = applyEdits(
+                updated,
+                modify(updated, item.path, item.value, {
+                    formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
+                }),
+            )
+        }
+        const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600
+        writeFileSync(temp, updated, { encoding: "utf-8", mode })
+        const temporaryHandle = openSync(temp, "r")
+        try {
+            fsyncSync(temporaryHandle)
+        } finally {
+            closeSync(temporaryHandle)
+        }
+        renameSync(temp, path)
+        const directoryHandle = openSync(dirname(path), "r")
+        try {
+            fsyncSync(directoryHandle)
+        } finally {
+            closeSync(directoryHandle)
+        }
+        return { ok: true, path }
+    } catch (error) {
+        rmSync(temp, { force: true })
+        return {
+            ok: false,
+            path,
+            error: error instanceof Error ? error.message : String(error),
+        }
+    }
+}
 
 function findOpencodeDir(startDir: string): string | null {
     let current = startDir
@@ -359,7 +500,7 @@ function createDefaultConfig(): void {
     }
 
     const configContent = `{
-  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json"
+  "$schema": "${SCHEMA_URL}"
 }
 `
     writeFileSync(GLOBAL_CONFIG_PATH_JSONC, configContent, "utf-8")
@@ -374,14 +515,29 @@ function loadConfigFile(configPath: string): ConfigLoadResult {
     let fileContent = ""
     try {
         fileContent = readFileSync(configPath, "utf-8")
-    } catch {
-        return { data: null }
+    } catch (error) {
+        return {
+            data: null,
+            parseError: error instanceof Error ? error.message : "Failed to read config",
+        }
     }
 
     try {
-        const parsed = parse(fileContent, undefined, { allowTrailingComma: true })
-        if (parsed === undefined || parsed === null) {
-            return { data: null, parseError: "Config file is empty or invalid" }
+        const errors: ParseError[] = []
+        const parsed = parse(fileContent, errors, { allowTrailingComma: true })
+        if (errors.length > 0) {
+            return {
+                data: null,
+                parseError: `JSONC parse error at offset ${errors[0].offset}`,
+            }
+        }
+        if (
+            parsed === undefined ||
+            parsed === null ||
+            typeof parsed !== "object" ||
+            Array.isArray(parsed)
+        ) {
+            return { data: null, parseError: "Config root must be an object" }
         }
         return { data: parsed }
     } catch (error: any) {
@@ -421,7 +577,9 @@ function mergeCompaction(
 ): PluginConfig["compaction"] {
     if (!override) return base
     return {
+        automatic: override.automatic ?? base.automatic,
         preset: normalizePreset(override.preset ?? base.preset),
+        summaryEffort: normalizeSummaryEffort(override.summaryEffort ?? base.summaryEffort),
         custom: normalizeCompactionCustom({
             ...base.custom,
             ...(override.custom ?? {}),
@@ -457,7 +615,9 @@ function deepCloneConfig(config: PluginConfig): PluginConfig {
         ...config,
         commands: { enabled: config.commands.enabled },
         compaction: {
+            automatic: config.compaction.automatic,
             preset: config.compaction.preset,
+            summaryEffort: config.compaction.summaryEffort,
             custom: { ...config.compaction.custom },
         },
         manualMode: {
@@ -497,8 +657,9 @@ function scheduleParseWarning(ctx: PluginInput, title: string, message: string):
     }, 7000)
 }
 
-export function getConfig(ctx: PluginInput): PluginConfig {
+export function getConfig(ctx: PluginInput, options?: { warnings?: boolean }): PluginConfig {
     let config = deepCloneConfig(defaultConfig)
+    let unsafeLayer = false
     const configPaths = getConfigPaths(ctx)
 
     if (!configPaths.global) {
@@ -518,6 +679,8 @@ export function getConfig(ctx: PluginInput): PluginConfig {
 
         const result = loadConfigFile(layer.path)
         if (result.parseError) {
+            unsafeLayer = true
+            if (options?.warnings === false) continue
             scheduleParseWarning(
                 ctx,
                 `Better Compact: Invalid ${layer.name}`,
@@ -530,8 +693,26 @@ export function getConfig(ctx: PluginInput): PluginConfig {
             continue
         }
 
-        showConfigWarnings(ctx, layer.path, result.data, layer.isProject)
+        const invalidKeys = getInvalidConfigKeys(result.data)
+        const typeErrors = validateConfigTypes(result.data)
+        if (invalidKeys.length > 0 || typeErrors.length > 0) {
+            unsafeLayer = true
+            if (options?.warnings !== false) {
+                showConfigWarnings(ctx, layer.path, result.data, layer.isProject)
+            }
+            continue
+        }
         config = mergeLayer(config, result.data)
+    }
+
+    // A malformed or unreadable layer could be hiding a stricter intent
+    // (deny, disabled); fail closed instead of running on defaults.
+    if (unsafeLayer) {
+        config.enabled = false
+        config.commands.enabled = false
+        config.compaction.automatic = false
+        config.compress.permission = "deny"
+        config.autoUpdate = false
     }
 
     return config

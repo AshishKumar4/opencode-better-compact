@@ -7,6 +7,7 @@ import {
     type BoundaryContextOptions,
     type BoundaryContextPlan,
     type PlanSnapshot,
+    type ReplayOptions,
 } from "@better-compact/core"
 import type { Logger } from "../logger"
 import { openCodeCodec, openCodeSpec, sessionKeyOf } from "../codec"
@@ -38,8 +39,12 @@ export function applyBoundaryContextPlan(messages: WithParts[], plan: BoundaryCo
     replaceMessages(messages, openCodeCodec.decode(transformed, messages))
 }
 
-export function applyBoundaryPlanSnapshot(messages: WithParts[], snapshot: PlanSnapshot): boolean {
-    const replayed = replayPlanSnapshot(openCodeCodec.encode(messages), snapshot, openCodeSpec)
+export function applyBoundaryPlanSnapshot(
+    messages: WithParts[],
+    snapshot: PlanSnapshot,
+    options: ReplayOptions = {},
+): boolean {
+    const replayed = replayPlanSnapshot(openCodeCodec.encode(messages), snapshot, openCodeSpec, options)
     if (!replayed) return false
     replaceMessages(messages, openCodeCodec.decode(replayed, messages))
     return true

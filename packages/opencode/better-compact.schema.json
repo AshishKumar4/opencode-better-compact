@@ -45,11 +45,22 @@
             "description": "Better Compact compaction preset and custom tuning",
             "additionalProperties": false,
             "properties": {
+                "automatic": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically create a Better Compact plan when context reaches the selected trigger."
+                },
                 "preset": {
                     "type": "string",
                     "enum": ["light", "moderate", "max", "custom"],
                     "default": "light",
-                    "description": "Compaction level. Custom uses the values under compaction.custom."
+                    "description": "Compaction strength. light is Gentle, moderate is Balanced, max is Aggressive, and custom uses compaction.custom."
+                },
+                "summaryEffort": {
+                    "type": "string",
+                    "enum": ["inherit", "low", "medium", "high", "max"],
+                    "default": "inherit",
+                    "description": "Reasoning effort for scratch summaries. Unsupported effort levels fall back to the model default."
                 },
                 "custom": {
                     "type": "object",
@@ -60,34 +71,36 @@
                             "minimum": 1,
                             "maximum": 99,
                             "default": 85,
-                            "description": "Warn/confirm below this context usage percentage."
+                            "description": "Automatic compaction starts at this context usage percentage. Heavier stages stop once usage falls below it."
                         },
                         "targetPercent": {
                             "type": "number",
                             "minimum": 1,
                             "maximum": 99,
                             "default": 35,
-                            "description": "Target projected context usage percentage after compaction."
+                            "description": "Deep summary goal used when pruning tool output is not enough."
                         },
                         "recentToolTokens": {
                             "type": "number",
                             "minimum": 0,
                             "maximum": 200000,
                             "default": 40000,
-                            "description": "Calibrated recent tool-call/result budget to preserve raw."
+                            "description": "Recent tool-call/result budget to keep verbatim. Older output remains available through transcript references."
                         },
                         "summarizerConcurrency": {
                             "type": "number",
                             "minimum": 1,
                             "maximum": 16,
                             "default": 4,
-                            "description": "Maximum scratch summarizer sessions to run in parallel."
+                            "description": "Advanced maximum number of scratch summarizer sessions to run in parallel."
                         }
                     }
                 }
             },
             "default": {
+                "automatic": true,
                 "preset": "light",
+                "summaryEffort": "inherit",
                 "custom": {
                     "triggerPercent": 85,
                     "targetPercent": 35,

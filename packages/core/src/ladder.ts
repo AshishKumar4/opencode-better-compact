@@ -216,7 +216,19 @@ export function transformTurns(
     return result
 }
 
-export function replayPlanSnapshot(turns: Turn[], snapshot: PlanSnapshot, spec: LadderSpec): Turn[] | null {
+export interface ReplayOptions {
+    // Apply the plan even when the pruned context has regrown past the
+    // trigger. Hosts that cannot rebuild (automatic compaction disabled or
+    // denied) prefer a stale-but-valid plan over sending raw history.
+    allowRegrown?: boolean
+}
+
+export function replayPlanSnapshot(
+    turns: Turn[],
+    snapshot: PlanSnapshot,
+    spec: LadderSpec,
+    options: ReplayOptions = {},
+): Turn[] | null {
     const rawTailStartIndex = turns.findIndex((turn) => turn.key === snapshot.rawTailStartMessageId)
     if (rawTailStartIndex <= 0) return null
     // A stale plan must never apply to an edited prefix.
@@ -253,7 +265,9 @@ export function replayPlanSnapshot(turns: Turn[], snapshot: PlanSnapshot, spec: 
     )
     // Once new turns regrow the context past the trigger, the frozen plan no
     // longer suffices; refuse so the caller rebuilds with a fresh boundary.
-    if (spec.codec.estimateTurns(transformed) + overheadTokens >= snapshot.triggerTokens) return null
+    if (!options.allowRegrown && spec.codec.estimateTurns(transformed) + overheadTokens >= snapshot.triggerTokens) {
+        return null
+    }
     return transformed
 }
 
@@ -271,6 +285,10 @@ export interface Engine {
         targetRatio?: number
         recentToolResultBudgetTokens?: number
         providerReportedTokens?: number
+        // Side-model assistant-run summaries for the automatic path. When a
+        // fresh plan queues summary jobs, the engine runs them and rebuilds
+        // the plan with the accepted summaries before persisting it.
+        summarize?: (jobs: BoundarySummaryJob[]) => Promise<Record<string, string>>
     }): Promise<ProcessResult>
 }
 
@@ -286,6 +304,7 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
             targetRatio,
             recentToolResultBudgetTokens,
             providerReportedTokens,
+            summarize,
         }) {
             let staleSnapshotCleared = false
             const cached = await ports.plans.load(sessionKey)
@@ -295,22 +314,25 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                 staleSnapshotCleared = true
             }
 
-            const plan = buildPlan(
-                turns,
-                {
-                    contextLimit,
-                    triggerRatio,
-                    targetRatio,
-                    recentToolResultBudgetTokens,
-                    providerReportedTokens,
-                    sessionKey,
-                    citablePath: ports.transcripts.citablePath,
-                },
-                spec,
-            )
+            const inputs: BuildPlanInputs = {
+                contextLimit,
+                triggerRatio,
+                targetRatio,
+                recentToolResultBudgetTokens,
+                providerReportedTokens,
+                sessionKey,
+                citablePath: ports.transcripts.citablePath,
+            }
+            let plan = buildPlan(turns, inputs, spec)
             if (!plan) {
                 if (staleSnapshotCleared) await ports.plans.save(sessionKey, null)
                 return { outcome: "unchanged" }
+            }
+            if (summarize && plan.summaryJobs.length > 0) {
+                const assistantSummaries = await summarize(plan.summaryJobs)
+                if (Object.keys(assistantSummaries).length > 0) {
+                    plan = buildPlan(turns, { ...inputs, assistantSummaries }, spec) ?? plan
+                }
             }
 
             await writeTranscript(plan, { transcripts: ports.transcripts, logger: ports.logger, codec: spec.codec })

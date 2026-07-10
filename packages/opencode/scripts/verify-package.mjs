@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import process from "node:process"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 const require = createRequire(import.meta.url)
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -44,6 +44,8 @@ const forbiddenTarballPatterns = [
     /^node_modules\//,
     /^index\.ts$/,
     /^lib\//,
+    /^dist\/lib\//,
+    /\.map$/,
     /^tests\//,
     /^scripts\//,
     /^docs\//,
@@ -88,14 +90,43 @@ function assertPackageJsonShape() {
         fail("expected package.json exports['./tui'].import to be './dist/tui.js'")
     }
 
+    if (pkg.engines?.opencode !== ">=1.17.13 <2") {
+        fail("package.json engines.opencode must be '>=1.17.13 <2'")
+    }
+
     const files = Array.isArray(pkg.files) ? pkg.files : []
-    for (const entry of ["dist/", "better-compact.schema.json", "README.md", "LICENSE"]) {
+    for (const entry of [
+        "dist/index.js",
+        "dist/index.d.ts",
+        "dist/tui.js",
+        "dist/tui.d.ts",
+        "better-compact.schema.json",
+        "README.md",
+        "LICENSE",
+    ]) {
         if (!files.includes(entry)) {
             fail(`package.json files must include ${entry}`)
         }
     }
-    if (files.includes("lib/")) {
-        fail("package.json files must not include lib/ (raw source referencing the unpublished @better-compact/core; the plugin loads dist/ only)")
+
+    if (files.includes("lib/") || files.includes("dist/")) {
+        fail("package.json files must explicitly allowlist runtime entrypoints")
+    }
+}
+
+async function validateBuiltEntrypoints() {
+    const server = await import(pathToFileURL(path.join(root, "dist/index.js")).href)
+    if (typeof server.default !== "function") {
+        fail("dist/index.js must default export the server plugin function")
+    }
+
+    const tui = await import(pathToFileURL(path.join(root, "dist/tui.js")).href)
+    if (
+        !tui.default ||
+        tui.default.id !== "better-compact" ||
+        typeof tui.default.tui !== "function"
+    ) {
+        fail("dist/tui.js must default export the Better Compact TUI plugin")
     }
 }
 
@@ -235,6 +266,11 @@ function validatePackedFiles() {
     }
 
     const packedPaths = result.files.map((file) => file.path)
+    if (packedPaths.length !== requiredTarballFiles.length) {
+        fail(
+            `packed tarball contains ${packedPaths.length} files; expected ${requiredTarballFiles.length}`,
+        )
+    }
     for (const required of requiredTarballFiles) {
         if (!packedPaths.includes(required)) {
             fail(`packed tarball is missing ${required}`)
@@ -255,4 +291,5 @@ function validatePackedFiles() {
 assertRepoFilesExist()
 assertPackageJsonShape()
 validateRuntimeImportGraph()
+await validateBuiltEntrypoints()
 validatePackedFiles()

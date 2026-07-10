@@ -1,0 +1,212 @@
+import { afterEach, expect, test } from "bun:test"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { parse } from "jsonc-parser/lib/esm/main.js"
+import { availableSummaryEfforts, resolveSummaryVariant } from "../lib/tui/data"
+
+const previousConfigHome = process.env.XDG_CONFIG_HOME
+const previousDataHome = process.env.XDG_DATA_HOME
+const roots: string[] = []
+
+afterEach(() => {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousConfigHome
+    if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = previousDataHome
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+test("global compaction save preserves JSONC comments and unrelated settings", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-global-settings-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const dir = join(root, "opencode")
+    const path = join(dir, "better-compact.jsonc")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+        path,
+        `{
+  // keep this comment
+  "debug": true,
+  "compaction": {
+    // preserve profile notes
+    "preset": "light"
+  }
+}
+`,
+    )
+
+    const config = await import(`../lib/config.ts?global-settings=${Date.now()}`)
+    const current = config.loadGlobalCompactionConfig()
+    expect(current.automatic).toBe(true)
+    expect(current.preset).toBe("light")
+    expect(current.summaryEffort).toBe("inherit")
+
+    const result = config.saveGlobalCompactionConfig({
+        ...current,
+        automatic: false,
+        preset: "custom",
+        summaryEffort: "high",
+        custom: {
+            ...current.custom,
+            triggerPercent: 80,
+            targetPercent: 30,
+            recentToolTokens: 30_000,
+        },
+    })
+    expect(result.ok).toBe(true)
+
+    const saved = readFileSync(path, "utf-8")
+    expect(saved).toContain("// keep this comment")
+    expect(saved).toContain("// preserve profile notes")
+    const parsed = parse(saved)
+    expect(parsed.debug).toBe(true)
+    expect(parsed.compaction).toEqual({
+        automatic: false,
+        preset: "custom",
+        summaryEffort: "high",
+        custom: {
+            triggerPercent: 80,
+            targetPercent: 30,
+            recentToolTokens: 30_000,
+            summarizerConcurrency: 4,
+        },
+    })
+})
+
+test("global compaction save refuses malformed JSONC", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-invalid-settings-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const dir = join(root, "opencode")
+    const path = join(dir, "better-compact.jsonc")
+    mkdirSync(dir, { recursive: true })
+    const malformed = `{ "compaction": { "preset": "light", } trailing }`
+    writeFileSync(path, malformed)
+
+    const config = await import(`../lib/config.ts?invalid-settings=${Date.now()}`)
+    const result = config.saveGlobalCompactionConfig(config.loadGlobalCompactionConfig())
+
+    expect(result.ok).toBe(false)
+    expect(readFileSync(path, "utf-8")).toBe(malformed)
+})
+
+test("runtime config rejects malformed layers and disables automatic compaction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-invalid-runtime-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const dir = join(root, "opencode")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+        join(dir, "better-compact.jsonc"),
+        `{ "compaction": { "automatic": true, "preset": "max", } trailing }`,
+    )
+
+    const config = await import(`../lib/config.ts?invalid-runtime=${Date.now()}`)
+    const loaded = config.getConfig(
+        {
+            directory: root,
+            worktree: root,
+            client: {},
+        } as never,
+        { warnings: false },
+    )
+
+    expect(loaded.compaction.automatic).toBe(false)
+    expect(loaded.autoUpdate).toBe(false)
+    expect(loaded.compaction.preset).toBe("light")
+})
+
+test("runtime config disables automatic compaction when a discovered layer is unreadable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-unreadable-runtime-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const dir = join(root, "opencode")
+    const path = join(dir, "better-compact.jsonc")
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path, `{ "compaction": { "automatic": true } }`)
+    chmodSync(path, 0o000)
+
+    const config = await import(`../lib/config.ts?unreadable-runtime=${Date.now()}`)
+    const loaded = config.getConfig(
+        { directory: root, worktree: root, client: {} } as never,
+        { warnings: false },
+    )
+
+    chmodSync(path, 0o600)
+    expect(loaded.compaction.automatic).toBe(false)
+})
+
+test("summary effort uses only variants supported by the active model", () => {
+    const api = {
+        state: {
+            session: {
+                get: () => ({
+                    model: { id: "model-2", providerID: "provider-1", variant: "high" },
+                }),
+                messages: () => [
+                    {
+                        role: "assistant",
+                        providerID: "provider-1",
+                        modelID: "model-1",
+                    },
+                ],
+            },
+            provider: [
+                {
+                    id: "provider-1",
+                    models: {
+                        "model-1": {
+                            variants: { low: {} },
+                        },
+                        "model-2": {
+                            variants: { medium: {}, high: {}, xhigh: {} },
+                        },
+                    },
+                },
+            ],
+        },
+    }
+
+    expect([...availableSummaryEfforts(api as never, "session-1")]).toEqual([
+        "inherit",
+        "medium",
+        "high",
+        "max",
+    ])
+    expect(resolveSummaryVariant(api as never, "session-1", "inherit")).toBeUndefined()
+    expect(resolveSummaryVariant(api as never, "session-1", "low")).toBeUndefined()
+    expect(resolveSummaryVariant(api as never, "session-1", "medium")).toBe("medium")
+    expect(resolveSummaryVariant(api as never, "session-1", "max")).toBe("xhigh")
+})
+
+test("server entrypoint suppresses duplicate plugin instances", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-duplicate-plugin-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const configDir = join(root, "opencode")
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, "better-compact.jsonc"), `{ "autoUpdate": false }`)
+    const toasts: unknown[] = []
+    const client = {
+        tui: {
+            showToast: async (input: unknown) => {
+                toasts.push(input)
+            },
+        },
+    }
+    const plugin = (await import(`../index.ts?duplicate=${Date.now()}`)).default
+    const ctx = {
+        client,
+        directory: root,
+        worktree: root,
+    } as never
+
+    const first = await plugin(ctx)
+    const second = await plugin(ctx)
+
+    expect(typeof first["experimental.chat.messages.transform"]).toBe("function")
+    expect(Object.keys(second)).toEqual([])
+    expect(toasts).toHaveLength(1)
+})

@@ -8,17 +8,17 @@ import {
     createChatMessageHandler,
     createChatMessageTransformHandler,
     createCommandExecuteHandler,
-    createEventHandler,
     createSystemPromptHandler,
     createTextCompleteHandler,
 } from "../lib/hooks"
 import { Logger } from "../lib/logger"
 import {
+    createRuntimeState,
     createSessionState,
-    ensureSessionInitialized,
     refreshManualMode,
     saveManualModeSetting,
     saveSessionState,
+    type RuntimeState,
     type WithParts,
 } from "../lib/state"
 
@@ -31,7 +31,9 @@ function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConf
             enabled: true,
         },
         compaction: {
+            automatic: true,
             preset: "light",
+            summaryEffort: "inherit",
             custom: {
                 triggerPercent: 85,
                 targetPercent: 35,
@@ -73,12 +75,17 @@ function buildMessage(id: string, role: "user" | "assistant", text: string): Wit
     }
 }
 
-function buildUserMessage(id: string, text: string, created: number): WithParts {
+function buildUserMessage(
+    id: string,
+    text: string,
+    created: number,
+    sessionID = "session-1",
+): WithParts {
     return {
         info: {
             id,
             role: "user",
-            sessionID: "session-1",
+            sessionID,
             agent: "assistant",
             model: { providerID: "anthropic", modelID: "claude-test" },
             time: { created },
@@ -87,7 +94,7 @@ function buildUserMessage(id: string, text: string, created: number): WithParts 
             {
                 id: `${id}-part`,
                 messageID: id,
-                sessionID: "session-1",
+                sessionID,
                 type: "text",
                 text,
             },
@@ -95,20 +102,36 @@ function buildUserMessage(id: string, text: string, created: number): WithParts 
     }
 }
 
-function buildAssistantToolMessage(id: string, created: number): WithParts {
+function buildAssistantToolMessage(
+    id: string,
+    created: number,
+    reportedTokens?: number,
+    sessionID = "session-1",
+): WithParts {
     return {
         info: {
             id,
             role: "assistant",
-            sessionID: "session-1",
+            sessionID,
             agent: "assistant",
             time: { created },
+            ...(reportedTokens
+                ? {
+                      tokens: {
+                          total: reportedTokens,
+                          input: reportedTokens - 1,
+                          output: 1,
+                          reasoning: 0,
+                          cache: { read: 0, write: 0 },
+                      },
+                  }
+                : {}),
         } as WithParts["info"],
         parts: [
             {
                 id: `${id}-tool`,
                 messageID: id,
-                sessionID: "session-1",
+                sessionID,
                 type: "tool",
                 callID: `${id}-call`,
                 tool: "read",
@@ -136,8 +159,9 @@ async function waitFor(condition: () => boolean, timeoutMs = 10_000): Promise<vo
 }
 
 test("system prompt handler caches full model context for percentage thresholds", async () => {
-    const state = createSessionState()
-    const handler = createSystemPromptHandler(state, new Logger(false), buildConfig("deny"))
+    const logger = new Logger(false)
+    const runtime = createRuntimeState({}, logger)
+    const handler = createSystemPromptHandler(runtime, logger, buildConfig("deny"))
 
     await handler(
         {
@@ -152,16 +176,17 @@ test("system prompt handler caches full model context for percentage thresholds"
         { system: ["base system"] },
     )
 
-    assert.equal(state.modelContextLimit, 200000)
+    assert.equal(runtime.get("session-1").modelContextLimit, 200000)
 })
 
 test("chat message transform strips hallucinated tags even when compress is denied", async () => {
-    const state = createSessionState()
     const logger = new Logger(false)
     const config = buildConfig("deny")
+    const client = { session: { get: async () => ({}) }, provider: { list: async () => [] } }
+    const runtime = createRuntimeState(client, logger)
     const handler = createChatMessageTransformHandler(
-        { session: { get: async () => ({}) } } as any,
-        state,
+        client as any,
+        runtime,
         logger,
         config,
         { global: undefined, agents: {} },
@@ -177,12 +202,13 @@ test("chat message transform strips hallucinated tags even when compress is deni
 })
 
 test("chat message transform drops messages without info instead of crashing", async () => {
-    const state = createSessionState()
     const logger = new Logger(false)
     const config = buildConfig("deny")
+    const client = { session: { get: async () => ({}) }, provider: { list: async () => [] } }
+    const runtime = createRuntimeState(client, logger)
     const handler = createChatMessageTransformHandler(
-        { session: { get: async () => ({}) } } as any,
-        state,
+        client as any,
+        runtime,
         logger,
         config,
         { global: undefined, agents: {} },
@@ -204,7 +230,7 @@ test("chat message transform drops messages without info instead of crashing", a
 
     await handler({}, output as any)
 
-    assert.equal(state.sessionId, null)
+    assert.equal(runtime.peek("session-1"), undefined)
     assert.equal(output.messages.length, 0)
 })
 
@@ -226,27 +252,52 @@ function buildOverTriggerConversation(sessionId: string): WithParts[] {
     ]
 }
 
-function stubClient() {
-    return { session: { get: async () => ({ data: { parentID: null } }) } } as any
+function transformClient(contextLimit: number, toasts: unknown[] = []) {
+    return {
+        session: { get: async () => ({ data: { parentID: null } }) },
+        provider: {
+            list: async () => [
+                {
+                    id: "anthropic",
+                    models: { "claude-test": { limit: { context: contextLimit } } },
+                },
+            ],
+        },
+        tui: {
+            showToast: async (input: unknown) => {
+                toasts.push(input)
+            },
+        },
+    }
 }
 
-async function initializedTransformState(sessionId: string, messages: WithParts[]) {
-    const state = createSessionState()
-    await ensureSessionInitialized(stubClient(), state, sessionId, new Logger(false), messages, false)
-    state.modelContextLimit = 10_000
-    return state
+function transformHandler(
+    client: any,
+    runtime: RuntimeState,
+    config: PluginConfig,
+    directory: string,
+) {
+    return createChatMessageTransformHandler(
+        client,
+        runtime,
+        new Logger(false),
+        config,
+        { global: undefined, agents: {} },
+        directory,
+    )
 }
 
 test("auto transform path prunes over-trigger context when compress is allowed", async () => {
     const sessionId = `ses-transform-allow-${Date.now()}`
     const messages = buildOverTriggerConversation(sessionId)
-    const state = await initializedTransformState(sessionId, messages)
-    const handler = createChatMessageTransformHandler(
-        stubClient(),
-        state,
-        new Logger(false),
+    const toasts: unknown[] = []
+    const client = transformClient(10_000, toasts)
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get(sessionId)
+    const handler = transformHandler(
+        client,
+        runtime,
         buildConfig("allow"),
-        { global: undefined, agents: {} },
         mkdtempSync(join(tmpdir(), "better-compact-transform-")),
     )
     const output = { messages }
@@ -254,8 +305,9 @@ test("auto transform path prunes over-trigger context when compress is allowed",
     await handler({}, output)
 
     assert.ok(state.boundary.activePlan)
-    assert.ok(messages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
+    assert.ok(messages.some((item) => item.info.id.startsWith("msg_better_compact_")))
     assert.ok(!messages.some((item) => item.parts.some((part) => part.type === "tool")))
+    assert.equal(toasts.length, 1)
 })
 
 test("auto transform path honors the configured compaction profile", async () => {
@@ -263,19 +315,20 @@ test("auto transform path honors the configured compaction profile", async () =>
     // ~17K estimated tokens on a 200K limit: far below the default 85%
     // trigger, above a custom 5% one.
     const messages = buildOverTriggerConversation(sessionId)
-    const state = await initializedTransformState(sessionId, messages)
-    state.modelContextLimit = 200_000
+    const client = transformClient(200_000)
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get(sessionId)
     const config = buildConfig("allow")
     config.compaction = {
+        automatic: true,
         preset: "custom",
+        summaryEffort: "inherit",
         custom: { triggerPercent: 5, targetPercent: 3, recentToolTokens: 0, summarizerConcurrency: 4 },
     }
-    const handler = createChatMessageTransformHandler(
-        stubClient(),
-        state,
-        new Logger(false),
+    const handler = transformHandler(
+        client,
+        runtime,
         config,
-        { global: undefined, agents: {} },
         mkdtempSync(join(tmpdir(), "better-compact-transform-")),
     )
 
@@ -286,32 +339,34 @@ test("auto transform path honors the configured compaction profile", async () =>
 
     const controlSessionId = `${sessionId}-control`
     const untouched = buildOverTriggerConversation(controlSessionId)
-    const defaultState = await initializedTransformState(controlSessionId, untouched)
-    defaultState.modelContextLimit = 200_000
-    const defaultHandler = createChatMessageTransformHandler(
-        stubClient(),
-        defaultState,
-        new Logger(false),
+    const controlClient = transformClient(200_000)
+    const controlRuntime = createRuntimeState(controlClient, new Logger(false))
+    const defaultHandler = transformHandler(
+        controlClient,
+        controlRuntime,
         buildConfig("allow"),
-        { global: undefined, agents: {} },
         mkdtempSync(join(tmpdir(), "better-compact-transform-")),
     )
 
     await defaultHandler({}, { messages: untouched })
 
-    assert.equal(defaultState.boundary.activePlan, null, "default 85% trigger must not fire at ~8% usage")
+    assert.equal(
+        controlRuntime.get(controlSessionId).boundary.activePlan,
+        null,
+        "default 85% trigger must not fire at ~8% usage",
+    )
 })
 
 test("auto transform path never prunes when compress permission is deny", async () => {
     const sessionId = `ses-transform-deny-${Date.now()}`
     const messages = buildOverTriggerConversation(sessionId)
-    const state = await initializedTransformState(sessionId, messages)
-    const handler = createChatMessageTransformHandler(
-        stubClient(),
-        state,
-        new Logger(false),
+    const client = transformClient(10_000)
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get(sessionId)
+    const handler = transformHandler(
+        client,
+        runtime,
         buildConfig("deny"),
-        { global: undefined, agents: {} },
         mkdtempSync(join(tmpdir(), "better-compact-transform-deny-")),
     )
     const before = JSON.stringify(messages)
@@ -323,20 +378,181 @@ test("auto transform path never prunes when compress permission is deny", async 
     assert.equal(JSON.stringify(messages), before)
 })
 
+test("automatic compaction uses freshly loaded global settings", async () => {
+    const client = transformClient(1_000)
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get("session-1")
+    const startupConfig = buildConfig("allow")
+    const currentConfig = buildConfig("allow")
+    currentConfig.compaction.automatic = false
+    const handler = createChatMessageTransformHandler(
+        client as any,
+        runtime,
+        new Logger(false),
+        startupConfig,
+        { global: undefined, agents: {} },
+        mkdtempSync(join(tmpdir(), "better-compact-automatic-")),
+        () => currentConfig,
+    )
+    const output = {
+        messages: [
+            buildUserMessage("user-1", "old request", 1),
+            buildAssistantToolMessage("assistant-1", 2),
+            buildUserMessage("user-2", "middle request", 3),
+            buildAssistantToolMessage("assistant-2", 4),
+            buildUserMessage("user-3", "latest request", 5),
+        ],
+    }
+
+    await handler({}, output)
+
+    assert.equal(state.boundary.activePlan, null)
+})
+
+test("automatic compaction triggers from provider usage when the local estimate is lower", async () => {
+    const sessionID = `session-provider-${process.pid}-${Date.now()}`
+    const toasts: unknown[] = []
+    const client = transformClient(100_000, toasts)
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get(sessionID)
+    const handler = transformHandler(
+        client,
+        runtime,
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-provider-trigger-")),
+    )
+    const output = {
+        messages: [
+            buildUserMessage("user-1", "old request", 1, sessionID),
+            buildAssistantToolMessage("assistant-1", 2, undefined, sessionID),
+            buildUserMessage("user-2", "middle request", 3, sessionID),
+            buildAssistantToolMessage("assistant-2", 4, 90_000, sessionID),
+            buildUserMessage("user-3", "latest request", 5, sessionID),
+        ],
+    }
+
+    await handler({}, output)
+
+    assert.ok(state.boundary.activePlan)
+    assert.equal(state.boundary.activePlan.beforeTokens, 90_000)
+    assert.equal(toasts.length, 1)
+})
+
+test("concurrent automatic transforms share one committed plan", async () => {
+    const sessionID = `session-concurrent-${process.pid}-${Date.now()}`
+    const toasts: unknown[] = []
+    const client = transformClient(100_000, toasts)
+    const logger = new Logger(false)
+    const runtime = createRuntimeState(client, logger)
+    const handler = transformHandler(
+        client,
+        runtime,
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-concurrent-")),
+    )
+    const messages = [
+        buildUserMessage("user-1", "old request", 1, sessionID),
+        buildAssistantToolMessage("assistant-1", 2, undefined, sessionID),
+        buildUserMessage("user-2", "middle request", 3, sessionID),
+        buildAssistantToolMessage("assistant-2", 4, 90_000, sessionID),
+        buildUserMessage("user-3", "latest request", 5, sessionID),
+    ]
+    const first = { messages: structuredClone(messages) }
+    const second = { messages: structuredClone(messages) }
+
+    await Promise.all([handler({}, first), handler({}, second)])
+
+    assert.ok(runtime.get(sessionID).boundary.activePlan)
+    assert.ok(first.messages.some((message) => message.info.id.startsWith("msg_better_compact_")))
+    assert.ok(second.messages.some((message) => message.info.id.startsWith("msg_better_compact_")))
+    assert.equal(toasts.length, 1)
+})
+
+test("message transform resolves the active model limit before automatic planning", async () => {
+    const client = {
+        session: { get: async () => ({ data: { parentID: null } }) },
+        provider: {
+            list: async () => [
+                {
+                    id: "anthropic",
+                    models: {
+                        "claude-test": { limit: { context: 1_000_000 } },
+                        "claude-small": { limit: { context: 200_000 } },
+                    },
+                },
+            ],
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const config = buildConfig("allow")
+    config.compaction.automatic = false
+    const handler = createChatMessageTransformHandler(
+        client as any,
+        runtime,
+        new Logger(false),
+        config,
+        { global: undefined, agents: {} },
+    )
+    const largeModel = buildUserMessage("user-large", "first", 1)
+    await handler({}, { messages: [largeModel] })
+    assert.equal(runtime.get("session-1").modelContextLimit, 1_000_000)
+
+    const smallModel = buildUserMessage("user-small", "second", 2)
+    if (smallModel.info.role === "user") (smallModel.info as any).model.modelID = "claude-small"
+    await handler({}, { messages: [smallModel] })
+
+    assert.equal(runtime.get("session-1").modelContextLimit, 200_000)
+})
+
+test("automatic compaction replaces an active plan after the raw tail grows over trigger", async () => {
+    const sessionID = `session-replan-${process.pid}-${Date.now()}`
+    const client = transformClient(100_000)
+    const logger = new Logger(false)
+    const runtime = createRuntimeState(client, logger)
+    const state = runtime.get(sessionID)
+    const handler = transformHandler(
+        client,
+        runtime,
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-replan-")),
+    )
+    const initial = [
+        buildUserMessage("user-1", "old request", 1, sessionID),
+        buildAssistantToolMessage("assistant-1", 2, undefined, sessionID),
+        buildUserMessage("user-2", "middle request", 3, sessionID),
+        buildAssistantToolMessage("assistant-2", 4, 90_000, sessionID),
+        buildUserMessage("user-3", "latest request", 5, sessionID),
+    ]
+    await handler({}, { messages: initial })
+    const firstRangeHash = state.boundary.activePlan?.rangeHash
+    assert.ok(firstRangeHash)
+    assert.equal(runtime.activeCompaction(sessionID), undefined)
+
+    const grown = [
+        buildUserMessage("user-1", "old request", 1, sessionID),
+        buildAssistantToolMessage("assistant-1", 2, undefined, sessionID),
+        buildUserMessage("user-2", "middle request", 3, sessionID),
+        buildAssistantToolMessage("assistant-2", 4, undefined, sessionID),
+        buildUserMessage("user-3", "next request", 5, sessionID),
+        buildAssistantToolMessage("assistant-3", 6, undefined, sessionID),
+        buildUserMessage("user-4", "more work", 7, sessionID),
+        buildAssistantToolMessage("assistant-4", 8, 95_000, sessionID),
+        buildUserMessage("user-5", "latest request", 9, sessionID),
+    ]
+    await handler({}, { messages: grown })
+
+    assert.notEqual(state.boundary.activePlan?.rangeHash, firstRangeHash)
+    assert.equal(state.boundary.activePlan?.rawTailStartMessageId, "user-4")
+})
+
 test("auto transform path degrades to an unpruned request when the transcript write fails", async () => {
     const sessionId = `ses-transform-guard-${Date.now()}`
     const messages = buildOverTriggerConversation(sessionId)
-    const state = await initializedTransformState(sessionId, messages)
+    const client = transformClient(10_000)
+    const runtime = createRuntimeState(client, new Logger(false))
     const brokenDirectory = join(mkdtempSync(join(tmpdir(), "better-compact-broken-")), "not-a-directory")
     writeFileSync(brokenDirectory, "regular file blocking mkdir")
-    const handler = createChatMessageTransformHandler(
-        stubClient(),
-        state,
-        new Logger(false),
-        buildConfig("allow"),
-        { global: undefined, agents: {} },
-        brokenDirectory,
-    )
+    const handler = transformHandler(client, runtime, buildConfig("allow"), brokenDirectory)
     const output = { messages }
 
     await handler({}, output)
@@ -348,8 +564,9 @@ test("auto transform path degrades to an unpruned request when the transcript wr
 test("auto transform path clears a stale snapshot and rebuilds a fresh plan", async () => {
     const sessionId = `ses-transform-stale-${Date.now()}`
     const messages = buildOverTriggerConversation(sessionId)
-    const state = await initializedTransformState(sessionId, messages)
-    state.boundary.activePlan = {
+    const logger = new Logger(false)
+    const seeded = createSessionState(sessionId)
+    seeded.boundary.activePlan = {
         sessionId,
         rangeHash: "deadbeefdeadbeef",
         contextLimit: 10_000,
@@ -364,18 +581,20 @@ test("auto transform path clears a stale snapshot and rebuilds a fresh plan", as
         stages: [],
         createdAt: Date.now(),
     }
-    const handler = createChatMessageTransformHandler(
-        stubClient(),
-        state,
-        new Logger(false),
+    await saveSessionState(seeded, logger)
+    const client = transformClient(10_000)
+    const runtime = createRuntimeState(client, logger)
+    const handler = transformHandler(
+        client,
+        runtime,
         buildConfig("allow"),
-        { global: undefined, agents: {} },
         mkdtempSync(join(tmpdir(), "better-compact-transform-stale-")),
     )
     const output = { messages }
 
     await handler({}, output)
 
+    const state = runtime.get(sessionId)
     assert.ok(state.boundary.activePlan)
     assert.notEqual(state.boundary.activePlan?.rangeHash, "deadbeefdeadbeef")
     assert.ok(messages.some((item) => item.info.id.startsWith("msg_better_compact_context_")))
@@ -384,16 +603,19 @@ test("auto transform path clears a stale snapshot and rebuilds a fresh plan", as
 test("command execute exits after effective permission resolves to deny", async () => {
     let sessionMessagesCalls = 0
     const output = { parts: [] as any[] }
-    const handler = createCommandExecuteHandler(
-        {
-            session: {
-                messages: async () => {
-                    sessionMessagesCalls += 1
-                    return { data: [] }
-                },
+    const client = {
+        session: {
+            get: async () => ({ data: { parentID: null } }),
+            messages: async () => {
+                sessionMessagesCalls += 1
+                return { data: [] }
             },
-        } as any,
-        createSessionState(),
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const handler = createCommandExecuteHandler(
+        client as any,
+        runtime,
         new Logger(false),
         buildConfig("deny"),
         "/tmp",
@@ -416,24 +638,26 @@ test("better-compact stores virtual plan and reports progress without native sum
     ]
     const prompts: any[] = []
     let summarizeCalls = 0
-    const state = createSessionState()
     const output = { parts: [{ type: "text", text: "/better-compact" }] as any[] }
-    const handler = createCommandExecuteHandler(
-        {
-            session: {
-                get: async () => ({ data: { parentID: null } }),
-                messages: async () => ({ data: messages }),
-                prompt: async (input: any) => {
-                    prompts.push(input)
-                    return { data: true }
-                },
-                summarize: async () => {
-                    summarizeCalls += 1
-                    throw new Error("native compaction should not be called")
-                },
+    const client = {
+        session: {
+            get: async () => ({ data: { parentID: null } }),
+            messages: async () => ({ data: messages }),
+            prompt: async (input: any) => {
+                prompts.push(input)
+                return { data: true }
             },
-        } as any,
-        state,
+            summarize: async () => {
+                summarizeCalls += 1
+                throw new Error("native compaction should not be called")
+            },
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get("session-1")
+    const handler = createCommandExecuteHandler(
+        client as any,
+        runtime,
         new Logger(false),
         buildConfig("allow"),
         mkdtempSync(join(tmpdir(), "better-compact-command-")),
@@ -468,41 +692,44 @@ test("concurrent better-compact runs for a session are rejected while one is in 
     ]
     const prompts: any[] = []
     const releases: Array<() => void> = []
-    const state = createSessionState()
-    const handler = createCommandExecuteHandler(
-        {
-            session: {
-                get: async () => ({ data: { parentID: null } }),
-                messages: async () => ({ data: messages }),
-                prompt: async (input: any) => {
-                    prompts.push(input)
-                    await new Promise<void>((resolve) => releases.push(resolve))
-                    return { data: true }
-                },
+    const client = {
+        session: {
+            get: async () => ({ data: { parentID: null } }),
+            messages: async () => ({ data: messages }),
+            prompt: async (input: any) => {
+                prompts.push(input)
+                await new Promise<void>((resolve) => releases.push(resolve))
+                return { data: true }
             },
-        } as any,
-        state,
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get("session-1")
+    const handler = createCommandExecuteHandler(
+        client as any,
+        runtime,
         new Logger(false),
         buildConfig("allow"),
-        mkdtempSync(join(tmpdir(), "better-compact-concurrent-")),
+        mkdtempSync(join(tmpdir(), "better-compact-concurrent-manual-")),
         { global: undefined, agents: {} },
     )
 
+    // The first run blocks in its deferred final-report prompt; the second
+    // must be turned away by the single-flight guard without starting a job.
     const first = handler({ command: "better-compact", sessionID: "session-1", arguments: "" }, { parts: [] as any[] })
+    await first
+    await waitFor(() => prompts.length === 1)
     const second = handler({ command: "better-compact", sessionID: "session-1", arguments: "" }, { parts: [] as any[] })
-    await Promise.all([first, second])
-
-    // First run blocks on its deferred final report; the second must have
-    // been turned away without starting a job of its own.
     await waitFor(() => prompts.length === 2)
     releases.splice(0).forEach((release) => release())
+    await second
     await waitFor(() => state.boundary.job?.status === "completed")
     releases.splice(0).forEach((release) => release())
+    await waitFor(() => runtime.activeCompaction("session-1") === undefined)
 
     const texts = prompts.map((prompt) => prompt.body.parts[0].text)
     assert.equal(texts.filter((text) => /already running/.test(text)).length, 1)
     assert.equal(texts.filter((text) => /Better Compact Complete/.test(text)).length, 1)
-    assert.equal(state.boundary.runningSessionIds.size, 0)
 })
 
 test("chat message sentinel runs better-compact as no-reply TUI action", async () => {
@@ -514,18 +741,21 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
         buildUserMessage("user-3", "latest user request", 5),
     ]
     const prompts: any[] = []
-    const state = createSessionState()
-    const handler = createChatMessageHandler(
-        {
-            session: {
-                messages: async () => ({ data: messages }),
-                prompt: async (input: any) => {
-                    prompts.push(input)
-                    return { data: true }
-                },
+    const client = {
+        session: {
+            get: async () => ({ data: { parentID: null } }),
+            messages: async () => ({ data: messages }),
+            prompt: async (input: any) => {
+                prompts.push(input)
+                return { data: true }
             },
-        } as any,
-        state,
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get("session-1")
+    const handler = createChatMessageHandler(
+        client as any,
+        runtime,
         new Logger(false),
         buildConfig("allow"),
         mkdtempSync(join(tmpdir(), "better-compact-sentinel-")),
@@ -535,17 +765,28 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
     await handler(
         {
             sessionID: "session-1",
-            agent: "assistant",
-            model: { providerID: "anthropic", modelID: "claude-test" },
         },
         {
-            message: {},
+            message: {
+                agent: "assistant",
+                model: { providerID: "anthropic", modelID: "claude-test" },
+                variant: "high",
+            },
             parts: [
                 {
                     type: "text",
                     text: "Better Compact requested.",
                     ignored: true,
-                    metadata: { betterCompact: "run", contextLimit: 1_000_000, currentTokens: 857_703 },
+                    metadata: {
+                        betterCompact: "run",
+                        jobId: "bc_tuitest",
+                        jobStartedAt: 123_456,
+                        summaryVariant: "high",
+                        summaryProviderID: "anthropic",
+                        summaryModelID: "claude-test",
+                        contextLimit: 1_000_000,
+                        currentTokens: 857_703,
+                    },
                 },
             ],
         },
@@ -555,12 +796,70 @@ test("chat message sentinel runs better-compact as no-reply TUI action", async (
     assert.ok(state.boundary.activePlan)
     assert.equal(state.boundary.activePlan?.sessionId, "session-1")
     assert.ok(prompts.length >= 1)
+    assert.equal(
+        prompts.every(
+            (prompt) =>
+                prompt.body.model.providerID === "anthropic" &&
+                prompt.body.model.modelID === "claude-test",
+        ),
+        true,
+    )
     assert.match(prompts.map((prompt) => prompt.body.parts[0].text).join("\n"), /Better Compact Complete/)
     assert.equal(state.boundary.job?.percent, 100)
+    assert.equal(state.boundary.job?.id, "bc_tuitest")
+    assert.equal(state.boundary.job?.startedAt, 123_456)
     assert.equal(state.boundary.job?.counters.contextLimit, 1_000_000)
     assert.equal(state.boundary.job?.counters.beforeTokens, 857_703)
     assert.ok((state.boundary.job?.counters.currentTokens ?? 0) > 0)
     assert.ok(state.boundary.job?.stages.some((stage) => stage.id === "report" && stage.status === "completed"))
+})
+
+test("denied TUI compaction persists a correlated failed job", async () => {
+    const sessionID = `session-denied-${Date.now()}`
+    const client = {
+        session: {
+            get: async () => ({ data: { parentID: null } }),
+            messages: async () => ({ data: [] }),
+        },
+    }
+    const runtime = createRuntimeState(client, new Logger(false))
+    const state = runtime.get(sessionID)
+    const handler = createChatMessageHandler(
+        client as any,
+        runtime,
+        new Logger(false),
+        buildConfig("deny"),
+        mkdtempSync(join(tmpdir(), "better-compact-denied-")),
+        { global: undefined, agents: {} },
+    )
+
+    await handler(
+        { sessionID },
+        {
+            message: {},
+            parts: [
+                {
+                    type: "text",
+                    text: "Better Compact requested.",
+                    ignored: true,
+                    metadata: {
+                        betterCompact: "run",
+                        jobId: "bc_denied",
+                        jobStartedAt: 123_456,
+                        contextLimit: 272_000,
+                        currentTokens: 200_000,
+                        targetTokens: 95_200,
+                    },
+                },
+            ],
+        },
+    )
+
+    assert.equal(state.boundary.job?.id, "bc_denied")
+    assert.equal(state.boundary.job?.status, "failed")
+    assert.match(state.boundary.job?.error ?? "", /denied/i)
+    assert.equal(state.boundary.job?.counters.contextLimit, 272_000)
+    assert.equal(state.boundary.job?.counters.targetTokens, 95_200)
 })
 
 test("text complete strips hallucinated metadata tags", async () => {

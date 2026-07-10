@@ -29,6 +29,7 @@ export {
     type Engine,
     type LadderSpec,
     type ProcessResult,
+    type ReplayOptions,
 } from "./ladder"
 export { formatTranscript, writeTranscript } from "./transcript"
 export { summarizeJobs, type SummarizeJobsInput, type SummarizeProgressEvent } from "./summarize"
@@ -37,9 +38,11 @@ export {
     DEFAULT_CUSTOM_COMPACTION,
     normalizeCompactionCustom,
     normalizePreset,
+    normalizeSummaryEffort,
     resolveCompactionProfile,
     type CompactionConfig,
     type CompactionCustomSettings,
     type CompactionPreset,
     type CompactionProfile,
+    type SummaryEffort,
 } from "./profiles"

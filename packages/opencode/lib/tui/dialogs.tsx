@@ -1,26 +1,20 @@
 /** @jsxImportSource @opentui/solid */
 
-import { compressPermission } from "../compress-permission"
 import { analyzeContextTokens } from "../commands/context"
 import {
     normalizeCompactionCustom,
     resolveCompactionProfile,
     type CompactionConfig,
     type CompactionPreset,
-} from "@better-compact/core"
-import {
-    type PluginConfig,
+    type SummaryEffort,
 } from "../config"
 import type { BoundaryJobProgress, BoundaryJobStage, SessionState, WithParts } from "../state"
 import { formatTokenCount } from "../ui/utils"
 import { TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createEffect, createSignal, onCleanup } from "solid-js"
 import { formatDuration } from "./format"
-import { ActionRow, BetterCompactFrame, Card, Metric, Progress, PromptRow, StatusPill } from "./ui"
+import { BetterCompactFrame, Card, DialogButton, Metric, Progress } from "./ui"
 import type { StatsReport, Theme, TuiApi } from "./types"
-
-const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"]
 
 export function StatusDialog(props: {
     api: TuiApi
@@ -189,88 +183,80 @@ export function StatsDialog(props: { api: TuiApi; report: StatsReport; onBack: (
 
 export function ProgressDialog(props: {
     api: TuiApi
-    initialJob?: BoundaryJobProgress | null
-    loadJob: () => Promise<BoundaryJobProgress | null>
+    job: BoundaryJobProgress
+    now: number
+    spinner: string
+    onScrollRef?: (ref: { scrollTop: number }) => void
     onBack?: () => void
 }) {
     const theme = props.api.theme.current
     const dimensions = useTerminalDimensions()
-    const [job, setJob] = createSignal<BoundaryJobProgress | null>(props.initialJob ?? null)
-    const [tick, setTick] = createSignal(0)
-
-    createEffect(() => {
-        let stopped = false
-        const refresh = async () => {
-            try {
-                const next = await props.loadJob()
-                if (!stopped && next) setJob(next)
-            } catch {}
-        }
-        void refresh()
-        const interval = setInterval(() => {
-            setTick((value) => value + 1)
-            void refresh()
-        }, 250)
-        onCleanup(() => {
-            stopped = true
-            clearInterval(interval)
-        })
-    })
-
-    const current = () => job()
-    const spinner = () => SPINNER_FRAMES[tick() % SPINNER_FRAMES.length]
-    const percent = () => current()?.percent ?? 0
+    const percent = () => props.job.percent
     const elapsed = () => {
-        const item = current()
-        if (!item) return "0s"
-        const end = item.completedAt ?? Date.now()
-        return formatDuration(Math.max(0, end - item.startedAt))
+        const end = props.job.completedAt ?? props.now
+        return formatDuration(Math.max(0, end - props.job.startedAt))
     }
-    const bodyHeight = () => Math.max(4, Math.min(6, Math.floor(dimensions().height * 0.2)))
+    const frameHeight = () => Math.max(12, Math.floor(dimensions().height / 2) - 1)
 
     return (
-        <BetterCompactFrame api={props.api} title="Progress" eyebrow="Better Compact" onBack={props.onBack}>
-            <Card theme={theme} title="Run">
-                <box flexDirection="row" justifyContent="space-between">
-                    <box flexDirection="row" gap={2} flexGrow={1}>
-                        <text fg={theme.primary} attributes={TextAttributes.BOLD}>
-                            {current()?.status === "running" ? spinner() : current()?.status === "failed" ? "×" : "✓"}
-                        </text>
-                        <text fg={theme.text} attributes={TextAttributes.BOLD}>
-                            {current()?.currentStage ?? "Waiting for Better Compact to start"}
-                        </text>
-                    </box>
-                    <text fg={theme.textMuted}>{elapsed()}</text>
-                </box>
-                <Progress
-                    theme={theme}
-                    label="Overall"
-                    value={percent()}
-                    total={100}
-                    color={current()?.status === "failed" ? "error" : "primary"}
-                    detail={`${percent()}%`}
-                />
-                <ContextWindowMeters theme={theme} job={current()} />
-                {current()?.error ? <text fg={theme.error}>{current()?.error}</text> : null}
-            </Card>
-
-            <scrollbox height={bodyHeight()} scrollbarOptions={{ visible: true }}>
+        <BetterCompactFrame
+            api={props.api}
+            title="Progress"
+            eyebrow="Better Compact"
+            onBack={props.onBack}
+            height={frameHeight()}
+        >
+            <scrollbox
+                flexGrow={1}
+                flexShrink={1}
+                minHeight={0}
+                scrollX={false}
+                scrollY={true}
+                verticalScrollbarOptions={{ visible: true }}
+                horizontalScrollbarOptions={{ visible: false }}
+                ref={(ref) => props.onScrollRef?.(ref)}
+            >
                 <box flexDirection="column" gap={1}>
-                    <Card theme={theme} title="Stages">
+                    <Card theme={theme} title="Run" gap={0}>
                         <box flexDirection="column" gap={0}>
-                            {(current()?.stages ?? []).map((stage) => (
-                                <StageRow theme={theme} stage={stage} spinning={spinner()} />
+                            <box height={1} flexDirection="row" justifyContent="space-between">
+                                <box flexDirection="row" gap={2} flexGrow={1}>
+                                    <text fg={theme.primary} attributes={TextAttributes.BOLD}>
+                                        {props.job.status === "running" ? props.spinner : props.job.status === "failed" ? "×" : "✓"}
+                                    </text>
+                                    <text fg={theme.text} attributes={TextAttributes.BOLD}>
+                                        {props.job.currentStage}
+                                    </text>
+                                </box>
+                                <text fg={theme.textMuted}>{elapsed()}</text>
+                            </box>
+                            <Progress
+                                theme={theme}
+                                label="Overall"
+                                value={percent()}
+                                total={100}
+                                color={props.job.status === "failed" ? "error" : "primary"}
+                                detail={`${percent()}%`}
+                            />
+                            <ContextWindowMeters theme={theme} job={props.job} />
+                            {props.job.error ? <text fg={theme.error}>{props.job.error}</text> : null}
+                        </box>
+                    </Card>
+
+                    <Card theme={theme} title="Stages" gap={0}>
+                        <box flexDirection="column" gap={0}>
+                            {props.job.stages.map((stage) => (
+                                <StageRow theme={theme} stage={stage} spinning={props.spinner} />
                             ))}
-                            {!current() ? <text fg={theme.textMuted}>Waiting for first progress update...</text> : null}
                         </box>
                     </Card>
 
                     <Card theme={theme} title="Live Log">
                         <box flexDirection="column" gap={0}>
-                            {(current()?.logs ?? []).slice(-8).map((line) => (
+                            {props.job.logs.slice(-8).map((line) => (
                                 <text fg={theme.textMuted}>{line}</text>
                             ))}
-                            {!current()?.logs?.length ? <text fg={theme.textMuted}>No log entries yet.</text> : null}
+                            {!props.job.logs.length ? <text fg={theme.textMuted}>No log entries yet.</text> : null}
                         </box>
                     </Card>
                 </box>
@@ -279,8 +265,8 @@ export function ProgressDialog(props: {
     )
 }
 
-function ContextWindowMeters(props: { theme: Theme; job: BoundaryJobProgress | null }) {
-    const counters = () => props.job?.counters ?? {}
+function ContextWindowMeters(props: { theme: Theme; job: BoundaryJobProgress }) {
+    const counters = () => props.job.counters
     const limit = () => counters().contextLimit ?? 0
     const before = () => counters().beforeTokens ?? 0
     const current = () => counters().currentTokens ?? before()
@@ -290,11 +276,11 @@ function ContextWindowMeters(props: { theme: Theme; job: BoundaryJobProgress | n
             <text fg={props.theme.primary} attributes={TextAttributes.BOLD}>Context window</text>
             {limit() > 0 ? (
                 <>
-                    <ContextMeterRow theme={props.theme} label="Before" tokens={before()} limit={limit()} color="warning" />
-                    <ContextMeterRow theme={props.theme} label="Now" tokens={current()} limit={limit()} color="primary" />
-                    <box flexDirection="row" gap={1} paddingTop={1}>
-                        <box width={8}>
-                            <text fg={props.theme.textMuted}>Saved:</text>
+                    <ContextMeterRow theme={props.theme} label="Provider before" tokens={before()} limit={limit()} color="warning" />
+                    <ContextMeterRow theme={props.theme} label="Estimated now" tokens={current()} limit={limit()} color="primary" />
+                    <box height={1} flexDirection="row" gap={1}>
+                        <box width={16}>
+                            <text fg={props.theme.textMuted}>Estimated saved:</text>
                         </box>
                         <text fg={props.theme.success} attributes={TextAttributes.BOLD}>{formatTokenCount(cleared(), true)}</text>
                     </box>
@@ -314,8 +300,8 @@ function ContextMeterRow(props: { theme: Theme; label: string; tokens: number; l
     const filled = Math.round(ratio * width)
     const percent = Math.round((props.tokens / Math.max(1, props.limit)) * 100)
     return (
-        <box flexDirection="row" gap={1}>
-            <box width={8}>
+        <box height={1} flexDirection="row" gap={1}>
+            <box width={16}>
                 <text fg={props.theme.textMuted}>{`${props.label}:`}</text>
             </box>
             <box width={18}>
@@ -368,16 +354,16 @@ function StageRow(props: { theme: Theme; stage: BoundaryJobStage; spinning: stri
 
 export function PanelDialog(props: {
     api: TuiApi
-    state: SessionState
-    config: PluginConfig
     settings: CompactionConfig
+    availableEfforts: Set<SummaryEffort>
     onSettingsChange: (settings: CompactionConfig) => void
-    onContext: () => void
-    onStats: () => void
+    onSave: () => void
+    onCancel: () => void
 }) {
     const theme = props.api.theme.current
-    const canCompress = compressPermission(props.state, props.config) !== "deny"
-    const profile = () => resolveCompactionProfile(props.config, props.settings)
+    const dimensions = useTerminalDimensions()
+    const profile = () =>
+        resolveCompactionProfile({ compaction: props.settings }, props.settings)
     const setPreset = (preset: CompactionPreset) => props.onSettingsChange({ ...props.settings, preset })
     const setCustom = (custom: Partial<CompactionConfig["custom"]>) =>
         props.onSettingsChange({
@@ -386,118 +372,276 @@ export function PanelDialog(props: {
             custom: normalizeCompactionCustom({ ...props.settings.custom, ...custom }),
         })
     return (
-        <BetterCompactFrame api={props.api} eyebrow="Better Compact">
-            <Card theme={theme} title="Compaction Level">
-                <box flexDirection="column" gap={1}>
-                    <PresetRow theme={theme} current={props.settings.preset} onSelect={setPreset} />
-                    <Metric theme={theme} label="Trigger" value={`${profile().triggerPercent}%`} />
-                    <Metric theme={theme} label="Target" value={`${profile().targetPercent}%`} />
-                    <Metric theme={theme} label="Recent tool tail" value={`~${formatTokenCount(profile().recentToolTokens)}`} />
-                </box>
-            </Card>
-            <Card theme={theme} title="Custom Sliders">
-                <box flexDirection="column" gap={1}>
-                    <SliderRow
+        <BetterCompactFrame
+            api={props.api}
+            title="Global settings"
+            eyebrow="Better Compact"
+            height={Math.max(12, Math.floor(dimensions().height / 2) - 1)}
+            footer={
+                <box flexShrink={0} flexDirection="row" justifyContent="space-between" paddingTop={1}>
+                    <DialogButton
                         theme={theme}
-                        label="Trigger"
-                        value={props.settings.custom.triggerPercent}
-                        min={50}
-                        max={95}
-                        step={5}
-                        suffix="%"
-                        onChange={(value) => setCustom({ triggerPercent: value })}
+                        label="cancel"
+                        variant="muted"
+                        onClick={props.onCancel}
                     />
-                    <SliderRow
+                    <DialogButton
                         theme={theme}
-                        label="Target"
-                        value={props.settings.custom.targetPercent}
-                        min={10}
-                        max={60}
-                        step={5}
-                        suffix="%"
-                        onChange={(value) => setCustom({ targetPercent: value })}
-                    />
-                    <SliderRow
-                        theme={theme}
-                        label="Tool tail"
-                        value={props.settings.custom.recentToolTokens}
-                        min={0}
-                        max={80_000}
-                        step={5_000}
-                        formatter={(value) => `~${formatTokenCount(value)}`}
-                        onChange={(value) => setCustom({ recentToolTokens: value })}
-                    />
-                    <SliderRow
-                        theme={theme}
-                        label="Parallel jobs"
-                        value={props.settings.custom.summarizerConcurrency}
-                        min={1}
-                        max={12}
-                        step={1}
-                        onChange={(value) => setCustom({ summarizerConcurrency: value })}
+                        label="save"
+                        variant="primary"
+                        onClick={props.onSave}
                     />
                 </box>
-            </Card>
-            <Card theme={theme} title="Views">
+            }
+        >
+            <scrollbox
+                flexGrow={1}
+                flexShrink={1}
+                minHeight={0}
+                scrollX={false}
+                scrollY={true}
+                verticalScrollbarOptions={{ visible: true }}
+                horizontalScrollbarOptions={{ visible: false }}
+            >
                 <box flexDirection="column" gap={1}>
-                    <ActionRow
-                        theme={theme}
-                        title="Context"
-                        detail="Token usage"
-                        onClick={props.onContext}
-                    />
-                    <ActionRow
-                        theme={theme}
-                        title="Stats"
-                        detail="Savings"
-                        onClick={props.onStats}
-                    />
+                    <Card theme={theme} title="Automatic compaction">
+                        <ToggleRow
+                            theme={theme}
+                            label="Run automatically"
+                            enabled={props.settings.automatic}
+                            onToggle={() =>
+                                props.onSettingsChange({
+                                    ...props.settings,
+                                    automatic: !props.settings.automatic,
+                                })
+                            }
+                        />
+                        <text fg={theme.textMuted}>
+                            Create a context plan when usage reaches the selected threshold.
+                        </text>
+                    </Card>
+
+                    <Card theme={theme} title="Compaction strength">
+                        <box flexDirection="column" gap={0}>
+                            <PresetRow
+                                theme={theme}
+                                current={props.settings.preset}
+                                onSelect={setPreset}
+                            />
+                            <Metric
+                                theme={theme}
+                                label="Starts at"
+                                value={`${profile().triggerPercent}%`}
+                            />
+                            <Metric
+                                theme={theme}
+                                label="Deep summary goal"
+                                value={`${profile().targetPercent}%`}
+                            />
+                            <Metric
+                                theme={theme}
+                                label="Recent tool output"
+                                value={`~${formatTokenCount(profile().recentToolTokens)}`}
+                            />
+                        </box>
+                    </Card>
+
+                    <Card theme={theme} title="Summary effort">
+                        <EffortRow
+                            theme={theme}
+                            current={props.settings.summaryEffort}
+                            available={props.availableEfforts}
+                            onSelect={(summaryEffort) =>
+                                props.onSettingsChange({ ...props.settings, summaryEffort })
+                            }
+                        />
+                        <text fg={theme.textMuted}>
+                            Used only when old assistant turns need model-written summaries.
+                        </text>
+                    </Card>
+
+                    {props.settings.preset === "custom" ? (
+                        <Card theme={theme} title="Custom compaction">
+                            <box flexDirection="column" gap={0}>
+                                <SliderRow
+                                    theme={theme}
+                                    label="Start at"
+                                    value={props.settings.custom.triggerPercent}
+                                    min={50}
+                                    max={95}
+                                    step={5}
+                                    suffix="%"
+                                    onChange={(value) =>
+                                        setCustom({
+                                            triggerPercent: Math.max(
+                                                value,
+                                                props.settings.custom.targetPercent + 5,
+                                            ),
+                                        })
+                                    }
+                                />
+                                <SliderRow
+                                    theme={theme}
+                                    label="Deep goal"
+                                    value={props.settings.custom.targetPercent}
+                                    min={10}
+                                    max={60}
+                                    step={5}
+                                    suffix="%"
+                                    onChange={(value) =>
+                                        setCustom({
+                                            targetPercent: Math.min(
+                                                value,
+                                                props.settings.custom.triggerPercent - 5,
+                                            ),
+                                        })
+                                    }
+                                />
+                                <ToolRetentionRow
+                                    theme={theme}
+                                    value={props.settings.custom.recentToolTokens}
+                                    onSelect={(recentToolTokens) => setCustom({ recentToolTokens })}
+                                />
+                            </box>
+                        </Card>
+                    ) : null}
                 </box>
-            </Card>
-            <Card theme={theme} title="Prompt">
-                {canCompress ? (
-                    <PromptRow
-                        theme={theme}
-                        command="/better-compact"
-                        description="Run staged context pruning"
-                        accent="primary"
-                    />
-                ) : (
-                    <text fg={theme.textMuted}>Compression is denied by permissions.</text>
-                )}
-            </Card>
-            <Card theme={theme} title="Session State">
-                <BoundaryStatus api={props.api} />
-                <StatusPill
-                    theme={theme}
-                    label="Compaction command"
-                    value={canCompress ? "enabled" : "disabled"}
-                    accent={canCompress ? "success" : "warning"}
-                />
-            </Card>
+            </scrollbox>
         </BetterCompactFrame>
     )
 }
 
 function PresetRow(props: { theme: Theme; current: CompactionPreset; onSelect: (preset: CompactionPreset) => void }) {
-    const presets: CompactionPreset[] = ["light", "moderate", "max", "custom"]
+    const presets: Array<{ id: CompactionPreset; label: string }> = [
+        { id: "light", label: "gentle" },
+        { id: "moderate", label: "balanced" },
+        { id: "max", label: "aggressive" },
+        { id: "custom", label: "custom" },
+    ]
     return (
-        <box flexDirection="row" gap={1}>
+        <box flexDirection="row" gap={1} paddingBottom={1}>
             {presets.map((preset) => {
-                const selected = props.current === preset
+                const selected = props.current === preset.id
+                return (
+                    <box
+                        width={12}
+                        justifyContent="center"
+                        paddingLeft={1}
+                        paddingRight={1}
+                        backgroundColor={selected ? props.theme.primary : props.theme.backgroundElement}
+                        onMouseUp={() => props.onSelect(preset.id)}
+                    >
+                        <text fg={selected ? props.theme.selectedListItemText : props.theme.text} attributes={selected ? TextAttributes.BOLD : undefined}>
+                            {preset.label}
+                        </text>
+                    </box>
+                )
+            })}
+        </box>
+    )
+}
+
+function EffortRow(props: {
+    theme: Theme
+    current: SummaryEffort
+    available: Set<SummaryEffort>
+    onSelect: (effort: SummaryEffort) => void
+}) {
+    const efforts: Array<{ id: SummaryEffort; label: string }> = [
+        { id: "inherit", label: "model default" },
+        { id: "low", label: "low" },
+        { id: "medium", label: "medium" },
+        { id: "high", label: "high" },
+        { id: "max", label: "max" },
+    ]
+    return (
+        <box flexDirection="row" gap={1} paddingBottom={1}>
+            {efforts.map((effort) => {
+                const selected = props.current === effort.id
+                const available = props.available.has(effort.id)
                 return (
                     <box
                         paddingLeft={1}
                         paddingRight={1}
                         backgroundColor={selected ? props.theme.primary : props.theme.backgroundElement}
-                        onMouseUp={() => props.onSelect(preset)}
+                        onMouseUp={() => available && props.onSelect(effort.id)}
                     >
-                        <text fg={selected ? props.theme.selectedListItemText : props.theme.text} attributes={selected ? TextAttributes.BOLD : undefined}>
-                            {preset}
+                        <text
+                            fg={
+                                selected
+                                    ? props.theme.selectedListItemText
+                                    : available
+                                      ? props.theme.text
+                                      : props.theme.textMuted
+                            }
+                            attributes={selected ? TextAttributes.BOLD : undefined}
+                        >
+                            {effort.label}
                         </text>
                     </box>
                 )
             })}
+        </box>
+    )
+}
+
+function ToggleRow(props: {
+    theme: Theme
+    label: string
+    enabled: boolean
+    onToggle: () => void
+}) {
+    return (
+        <box height={1} flexDirection="row" justifyContent="space-between">
+            <text fg={props.theme.text}>{props.label}</text>
+            <box
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={props.enabled ? props.theme.success : props.theme.backgroundElement}
+                onMouseUp={props.onToggle}
+            >
+                <text fg={props.enabled ? props.theme.background : props.theme.textMuted}>
+                    {props.enabled ? "on" : "off"}
+                </text>
+            </box>
+        </box>
+    )
+}
+
+function ToolRetentionRow(props: {
+    theme: Theme
+    value: number
+    onSelect: (value: number) => void
+}) {
+    const options = [
+        { label: "less", value: 12_000 },
+        { label: "standard", value: 30_000 },
+        { label: "more", value: 40_000 },
+        { label: "most", value: 80_000 },
+    ]
+    return (
+        <box flexDirection="column" gap={0} paddingTop={1}>
+            <text fg={props.theme.text}>Keep recent tool output</text>
+            <box flexDirection="row" gap={1}>
+                {options.map((option) => {
+                    const selected = props.value === option.value
+                    return (
+                        <box
+                            paddingLeft={1}
+                            paddingRight={1}
+                            backgroundColor={selected ? props.theme.primary : props.theme.backgroundElement}
+                            onMouseUp={() => props.onSelect(option.value)}
+                        >
+                            <text
+                                fg={selected ? props.theme.selectedListItemText : props.theme.text}
+                                attributes={selected ? TextAttributes.BOLD : undefined}
+                            >
+                                {`${option.label} ${formatTokenCount(option.value)}`}
+                            </text>
+                        </box>
+                    )
+                })}
+            </box>
         </box>
     )
 }
@@ -519,7 +663,7 @@ function SliderRow(props: {
     const display = props.formatter ? props.formatter(props.value) : `${props.value}${props.suffix ?? ""}`
     const set = (next: number) => props.onChange(Math.max(props.min, Math.min(props.max, next)))
     return (
-        <box flexDirection="row" gap={2} alignItems="center">
+        <box height={1} flexDirection="row" gap={2} alignItems="center">
             <box width={16}>
                 <text fg={props.theme.text}>{props.label}</text>
             </box>
@@ -535,28 +679,6 @@ function SliderRow(props: {
             </box>
             <box width={12}>
                 <text fg={props.theme.text} attributes={TextAttributes.BOLD}>{display}</text>
-            </box>
-        </box>
-    )
-}
-
-function BoundaryStatus(props: {
-    api: TuiApi
-}) {
-    const theme = props.api.theme.current
-    return (
-        <box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
-            <box width={22}>
-                <text fg={theme.primary} attributes={TextAttributes.BOLD}>
-                    Boundary pruning
-                </text>
-            </box>
-            <box
-                backgroundColor={theme.success}
-                paddingLeft={1}
-                paddingRight={1}
-            >
-                <text fg={theme.background}>enabled</text>
             </box>
         </box>
     )

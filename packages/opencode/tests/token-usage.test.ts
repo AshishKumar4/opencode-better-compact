@@ -136,3 +136,27 @@ test("getCurrentTokenUsage resumes with the fresh reported total after compactio
 
     assert.equal(getCurrentTokenUsage(state, messages), freshReportedTotal)
 })
+
+test("getCurrentTokenUsage prefers the provider total", () => {
+    const state = createSessionState("session-total")
+    const messages: WithParts[] = [
+        {
+            info: {
+                id: "assistant-total",
+                sessionID: "session-total",
+                role: "assistant",
+                time: { created: 1 },
+                tokens: {
+                    total: 90_000,
+                    input: 10,
+                    output: 1,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                },
+            } as WithParts["info"],
+            parts: [],
+        },
+    ]
+
+    assert.equal(getCurrentTokenUsage(state, messages), 90_000)
+})

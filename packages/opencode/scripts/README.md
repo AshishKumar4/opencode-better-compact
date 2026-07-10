@@ -6,9 +6,9 @@ Packaging and development tooling for the OpenCode plugin. Nothing here ships in
 
 ## Packaging
 
-- `install.sh` — the end-user installer uploaded with each GitHub release; downloads the tarball, verifies its checksum, installs under `~/.local/share/opencode/plugins/better-compact/`, and registers the plugin entry points.
-- `package-release.mjs` — stages the release tarball (`.release/better-compact.tar.gz`) with its manifest and checksum.
-- `verify-package.mjs` — CI gate: required files, package.json shape, runtime import hygiene, and tarball contents.
+- `verify-package.mjs` — CI gate: required files, package.json shape, runtime import hygiene, built entrypoint smoke, and exact npm tarball contents.
+- `verify-release.mjs` — release gate: the pushed `v*` tag must match this package's version.
+- `smoke-opencode-install.mjs` — installs the package through a real OpenCode binary (`opencode plugin ...`) in a sandbox and asserts the server and TUI plugins load.
 
 ## Session analysis (dev tools)
 

@@ -30,19 +30,13 @@ The full design, including the IR, the codec contract, and the proxy engine, liv
 
 ## Install (OpenCode)
 
-Install the latest GitHub release:
+Requires OpenCode 1.17.13 or a newer 1.x release. Install globally with OpenCode's built-in plugin manager:
 
 ```bash
-curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+opencode plugin better-compact --global
 ```
 
-Install an explicit version:
-
-```bash
-VERSION=v0.1.0 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
-```
-
-The installer downloads the prebuilt release tarball, verifies its checksum, installs it under `~/.local/share/opencode/plugins/better-compact/<version>`, and registers the server and TUI plugins in `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json`. Restart OpenCode after installation.
+OpenCode downloads the prebuilt npm package with its embedded package manager and registers the server and TUI plugins in `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json` (JSONC equivalents are preserved). Restart OpenCode after installation.
 
 The OpenCode plugin's commands, configuration, presets, and uninstall steps are documented in [packages/opencode/README.md](packages/opencode/README.md).
 
@@ -87,7 +81,7 @@ And for the TUI plugin, in `~/.config/opencode/tui.json`:
 
 ## Releases
 
-CI verifies every push/PR with typecheck, tests, build, and package verification. Tagging `v*` builds the compiled artifacts, packages `better-compact.tar.gz` with `checksums.txt`, and uploads them with `install.sh` to GitHub Releases.
+CI verifies every push/PR with typecheck, tests (including the Bun-hosted TUI suite), build, package verification, and an OpenCode plugin-manager install smoke test. Tagging `v*` verifies the tag against the package version, packs a deterministic npm tarball, smoke-installs it through OpenCode, publishes it to npm with provenance, and creates the GitHub Release.
 
 ## Upstream
 

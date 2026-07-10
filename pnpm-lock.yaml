@@ -39,7 +39,7 @@ importers:
   packages/opencode:
     dependencies:
       '@opencode-ai/sdk':
-        specifier: ^1.4.3
+        specifier: ^1.17.13
         version: 1.17.13
       jsonc-parser:
         specifier: ^3.3.1
@@ -49,7 +49,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@opencode-ai/plugin':
-        specifier: ^1.4.3
+        specifier: ^1.17.13
         version: 1.17.13(@opentui/core@0.4.2(typescript@6.0.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.4.2(solid-js@1.9.14)(typescript@6.0.3)(web-tree-sitter@0.25.10))
       '@opentui/core':
         specifier: ^0.4.2

@@ -5,11 +5,11 @@ import {
     type Summarizer,
 } from "@better-compact/core"
 import type { Logger } from "../logger"
-import type { SessionState } from "../state"
+import type { RuntimeState } from "../state"
 
 interface SummarizeBoundaryJobsInput {
     client: any
-    state: SessionState
+    runtime: RuntimeState
     logger: Logger
     parentSessionId: string
     jobs: BoundarySummaryJob[]
@@ -47,6 +47,7 @@ function createScratchSummarizer(input: SummarizeBoundaryJobsInput): Summarizer 
     return {
         async complete(job) {
             let scratchSessionId: string | undefined
+            let untrackScratch: (() => void) | undefined
             try {
                 const created = await input.client.session.create({
                     body: {
@@ -67,7 +68,7 @@ function createScratchSummarizer(input: SummarizeBoundaryJobsInput): Summarizer 
                 })
                 scratchSessionId = created?.data?.id ?? created?.id
                 if (!scratchSessionId) return null
-                input.state.boundary.scratchSessionIds.add(scratchSessionId)
+                untrackScratch = input.runtime.trackScratch(scratchSessionId)
 
                 const response = await input.client.session.prompt({
                     path: { id: scratchSessionId },
@@ -91,7 +92,6 @@ function createScratchSummarizer(input: SummarizeBoundaryJobsInput): Summarizer 
                 return null
             } finally {
                 if (scratchSessionId) {
-                    input.state.boundary.scratchSessionIds.delete(scratchSessionId)
                     try {
                         await input.client.session.delete({ path: { id: scratchSessionId } })
                     } catch (error) {
@@ -99,6 +99,8 @@ function createScratchSummarizer(input: SummarizeBoundaryJobsInput): Summarizer 
                             scratchSessionId,
                             error: error instanceof Error ? error.message : String(error),
                         })
+                    } finally {
+                        untrackScratch?.()
                     }
                 }
             }

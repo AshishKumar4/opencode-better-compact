@@ -7,38 +7,13 @@ import {
     countTurns,
     resetOnCompaction,
 } from "./utils"
-import { getLastUserMessage } from "../messages/query"
-
-export const checkSession = async (
-    client: any,
+export async function refreshSessionState(
     state: SessionState,
-    logger: Logger,
     messages: WithParts[],
+    sessionId: string,
+    logger: Logger,
     manualModeDefault: boolean,
-): Promise<void> => {
-    const lastUserMessage = getLastUserMessage(messages)
-    if (!lastUserMessage) {
-        return
-    }
-
-    const lastSessionId = lastUserMessage.info.sessionID
-
-    if (state.sessionId === null || state.sessionId !== lastSessionId) {
-        logger.info(`Session changed: ${state.sessionId} -> ${lastSessionId}`)
-        try {
-            await ensureSessionInitialized(
-                client,
-                state,
-                lastSessionId,
-                logger,
-                messages,
-                manualModeDefault,
-            )
-        } catch (err: any) {
-            logger.error("Failed to initialize session state", { error: err.message })
-        }
-    }
-
+): Promise<void> {
     const lastCompactionTimestamp = findLastCompactionTimestamp(messages)
     if (lastCompactionTimestamp > state.lastCompaction) {
         state.lastCompaction = lastCompactionTimestamp
@@ -55,18 +30,16 @@ export const checkSession = async (
     }
 
     state.currentTurn = countTurns(state, messages)
-    await refreshManualMode(state, lastSessionId, logger, manualModeDefault)
+    await refreshManualMode(state, sessionId, logger, manualModeDefault)
 }
 
-export function createSessionState(): SessionState {
+export function createSessionState(sessionId: string | null = null): SessionState {
     return {
-        sessionId: null,
+        sessionId,
         isSubAgent: false,
         manualMode: false,
         compressPermission: undefined,
         boundary: {
-            scratchSessionIds: new Set<string>(),
-            runningSessionIds: new Set<string>(),
             job: null,
             activePlan: null,
         },
@@ -76,24 +49,7 @@ export function createSessionState(): SessionState {
     }
 }
 
-export function resetSessionState(state: SessionState): void {
-    state.sessionId = null
-    state.isSubAgent = false
-    state.manualMode = false
-    state.compressPermission = undefined
-    state.boundary = {
-        scratchSessionIds: new Set<string>(),
-        // Keep the instance so an in-flight run still releases its guard.
-        runningSessionIds: state.boundary.runningSessionIds,
-        job: null,
-        activePlan: null,
-    }
-    state.lastCompaction = 0
-    state.currentTurn = 0
-    state.modelContextLimit = undefined
-}
-
-export async function ensureSessionInitialized(
+export async function initializeSessionState(
     client: any,
     state: SessionState,
     sessionId: string,
@@ -101,20 +57,15 @@ export async function ensureSessionInitialized(
     messages: WithParts[],
     manualModeEnabled: boolean,
 ): Promise<void> {
-    if (state.sessionId === sessionId) {
-        return
+    if (state.sessionId !== null && state.sessionId !== sessionId) {
+        throw new Error(`Session state ${state.sessionId} cannot be initialized as ${sessionId}`)
     }
 
-    // logger.info("session ID = " + sessionId)
-    // logger.info("Initializing session state", { sessionId: sessionId })
-
-    resetSessionState(state)
     state.manualMode = manualModeEnabled ? "active" : false
     state.sessionId = sessionId
 
     const isSubAgent = await isSubAgentSession(client, sessionId)
     state.isSubAgent = isSubAgent
-    // logger.info("isSubAgent = " + isSubAgent)
 
     state.lastCompaction = findLastCompactionTimestamp(messages)
     state.currentTurn = countTurns(state, messages)

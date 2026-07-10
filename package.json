@@ -10,7 +10,6 @@
         "test": "pnpm -r test",
         "build": "pnpm -r build",
         "verify:package": "pnpm -r verify:package",
-        "package:release": "pnpm -r package:release",
         "check:package": "pnpm run build && pnpm run verify:package",
         "format": "prettier --write .",
         "format:check": "prettier --check ."

@@ -1,19 +1,27 @@
 /** @jsxImportSource @opentui/solid */
 
 import { buildStatsReport } from "../commands/stats"
-import type { PluginConfig } from "../config"
 import {
-    buildSessionState,
+    hasGlobalCompactionConfig,
+    loadGlobalCompactionConfig,
+    saveGlobalCompactionConfig,
+    type PluginConfig,
+} from "../config"
+import {
+    activeSessionID,
+    availableSummaryEfforts,
+    loadBoundaryJob,
     loadSessionData,
     loadTuiCompactionSettings,
-    saveTuiCompactionSettings,
-    sessionMessages,
 } from "./data"
 import { ContextDialog, PanelDialog, ProgressDialog, StatsDialog, StatusDialog } from "./dialogs"
+import type { BoundaryJobProgress } from "../state"
 import type { TuiApi } from "./types"
 
-export function showDialog(api: TuiApi, render: () => any) {
-    api.ui.dialog.replace(render)
+const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"]
+
+export function showDialog(api: TuiApi, render: () => any, onClose?: () => void) {
+    api.ui.dialog.replace(render, onClose)
     api.ui.dialog.setSize("xlarge")
 }
 
@@ -60,50 +68,177 @@ export function openStatsModal(api: TuiApi, config: PluginConfig) {
     })
 }
 
-export function openProgressModal(api: TuiApi, config: PluginConfig, sessionID?: string) {
-    const loadJob = async () => {
-        const data = sessionID ? await loadSessionDataForSession(api, config, sessionID) : await loadSessionData(api, config)
-        return data?.state.boundary.job ?? null
+export function openProgressModal(
+    api: TuiApi,
+    config: PluginConfig,
+    initialJob: BoundaryJobProgress,
+    options?: {
+        loadJob?: () => Promise<BoundaryJobProgress | null>
+        intervalMs?: number
+    },
+) {
+    let snapshot = initialJob
+    let scrollTop = 0
+    let scrollRef: { scrollTop: number } | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
+    let replacing = false
+    let refreshing = false
+    let frame = 0
+    let removeDispose = () => {}
+    const openedAt = Date.now()
+
+    const terminal = () => snapshot.status === "completed" || snapshot.status === "failed"
+    const stop = () => {
+        if (stopped) return
+        stopped = true
+        if (timer) clearTimeout(timer)
+        timer = undefined
+        const remove = removeDispose
+        removeDispose = () => {}
+        remove()
     }
-    showDialog(api, () => (
-        <ProgressDialog
-            api={api}
-            initialJob={null}
-            loadJob={loadJob}
-            onBack={() => openPanelModal(api, config)}
-        />
-    ))
+    const onClose = () => {
+        if (!replacing) stop()
+    }
+    const draw = () => {
+        if (stopped) return
+        scrollTop = scrollRef?.scrollTop ?? scrollTop
+        replacing = true
+        try {
+            showDialog(
+                api,
+                () => (
+                    <ProgressDialog
+                        api={api}
+                        job={snapshot}
+                        now={Date.now()}
+                        spinner={SPINNER_FRAMES[frame % SPINNER_FRAMES.length]}
+                        onScrollRef={(ref) => {
+                            scrollRef = ref
+                            const restore = scrollTop
+                            setTimeout(() => {
+                                if (!stopped && scrollRef === ref) ref.scrollTop = restore
+                            }, 0)
+                        }}
+                        onBack={() => openPanelModal(api, config)}
+                    />
+                ),
+                onClose,
+            )
+        } finally {
+            replacing = false
+        }
+    }
+    const schedule = () => {
+        if (stopped || terminal()) return
+        timer = setTimeout(() => void refresh(), options?.intervalMs ?? 100)
+    }
+    const refresh = async () => {
+        if (stopped || refreshing || terminal()) return
+        refreshing = true
+        try {
+            const next = await (options?.loadJob?.() ?? loadBoundaryJob(initialJob.sessionId))
+            if (
+                !stopped &&
+                next?.id === initialJob.id &&
+                next.sessionId === initialJob.sessionId &&
+                next.updatedAt >= snapshot.updatedAt
+            ) {
+                snapshot = next
+            } else if (
+                !stopped &&
+                next &&
+                next.sessionId === initialJob.sessionId &&
+                next.id !== initialJob.id &&
+                next.status === "running"
+            ) {
+                const now = Date.now()
+                snapshot = {
+                    ...snapshot,
+                    status: "failed",
+                    currentStage: "Another compaction is already running",
+                    error: "Another Better Compact run is already active for this session.",
+                    updatedAt: now,
+                    completedAt: now,
+                }
+            } else if (!stopped && Date.now() - openedAt >= 5_000) {
+                const now = Date.now()
+                snapshot = {
+                    ...snapshot,
+                    status: "failed",
+                    currentStage: "No matching server job started",
+                    error: "Better Compact did not start this request. Another compaction may already be active.",
+                    updatedAt: now,
+                    completedAt: now,
+                }
+            }
+            if (!stopped) {
+                frame += 1
+                draw()
+            }
+        } finally {
+            refreshing = false
+            if (terminal()) stop()
+            else schedule()
+        }
+    }
+
+    removeDispose = api.lifecycle.onDispose(stop)
+    draw()
+    void refresh()
 }
 
 export function openPanelModal(api: TuiApi, config: PluginConfig) {
-    runModal(api, "Better Compact", async () => {
-        const data = await loadSessionData(api, config)
-        if (!data) {
-            showStatusDialog(api, "Better Compact", "No session", "Open a session first.")
-            return
-        }
-        const settings = loadTuiCompactionSettings(api, config)
-        showDialog(api, () => (
-            <PanelDialog
-                api={api}
-                state={data.state}
-                config={config}
-                settings={settings}
-                onSettingsChange={(next) => {
-                    saveTuiCompactionSettings(api, next)
-                    openPanelModal(api, config)
-                }}
-                onContext={() => openContextModal(api, config)}
-                onStats={() => openStatsModal(api, config)}
-            />
-        ))
-    })
-}
+    let settings = hasGlobalCompactionConfig()
+        ? loadGlobalCompactionConfig()
+        : loadTuiCompactionSettings(api, config)
+    const efforts = availableSummaryEfforts(api, activeSessionID(api))
+    let closed = false
+    let replacing = false
 
-async function loadSessionDataForSession(api: TuiApi, config: PluginConfig, sessionID: string) {
-    const messages = sessionMessages(api, sessionID)
-    const state = await buildSessionState(sessionID, messages, config)
-    return { state, messages }
+    const onClose = () => {
+        if (!replacing) closed = true
+    }
+    const draw = () => {
+        if (closed) return
+        replacing = true
+        try {
+            showDialog(
+                api,
+                () => (
+                    <PanelDialog
+                        api={api}
+                        settings={settings}
+                        availableEfforts={efforts}
+                        onSettingsChange={(next) => {
+                            settings = next
+                            draw()
+                        }}
+                        onSave={() => {
+                            const result = saveGlobalCompactionConfig(settings)
+                            if (!result.ok) {
+                                showError(api, "Save settings", result.error)
+                                return
+                            }
+                            api.ui.toast({
+                                title: "Better Compact",
+                                message: "Global settings saved.",
+                                variant: "success",
+                            })
+                            api.ui.dialog.clear()
+                        }}
+                        onCancel={() => api.ui.dialog.clear()}
+                    />
+                ),
+                onClose,
+            )
+        } finally {
+            replacing = false
+        }
+    }
+
+    draw()
 }
 
 function runModal(api: TuiApi, title: string, task: () => Promise<void>) {

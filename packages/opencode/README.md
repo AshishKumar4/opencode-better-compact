@@ -6,30 +6,28 @@ Better Compact preserves raw user intent, prunes old tool-heavy context first, w
 
 ## Install
 
-Install the latest GitHub release:
+Requires OpenCode 1.17.13 or a newer 1.x release. Install globally with OpenCode's built-in plugin manager:
 
 ```bash
-curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+opencode plugin better-compact --global
 ```
 
 Install an explicit version:
 
 ```bash
-VERSION=v0.1.0 curl -fsSL https://github.com/AshishKumar4/opencode-better-compact/releases/latest/download/install.sh | sh
+opencode plugin better-compact@0.1.5 --global
 ```
 
-The installer downloads the prebuilt release tarball, verifies its checksum when `sha256sum` or `shasum` is available, installs it under:
-
-```text
-~/.local/share/opencode/plugins/better-compact/<version>
-```
-
-Then it updates:
+OpenCode downloads the prebuilt package with its embedded package manager and updates both plugin configurations:
 
 ```text
 ~/.config/opencode/opencode.json
 ~/.config/opencode/tui.json
 ```
+
+OpenCode also preserves and updates existing `opencode.jsonc` and `tui.jsonc` files.
+
+No separate Node.js, Bun, pnpm, npm, curl, or tar installation is required.
 
 Restart OpenCode after installation.
 
@@ -39,7 +37,7 @@ Restart OpenCode after installation.
 - `/better-compact context` shows the token-usage breakdown for the current session.
 - `/better-compact stats` shows the active pruning plan for the current session.
 - `/better-compact help` lists the available commands.
-- `/better-compact-settings` opens the TUI panel for presets and custom thresholds.
+- `/better-compact-settings` opens global compaction and summary-effort settings.
 
 ## How It Works
 
@@ -52,7 +50,7 @@ Default light mode:
 - Prunes thinking/reasoning only if needed.
 - Prunes remaining tool calls/results only if needed.
 - Summarizes high-value old assistant turns only if needed.
-- Writes raw transcripts under `.opencode/better-compact/sessions/...` for exact recall.
+- Writes raw transcripts under `.opencode/better-compact/sessions/...` for exact recall (private file modes, gitignored).
 
 The TUI shows live progress, context-window bars, stages completed, and final savings.
 
@@ -68,36 +66,36 @@ Example:
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json",
-  "enabled": true,
-  "autoUpdate": false,
-  "debug": false,
-  "compaction": {
-    "preset": "light"
-  }
+    "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json",
+    "enabled": true,
+    "autoUpdate": false,
+    "debug": false,
+    "compaction": {
+        "automatic": true,
+        "preset": "light",
+        "summaryEffort": "inherit",
+    },
 }
 ```
 
-Presets:
+Compaction strength:
 
-- `light`: default, preserves more recent tool context.
-- `moderate`: stronger pruning and more parallel summarization.
-- `max`: aggressive pruning for heavily saturated sessions.
-- `custom`: use `/better-compact-settings` to dial trigger, target, recent tool budget, and parallel jobs.
+- **Gentle** (`light`): waits longer and preserves more recent tool output.
+- **Balanced** (`moderate`): compacts earlier and keeps a moderate recent tool window.
+- **Aggressive** (`max`): frees the most working room and keeps less old tool output verbatim.
+- **Custom**: choose the automatic trigger, deep-summary goal, and recent tool-output budget.
+
+Summary effort is configured separately. `inherit` uses the model default. Low, medium, high, and max are applied only when the active model advertises a matching variant; unsupported levels safely fall back to the model default.
+
+The settings panel saves global behavior to `~/.config/opencode/better-compact.jsonc`, preserving comments and unrelated settings. Changes apply to subsequent manual and automatic runs without restarting OpenCode.
 
 ## Uninstall
 
-Remove Better Compact entries from:
+Remove `better-compact` from the `plugin` arrays in the JSON or JSONC equivalents of:
 
 ```text
 ~/.config/opencode/opencode.json
 ~/.config/opencode/tui.json
-```
-
-Then remove installed files:
-
-```bash
-rm -rf ~/.local/share/opencode/plugins/better-compact
 ```
 
 Restart OpenCode.
@@ -117,7 +115,7 @@ For local development, point OpenCode at this checkout:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
+    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
 }
 ```
 
@@ -125,11 +123,30 @@ For the TUI plugin, add this to `~/.config/opencode/tui.json`:
 
 ```json
 {
-  "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
+    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
 }
 ```
 
 Restart OpenCode after changing plugin config.
+
+## Releases
+
+CI uses pnpm and verifies every push/PR with:
+
+- typecheck
+- tests
+- host-shaped OpenTUI visual/runtime tests under Bun
+- production build
+- package verification
+
+Tag releases as `v*`:
+
+```bash
+git tag v0.1.5
+git push origin v0.1.5
+```
+
+The release workflow verifies that the tag matches this package's version, builds and tests the compiled server and TUI artifacts, publishes the package to npm with provenance, and creates the GitHub Release.
 
 ## Upstream
 

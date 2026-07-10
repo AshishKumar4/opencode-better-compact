@@ -11,11 +11,21 @@ export function BetterCompactFrame(props: {
     eyebrow: string
     children: JSX.Element
     onBack?: () => void
+    height?: number
+    footer?: JSX.Element
 }) {
     const theme = props.api.theme.current
     return (
-        <box paddingLeft={3} paddingRight={3} paddingBottom={1} gap={1}>
-            <box flexDirection="row" justifyContent="space-between">
+        <box
+            height={props.height}
+            overflow={props.height ? "hidden" : undefined}
+            flexDirection="column"
+            paddingLeft={3}
+            paddingRight={3}
+            paddingBottom={1}
+            gap={1}
+        >
+            <box flexShrink={0} flexDirection="row" justifyContent="space-between">
                 <box flexDirection="column">
                     <text fg={theme.primary} attributes={TextAttributes.BOLD}>
                         {props.eyebrow}
@@ -30,31 +40,33 @@ export function BetterCompactFrame(props: {
                     esc
                 </text>
             </box>
-            <box height={1} border={["bottom"]} borderColor={theme.borderSubtle} />
+            <box flexShrink={0} height={1} border={["bottom"]} borderColor={theme.borderSubtle} />
             {props.children}
-            <box flexDirection="row" justifyContent="space-between" paddingTop={1}>
-                {props.onBack ? (
-                    <FooterButton
+            {props.footer ?? (
+                <box flexShrink={0} flexDirection="row" justifyContent="space-between" paddingTop={1}>
+                    {props.onBack ? (
+                        <DialogButton
+                            theme={theme}
+                            label="back"
+                            variant="muted"
+                            onClick={props.onBack}
+                        />
+                    ) : (
+                        <box />
+                    )}
+                    <DialogButton
                         theme={theme}
-                        label="back"
-                        variant="muted"
-                        onClick={props.onBack}
+                        label="close"
+                        variant="primary"
+                        onClick={() => props.api.ui.dialog.clear()}
                     />
-                ) : (
-                    <box />
-                )}
-                <FooterButton
-                    theme={theme}
-                    label="close"
-                    variant="primary"
-                    onClick={() => props.api.ui.dialog.clear()}
-                />
-            </box>
+                </box>
+            )}
         </box>
     )
 }
 
-function FooterButton(props: {
+export function DialogButton(props: {
     theme: Theme
     label: string
     variant: "muted" | "primary"
@@ -75,7 +87,7 @@ function FooterButton(props: {
     )
 }
 
-export function Card(props: { theme: Theme; title: string; children: JSX.Element }) {
+export function Card(props: { theme: Theme; title: string; children: JSX.Element; gap?: number }) {
     const accent = props.theme.primary
     return (
         <box
@@ -87,7 +99,7 @@ export function Card(props: { theme: Theme; title: string; children: JSX.Element
             backgroundColor={props.theme.backgroundElement}
             border={["left"]}
             borderColor={accent}
-            gap={1}
+            gap={props.gap ?? 1}
         >
             <text fg={accent} attributes={TextAttributes.BOLD}>
                 {props.title}
@@ -99,7 +111,7 @@ export function Card(props: { theme: Theme; title: string; children: JSX.Element
 
 export function Metric(props: { theme: Theme; label: string; value: string; hint?: string }) {
     return (
-        <box flexDirection="row" gap={2}>
+        <box height={1} flexDirection="row" gap={2} alignItems="center">
             <box width={24}>
                 <text fg={props.theme.textMuted}>{props.label}</text>
             </box>
@@ -141,78 +153,6 @@ export function Progress(props: {
             <box flexDirection="row">
                 <text fg={props.theme[props.color]}>{"█".repeat(filled)}</text>
                 <text fg={props.theme.borderSubtle}>{"░".repeat(empty)}</text>
-            </box>
-        </box>
-    )
-}
-
-export function PromptRow(props: {
-    theme: Theme
-    command: string
-    description: string
-    accent?: ThemeColor
-}) {
-    const accent = props.theme[props.accent ?? "accent"]
-    return (
-        <box flexDirection="row" gap={2}>
-            <box width={22}>
-                <text fg={accent} attributes={TextAttributes.BOLD}>
-                    {props.command}
-                </text>
-            </box>
-            <box flexGrow={1}>
-                <text fg={props.theme.text}>{props.description}</text>
-            </box>
-        </box>
-    )
-}
-
-export function StatusPill(props: {
-    theme: Theme
-    label: string
-    value: string
-    accent: ThemeColor
-}) {
-    const accent = props.theme[props.accent]
-    return (
-        <box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
-            <box width={22}>
-                <text fg={props.theme.primary} attributes={TextAttributes.BOLD}>
-                    {props.label}
-                </text>
-            </box>
-            <text fg={accent} attributes={TextAttributes.BOLD}>
-                {props.value}
-            </text>
-        </box>
-    )
-}
-
-export function ActionRow(props: {
-    theme: Theme
-    title: string
-    detail: string
-    onClick: () => void
-}) {
-    const accent = props.theme.primary
-    return (
-        <box
-            flexDirection="row"
-            justifyContent="space-between"
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseUp={props.onClick}
-        >
-            <box flexDirection="row" gap={2}>
-                <box width={12}>
-                    <text fg={accent} attributes={TextAttributes.BOLD}>
-                        {props.title}
-                    </text>
-                </box>
-                <text fg={props.theme.text}>{props.detail}</text>
-            </box>
-            <box paddingLeft={2} paddingRight={2} backgroundColor={accent}>
-                <text fg={props.theme.selectedListItemText}>open</text>
             </box>
         </box>
     )
