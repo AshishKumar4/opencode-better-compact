@@ -37,6 +37,7 @@ export const openCodeCodec: Codec<WithParts> = {
             key: message.info.id,
             stamp: message.info.time.created,
             role: message.info.role,
+            ephemeral: isIgnoredNotification(message),
             handle: message,
             items: message.parts.map(encodePart),
         }))
@@ -86,6 +87,16 @@ export const openCodeSpec: LadderSpec = {
 
 export function sessionKeyOf(messages: WithParts[]): string {
     return messages[0]?.info.sessionID ?? "unknown-session"
+}
+
+// Better Compact's own reports and similar plugin notifications are user
+// messages whose parts are all `ignored: true`; they carry no user intent.
+function isIgnoredNotification(message: WithParts): boolean {
+    return (
+        message.info.role === "user" &&
+        message.parts.length > 0 &&
+        message.parts.every((part) => "ignored" in part && part.ignored === true)
+    )
 }
 
 function encodePart(part: MessagePart): Item {

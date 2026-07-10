@@ -700,3 +700,21 @@ test("custom compaction stays sticky for replacement plans", () => {
     assert.equal(replacement.requiresCustomCompaction, true)
     assert.equal(replacement.prefixSummary, first.prefixSummary)
 })
+
+test("ephemeral turns do not count as protected user turns", () => {
+    const ignored = turn("msg-ignored", "user", [textItem("msg-ignored", "Better Compact report")], 4)
+    ignored.ephemeral = true
+    const turns = [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),
+        turn("msg-assistant-1", "assistant", [textItem("msg-assistant-1", "old detail ".repeat(2_000))], 2),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
+        ignored,
+        turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 5),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 6),
+    ]
+
+    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true }), spec)
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, "msg-user-2")
+})

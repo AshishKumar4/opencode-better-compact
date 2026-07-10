@@ -75,7 +75,7 @@ export const assistantRunsStage: Stage = {
 export function findRawTailStartIndex(turns: Turn[], minTurns: number, minUserTurns: number): number {
     let userTurns = 0
     for (let index = turns.length - 1; index >= 0; index--) {
-        if (turns[index].role !== "user") continue
+        if (turns[index].role !== "user" || turns[index].ephemeral) continue
         userTurns++
         if (userTurns >= minUserTurns) return index
     }
@@ -163,7 +163,7 @@ export function turnText(turn: Turn): string {
 
 export function formatPrefixSummary(turns: Turn[], transcriptRelativePath: string): string {
     const userMessages = turns
-        .filter((turn) => turn.role === "user")
+        .filter((turn) => turn.role === "user" && !turn.ephemeral)
         .map((turn) => turnText(turn).trim())
         .filter(Boolean)
     const assistantFacts = turns

@@ -20,6 +20,10 @@ export interface Turn {
     stamp: number
     role: "user" | "assistant"
     items: Item[]
+    // Plugin-injected notification turns (e.g. Better Compact's own ignored
+    // report messages): they carry no user intent, so they neither count as
+    // protected user turns for tail selection nor feed prefix summaries.
+    ephemeral?: boolean
     // Original native message; absent on ladder-synthesized turns.
     handle?: unknown
 }
