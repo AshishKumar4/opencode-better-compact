@@ -13,16 +13,6 @@ export function boundaryRangeHash(messages: WithParts[]): string {
     return createHash("sha256").update(seed).digest("hex").slice(0, 16)
 }
 
-export function boundarySourceHash(messages: WithParts[]): string {
-    return boundaryRangeHash(
-        messages.filter(
-            (message) =>
-                message.info.role !== "user" ||
-                !message.parts.every((part) => "ignored" in part && part.ignored === true),
-        ),
-    )
-}
-
 function withoutTransportFields(value: object, fields: string[]): Record<string, unknown> {
     const result = { ...value } as Record<string, unknown>
     for (const field of fields) delete result[field]
