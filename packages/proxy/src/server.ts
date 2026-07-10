@@ -1,6 +1,7 @@
-import { createServer, type Server } from "node:http"
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { CompactionProfile, Logger } from "@better-compact/core"
 import { createAnthropicRoute } from "./anthropic/route"
+import { createOpenAIRoute } from "./openai/route"
 import { createSessionTracker } from "./sessions"
 import { createPlanStore, createTranscriptStore } from "./stores"
 
@@ -8,6 +9,7 @@ export const SERVICE_NAME = "better-compact-proxy"
 
 export interface ProxyServerOptions {
     upstream: string
+    openaiUpstream: string
     profile: CompactionProfile
     plansDir: string
     transcriptsDir: string
@@ -17,11 +19,12 @@ export interface ProxyServerOptions {
     logger: Logger
 }
 
-// One daemon, dialects mounted by route prefix: /anthropic this phase, the
-// OpenAI Responses route joins as a second prefix in Phase 4.
+type Route = (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void>
+
+// One daemon, both dialects mounted by route prefix. The two shared stores and
+// session tracker are created once and reused across dialects.
 export function createProxyServer(options: ProxyServerOptions): Server {
-    const anthropic = createAnthropicRoute({
-        upstream: new URL(options.upstream),
+    const shared = {
         profile: options.profile,
         plans: createPlanStore(options.plansDir, options.logger),
         transcripts: createTranscriptStore(options.transcriptsDir),
@@ -30,7 +33,9 @@ export function createProxyServer(options: ProxyServerOptions): Server {
         capture: options.capture,
         capturesDir: options.capturesDir,
         debugDir: options.debugDir,
-    })
+    }
+    const anthropic = createAnthropicRoute({ ...shared, upstream: new URL(options.upstream) })
+    const openai = createOpenAIRoute({ ...shared, upstream: new URL(options.openaiUpstream) })
 
     return createServer((req, res) => {
         const url = req.url ?? "/"
@@ -41,25 +46,16 @@ export function createProxyServer(options: ProxyServerOptions): Server {
                     service: SERVICE_NAME,
                     pid: process.pid,
                     upstream: options.upstream,
+                    openaiUpstream: options.openaiUpstream,
                     capture: options.capture,
                 }),
             )
             return
         }
-        if (url === "/anthropic" || url.startsWith("/anthropic/")) {
-            const path = url.slice("/anthropic".length) || "/"
-            anthropic(req, res, path).catch((error) => {
-                options.logger.error("Request handling failed", { error: String(error) })
-                if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" })
-                res.end(
-                    JSON.stringify({
-                        type: "error",
-                        error: { type: "api_error", message: "proxy failure" },
-                    }),
-                )
-            })
-            return
-        }
+        const dispatched =
+            dispatch(url, "/anthropic", anthropic, req, res, options.logger) ||
+            dispatch(url, "/openai", openai, req, res, options.logger)
+        if (dispatched) return
         res.writeHead(404, { "content-type": "application/json" })
         res.end(
             JSON.stringify({
@@ -68,4 +64,27 @@ export function createProxyServer(options: ProxyServerOptions): Server {
             }),
         )
     })
+}
+
+function dispatch(
+    url: string,
+    prefix: string,
+    route: Route,
+    req: IncomingMessage,
+    res: ServerResponse,
+    logger: Logger,
+): boolean {
+    if (url !== prefix && !url.startsWith(`${prefix}/`)) return false
+    const path = url.slice(prefix.length) || "/"
+    route(req, res, path).catch((error) => {
+        logger.error("Request handling failed", { error: String(error) })
+        if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" })
+        res.end(
+            JSON.stringify({
+                type: "error",
+                error: { type: "api_error", message: "proxy failure" },
+            }),
+        )
+    })
+    return true
 }

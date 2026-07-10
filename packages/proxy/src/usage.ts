@@ -13,7 +13,27 @@ export interface UsageReader {
 
 export function createUsageReader(headers: IncomingHttpHeaders): UsageReader {
     const contentType = String(headers["content-type"] ?? "")
-    const parser = contentType.includes("text/event-stream") ? sseUsageParser() : jsonUsageParser()
+    return wrapDecompression(
+        headers,
+        contentType.includes("text/event-stream") ? sseUsageParser() : jsonUsageParser(),
+    )
+}
+
+// Responses dialect: the SSE stream carries usage on the terminal
+// `response.completed` frame under `response.usage.total_tokens` (verified:
+// codex-api/src/sse/responses.rs:114-146); non-streaming bodies carry a
+// top-level `usage`.
+export function createResponsesUsageReader(headers: IncomingHttpHeaders): UsageReader {
+    const contentType = String(headers["content-type"] ?? "")
+    return wrapDecompression(
+        headers,
+        contentType.includes("text/event-stream")
+            ? responsesSseUsageParser()
+            : responsesJsonUsageParser(),
+    )
+}
+
+function wrapDecompression(headers: IncomingHttpHeaders, parser: UsageParser): UsageReader {
     const encoding = String(headers["content-encoding"] ?? "").toLowerCase()
     if (encoding === "" || encoding === "identity") {
         return { feed: parser.feed, finish: async () => parser.finish() }
@@ -119,6 +139,71 @@ function jsonUsageParser(): UsageParser {
                 }
                 if (!body.usage) return null
                 return inputSide(body.usage) + (body.usage.output_tokens ?? 0)
+            } catch {
+                return null
+            }
+        },
+    }
+}
+
+interface ResponsesUsage {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+}
+
+function responsesTotal(usage: ResponsesUsage): number {
+    if (typeof usage.total_tokens === "number") return usage.total_tokens
+    return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+}
+
+function responsesSseUsageParser(): UsageParser {
+    let pending = ""
+    let total: number | null = null
+
+    const consume = (line: string) => {
+        if (!line.startsWith("data:")) return
+        let event: { type?: string; response?: { usage?: ResponsesUsage } }
+        try {
+            event = JSON.parse(line.slice(5))
+        } catch {
+            return
+        }
+        if (event.type === "response.completed" && event.response?.usage) {
+            total = responsesTotal(event.response.usage)
+        }
+    }
+
+    return {
+        feed(chunk) {
+            pending += chunk.toString("utf-8")
+            const lines = pending.split("\n")
+            pending = lines.pop() ?? ""
+            for (const line of lines) consume(line.trimEnd())
+        },
+        finish() {
+            if (pending) consume(pending.trimEnd())
+            return total
+        },
+    }
+}
+
+function responsesJsonUsageParser(): UsageParser {
+    const chunks: Buffer[] = []
+    let size = 0
+    return {
+        feed(chunk) {
+            if (size > MAX_BUFFERED_JSON) return
+            chunks.push(chunk)
+            size += chunk.length
+        },
+        finish() {
+            if (size === 0 || size > MAX_BUFFERED_JSON) return null
+            try {
+                const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as {
+                    usage?: ResponsesUsage
+                }
+                return body.usage ? responsesTotal(body.usage) : null
             } catch {
                 return null
             }

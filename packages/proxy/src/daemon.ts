@@ -10,7 +10,7 @@ export interface LockInfo {
 }
 
 export type HealthState =
-    | { kind: "ours"; pid: number; upstream: string; capture: boolean }
+    | { kind: "ours"; pid: number; upstream: string; openaiUpstream: string; capture: boolean }
     | { kind: "foreign" }
     | { kind: "down" }
 
@@ -39,6 +39,7 @@ export function checkHealth(port: number): Promise<HealthState> {
                             service?: string
                             pid?: number
                             upstream?: string
+                            openaiUpstream?: string
                             capture?: boolean
                         }
                         if (body.service === SERVICE_NAME && typeof body.pid === "number") {
@@ -46,6 +47,7 @@ export function checkHealth(port: number): Promise<HealthState> {
                                 kind: "ours",
                                 pid: body.pid,
                                 upstream: body.upstream ?? "",
+                                openaiUpstream: body.openaiUpstream ?? "",
                                 capture: body.capture ?? false,
                             })
                             return
@@ -72,6 +74,7 @@ export function runDaemon(paths: ProxyPaths, port: number, capture: boolean): vo
     const config = loadConfig(paths)
     const server = createProxyServer({
         upstream: config.anthropicUpstream,
+        openaiUpstream: config.openaiUpstream,
         profile: config.profile,
         plansDir: paths.plansDir,
         transcriptsDir: paths.transcriptsDir,

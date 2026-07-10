@@ -89,7 +89,8 @@ async function main(): Promise<void> {
             const health = await checkHealth(DEFAULT_PORT)
             if (health.kind === "ours") {
                 console.log(`running  pid=${health.pid} port=${DEFAULT_PORT}`)
-                console.log(`upstream=${health.upstream} capture=${health.capture}`)
+                console.log(`anthropic=${health.upstream} openai=${health.openaiUpstream}`)
+                console.log(`capture=${health.capture}`)
             } else if (health.kind === "foreign") {
                 console.log(`port ${DEFAULT_PORT} is occupied by a foreign process`)
                 process.exit(1)

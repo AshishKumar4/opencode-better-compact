@@ -61,3 +61,74 @@ export function createSummarizer(
         },
     }
 }
+
+// The Responses-dialect analogue: one non-streaming POST /responses per job on
+// the session's own model, reusing the request's credentials. The summary text
+// is the output_text of the returned message items.
+export function createResponsesSummarizer(
+    upstream: URL,
+    model: string,
+    headers: OutgoingHttpHeaders,
+    logger: Logger,
+): Summarizer {
+    return {
+        async complete(job) {
+            const body = Buffer.from(
+                JSON.stringify({
+                    model,
+                    input: [
+                        {
+                            type: "message",
+                            role: "user",
+                            content: [{ type: "input_text", text: job.prompt }],
+                        },
+                    ],
+                    store: false,
+                    stream: false,
+                    max_output_tokens: SUMMARY_MAX_TOKENS,
+                }),
+            )
+            try {
+                const response = await requestUpstream(upstream, {
+                    method: "POST",
+                    path: "/responses",
+                    headers: {
+                        ...headers,
+                        accept: "application/json",
+                        "content-type": "application/json",
+                    },
+                    body,
+                })
+                const chunks: Buffer[] = []
+                for await (const chunk of response) chunks.push(chunk as Buffer)
+                const text = Buffer.concat(chunks).toString("utf-8")
+                if (!response.statusCode || response.statusCode >= 300) {
+                    logger.warn("Better Compact summary completion failed", {
+                        status: response.statusCode,
+                        body: text.slice(0, 400),
+                    })
+                    return null
+                }
+                const parsed = JSON.parse(text) as {
+                    output?: Array<{
+                        type?: string
+                        content?: Array<{ type?: string; text?: string }>
+                    }>
+                }
+                return (parsed.output ?? [])
+                    .filter((item) => item.type === "message")
+                    .flatMap((item) => item.content ?? [])
+                    .filter((part) => part.type === "output_text" && typeof part.text === "string")
+                    .map((part) => part.text)
+                    .join("\n\n")
+            } catch (error) {
+                logger.warn("Better Compact summary transport failed", {
+                    rangeStartMessageId: job.rangeStartMessageId,
+                    rangeEndMessageId: job.rangeEndMessageId,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                return null
+            }
+        },
+    }
+}

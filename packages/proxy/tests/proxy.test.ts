@@ -148,6 +148,7 @@ async function startHarness(capture = false): Promise<Harness> {
     const home = await mkdtemp(join(tmpdir(), "better-compact-proxy-"))
     const server = createProxyServer({
         upstream: `http://127.0.0.1:${upstream.port}`,
+        openaiUpstream: `http://127.0.0.1:${upstream.port}`,
         profile: COMPACTION_PRESETS.light,
         plansDir: join(home, "plans"),
         transcriptsDir: join(home, "transcripts"),

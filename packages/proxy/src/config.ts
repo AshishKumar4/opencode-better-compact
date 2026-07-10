@@ -5,6 +5,10 @@ import { COMPACTION_PRESETS, normalizePreset, type CompactionProfile } from "@be
 
 export const DEFAULT_PORT = 42817
 export const DEFAULT_UPSTREAM = "https://api.anthropic.com"
+// Codex's default `openai` provider base_url already carries `/v1` and appends
+// `/responses` (verified: model-provider-info/src/lib.rs:254, provider url join).
+// The proxy serves `/openai/responses`, so `/v1` lives in the upstream base.
+export const DEFAULT_OPENAI_UPSTREAM = "https://api.openai.com/v1"
 
 export interface ProxyPaths {
     home: string
@@ -34,6 +38,9 @@ export interface ProxyConfig {
     // Upstream for /anthropic/*. The installer preserves a pre-existing
     // ANTHROPIC_BASE_URL here so existing gateway users keep working.
     anthropicUpstream: string
+    // Upstream for /openai/*. The installer preserves a pre-existing
+    // openai_base_url here so existing custom-gateway Codex users keep working.
+    openaiUpstream: string
     profile: CompactionProfile
 }
 
@@ -44,11 +51,14 @@ export function loadConfig(paths: ProxyPaths): ProxyConfig {
     } catch {
         // Missing or unreadable config means defaults.
     }
-    const upstream =
+    const anthropic =
         typeof raw.anthropicUpstream === "string" ? raw.anthropicUpstream : DEFAULT_UPSTREAM
+    const openai =
+        typeof raw.openaiUpstream === "string" ? raw.openaiUpstream : DEFAULT_OPENAI_UPSTREAM
     const preset = normalizePreset(raw.preset)
     return {
-        anthropicUpstream: upstream.replace(/\/+$/, ""),
+        anthropicUpstream: anthropic.replace(/\/+$/, ""),
+        openaiUpstream: openai.replace(/\/+$/, ""),
         profile: COMPACTION_PRESETS[preset === "custom" ? "light" : preset],
     }
 }
