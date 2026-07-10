@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@better-compact/proxy",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "Local pruning proxy for Anthropic-wire coding agents (Claude Code)",
+    "keywords": [
+        "claude-code",
+        "anthropic",
+        "proxy",
+        "context",
+        "pruning",
+        "tokens"
+    ],
+    "bin": {
+        "better-compact-proxy": "./dist/cli.js"
+    },
+    "files": [
+        "dist/"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "directory": "packages/proxy"
+    },
+    "bugs": {
+        "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
+    },
+    "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
+    "author": "AshishKumar4",
+    "license": "AGPL-3.0-or-later",
+    "scripts": {
+        "clean": "rm -rf dist",
+        "build": "pnpm run clean && tsup",
+        "typecheck": "tsc --noEmit",
+        "test": "node --import tsx --test tests/*.test.ts"
+    },
+    "devDependencies": {
+        "@better-compact/core": "workspace:*",
+        "@types/node": "^25.5.0",
+        "tsup": "^8.5.1",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.2"
+    }
+}
