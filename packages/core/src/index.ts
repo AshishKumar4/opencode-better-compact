@@ -1,5 +1,5 @@
 export type { Codec, CodecOps, Conventions, Item, ItemKey, Turn } from "./ir"
-export { rangeHash } from "./identity"
+export { contentHashKey, keyDeduper, rangeHash } from "./identity"
 export { countTokens, truncate, type Estimator } from "./estimate"
 export {
     toPlanSnapshot,

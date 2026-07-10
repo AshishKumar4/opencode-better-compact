@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto"
 import {
     assistantRunsStage,
+    contentHashKey,
+    keyDeduper,
     reasoningStage,
     toolsOldStage,
     toolsRemainingStage,
@@ -101,7 +102,7 @@ function groupMessages(messages: PiMessage[]): PiMessage[][] {
 
 function encodeGroup(group: PiMessage[], claimKey: (base: string) => string): Turn {
     const first = group[0]
-    const key = claimKey(contentKey(group))
+    const key = claimKey(contentHashKey(group))
     const items: Item[] = []
     const pendingCalls = new Map<string, ToolPair>()
 
@@ -254,36 +255,6 @@ function textOf(handle: unknown): string {
 
 function timestampOf(message: PiMessage): number {
     return typeof message.timestamp === "number" ? message.timestamp : 0
-}
-
-// --- identity ---
-
-function keyDeduper(): (base: string) => string {
-    const seen = new Map<string, number>()
-    return (base) => {
-        const count = (seen.get(base) ?? 0) + 1
-        seen.set(base, count)
-        return count === 1 ? base : `${base}#${count}`
-    }
-}
-
-function contentKey(group: PiMessage[]): string {
-    return createHash("sha256").update(stableStringify(group)).digest("hex").slice(0, 16)
-}
-
-function stableStringify(value: unknown): string {
-    return JSON.stringify(sortKeys(value))
-}
-
-function sortKeys(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortKeys)
-    if (value && typeof value === "object") {
-        const source = value as Record<string, unknown>
-        const sorted: Record<string, unknown> = {}
-        for (const key of Object.keys(source).sort()) sorted[key] = sortKeys(source[key])
-        return sorted
-    }
-    return value
 }
 
 // --- estimation: pi's model serialization, priced in chars ---
