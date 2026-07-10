@@ -35,19 +35,25 @@ async function harness(): Promise<Harness> {
     const pi = {
         on(event: string, handler: unknown) {
             if (event === "context") contextHandler = handler as ContextHandler
-            if (event === "session_start") sessionHandlers.push(handler as Harness["sessionHandlers"][number])
+            if (event === "session_start")
+                sessionHandlers.push(handler as Harness["sessionHandlers"][number])
         },
         appendEntry(customType: string, data: unknown) {
             entries.push({ type: "custom", customType, data })
         },
-        registerCommand(name: string, options: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+        registerCommand(
+            name: string,
+            options: { handler: (args: string, ctx: unknown) => Promise<void> },
+        ) {
             commands.set(name, options)
         },
     } as unknown as ExtensionAPI
 
     const ctx = {
         model: { contextWindow: 6_000 },
-        modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: false, error: "no credentials in test" }) },
+        modelRegistry: {
+            getApiKeyAndHeaders: async () => ({ ok: false, error: "no credentials in test" }),
+        },
         getContextUsage: () => ({ tokens: null, contextWindow: 6_000, percent: null }),
         sessionManager: {
             getSessionId: () => "session-ext",
@@ -63,7 +69,14 @@ async function harness(): Promise<Harness> {
 
     betterCompact(pi)
     assert.ok(contextHandler, "extension must subscribe to the context event")
-    return { contextHandler: contextHandler!, sessionHandlers, entries, commands, notifications, ctx }
+    return {
+        contextHandler: contextHandler!,
+        sessionHandlers,
+        entries,
+        commands,
+        notifications,
+        ctx,
+    }
 }
 
 test("the context event prunes over-trigger sessions and persists the plan as a custom entry", async () => {
@@ -88,7 +101,10 @@ test("the context event prunes over-trigger sessions and persists the plan as a 
     const planEntry = entries.find((entry) => entry.customType === PLAN_ENTRY_TYPE)
     assert.ok(planEntry)
     const snapshot = (planEntry!.data as { snapshot: { transcriptRelativePath: string } }).snapshot
-    assert.match(await readFile(snapshot.transcriptRelativePath, "utf-8"), /\[tool:bash\] callId=call_0/)
+    assert.match(
+        await readFile(snapshot.transcriptRelativePath, "utf-8"),
+        /\[tool:bash\] callId=call_0/,
+    )
 
     // A fresh extension instance restores the plan from the branch and replays.
     for (const handler of sessionHandlers) await handler({ reason: "resume" }, ctx)

@@ -13,7 +13,8 @@ export function memoryTranscripts(): TranscriptStore & { written: Map<string, st
     const written = new Map<string, string>()
     return {
         written,
-        citablePath: (sessionKey, rangeHash) => `/sessions/${sessionKey}/better-compact/${rangeHash}.md`,
+        citablePath: (sessionKey, rangeHash) =>
+            `/sessions/${sessionKey}/better-compact/${rangeHash}.md`,
         async write(path, content) {
             written.set(path, content)
             return { absolutePath: path }
@@ -51,19 +52,34 @@ export function overTriggerConversation(): PiMessage[] {
         messages.push(
             assistantMessage(
                 [
-                    { type: "thinking", thinking: `thinking about task ${round} ${"t".repeat(1_400)}` },
+                    {
+                        type: "thinking",
+                        thinking: `thinking about task ${round} ${"t".repeat(1_400)}`,
+                    },
                     { type: "text", text: `Working on task ${round}.` },
-                    { type: "toolCall", id: `call_${round}`, name: "bash", arguments: { command: `run ${round}` } },
+                    {
+                        type: "toolCall",
+                        id: `call_${round}`,
+                        name: "bash",
+                        arguments: { command: `run ${round}` },
+                    },
                 ],
                 { stopReason: "toolUse", timestamp: at++ },
             ),
         )
-        messages.push(toolResultMessage(`call_${round}`, `output ${round} ${"o".repeat(4_800)}`, { timestamp: at++ }))
-        messages.push(assistantMessage([{ type: "text", text: `Task ${round} done.` }], { timestamp: at++ }))
+        messages.push(
+            toolResultMessage(`call_${round}`, `output ${round} ${"o".repeat(4_800)}`, {
+                timestamp: at++,
+            }),
+        )
+        messages.push(
+            assistantMessage([{ type: "text", text: `Task ${round} done.` }], { timestamp: at++ }),
+        )
     }
     messages.push(userMessage("what is left?", at++))
-    messages.push(assistantMessage([{ type: "text", text: "Nothing, all done." }], { timestamp: at++ }))
+    messages.push(
+        assistantMessage([{ type: "text", text: "Nothing, all done." }], { timestamp: at++ }),
+    )
     messages.push(userMessage("great, wrap up", at++))
     return messages
 }
-

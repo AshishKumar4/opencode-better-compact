@@ -28,7 +28,11 @@ test("ladder through the codec prunes old tools and reasoning, injects a referen
     const prefix = decoded.slice(0, -(messages.length - tailStart))
     for (const message of prefix) {
         if (message.role === "assistant") {
-            assert.ok(!message.content.some((block) => block.type === "toolCall" || block.type === "thinking"))
+            assert.ok(
+                !message.content.some(
+                    (block) => block.type === "toolCall" || block.type === "thinking",
+                ),
+            )
         }
         assert.notEqual(message.role, "toolResult")
     }
@@ -82,10 +86,15 @@ test("regrowth past the trigger refuses the frozen plan and rebuilds", async () 
     for (let round = 0; round < 12; round++) {
         regrown.push(userMessage(`more work ${round}`, at++))
         regrown.push(
-            assistantMessage([{ type: "text", text: `regrowth ${"r".repeat(3_000)}` }], { timestamp: at++ }),
+            assistantMessage([{ type: "text", text: `regrowth ${"r".repeat(3_000)}` }], {
+                timestamp: at++,
+            }),
         )
     }
-    assert.equal(replayPlanSnapshot(piCodec.encode(regrown), toPlanSnapshot(first.plan), piSpec), null)
+    assert.equal(
+        replayPlanSnapshot(piCodec.encode(regrown), toPlanSnapshot(first.plan), piSpec),
+        null,
+    )
 
     const rebuilt = await engine.process(engineRequest(regrown))
     assert.equal(rebuilt.outcome, "planned")
@@ -105,5 +114,8 @@ test("an edited prefix fails the rangeHash check and the plan is refused", async
     const edited = messages.map((message, index) =>
         index === 0 ? userMessage("history was rewritten here", 1_000) : message,
     )
-    assert.equal(replayPlanSnapshot(piCodec.encode(edited), toPlanSnapshot(first.plan), piSpec), null)
+    assert.equal(
+        replayPlanSnapshot(piCodec.encode(edited), toPlanSnapshot(first.plan), piSpec),
+        null,
+    )
 })

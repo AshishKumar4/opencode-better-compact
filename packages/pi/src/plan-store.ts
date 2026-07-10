@@ -12,7 +12,9 @@ export interface PiPlanStore extends PlanStore {
     restore(session: BranchReader): void
 }
 
-export function createPlanStore(appendEntry: (customType: string, data: unknown) => void): PiPlanStore {
+export function createPlanStore(
+    appendEntry: (customType: string, data: unknown) => void,
+): PiPlanStore {
     let snapshot: PlanSnapshot | null = null
     return {
         load: () => snapshot,
@@ -25,7 +27,8 @@ export function createPlanStore(appendEntry: (customType: string, data: unknown)
             // getBranch walks root -> leaf; the last plan entry on the branch wins.
             for (const entry of session.getBranch()) {
                 if (entry.type !== "custom" || entry.customType !== PLAN_ENTRY_TYPE) continue
-                const stored = (entry.data as { snapshot?: PlanSnapshot | null } | undefined)?.snapshot ?? null
+                const stored =
+                    (entry.data as { snapshot?: PlanSnapshot | null } | undefined)?.snapshot ?? null
                 // Forks copy the branch into a new session file under a new id;
                 // provenance is the branch scan itself, so rebase to the live
                 // session for the engine's ownership check.

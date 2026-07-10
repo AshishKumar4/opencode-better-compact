@@ -26,11 +26,26 @@ export function createSummarizer(
                 }
                 const response = await complete(
                     model,
-                    { messages: [{ role: "user", content: [{ type: "text", text: job.prompt }], timestamp: Date.now() }] },
-                    { apiKey: auth.apiKey, headers: auth.headers, env: auth.env, maxTokens: SUMMARY_MAX_TOKENS },
+                    {
+                        messages: [
+                            {
+                                role: "user",
+                                content: [{ type: "text", text: job.prompt }],
+                                timestamp: Date.now(),
+                            },
+                        ],
+                    },
+                    {
+                        apiKey: auth.apiKey,
+                        headers: auth.headers,
+                        env: auth.env,
+                        maxTokens: SUMMARY_MAX_TOKENS,
+                    },
                 )
                 if (response.stopReason === "error" || response.stopReason === "aborted") {
-                    logger.warn("Better Compact summary completion failed", { error: response.errorMessage })
+                    logger.warn("Better Compact summary completion failed", {
+                        error: response.errorMessage,
+                    })
                     return null
                 }
                 return response.content

@@ -66,7 +66,10 @@ export function kitchenSinkConversation(): PiMessage[] {
                 { type: "toolCall", id: "call_1", name: "bash", arguments: { command: "ls" } },
                 { type: "toolCall", id: "call_2", name: "read", arguments: { path: "README.md" } },
             ],
-            { stopReason: "toolUse", extraVendorField: { keep: true } } as Partial<AssistantMessage>,
+            {
+                stopReason: "toolUse",
+                extraVendorField: { keep: true },
+            } as Partial<AssistantMessage>,
         ),
         toolResultMessage("call_1", "src\npackage.json"),
         toolResultMessage("call_2", "# Project", {

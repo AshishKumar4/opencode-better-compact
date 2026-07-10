@@ -104,7 +104,9 @@ export default function betterCompact(pi: ExtensionAPI) {
                 ctx.ui.notify("Better Compact is already summarizing this session.", "info")
                 return
             }
-            const messages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages)
+            const messages = ctx.sessionManager
+                .buildContextEntries()
+                .flatMap(sessionEntryToContextMessages)
             if (messages.length === 0) {
                 ctx.ui.notify("Better Compact: nothing to prune yet.", "info")
                 return
@@ -136,7 +138,12 @@ export default function betterCompact(pi: ExtensionAPI) {
                             concurrency: profile.summarizerConcurrency,
                         })
                         if (Object.keys(summaries).length > 0) {
-                            finalPlan = buildPlan(turns, { ...inputs, assistantSummaries: summaries }, piSpec) ?? plan
+                            finalPlan =
+                                buildPlan(
+                                    turns,
+                                    { ...inputs, assistantSummaries: summaries },
+                                    piSpec,
+                                ) ?? plan
                         }
                     } finally {
                         summarizing.delete(sessionKey)

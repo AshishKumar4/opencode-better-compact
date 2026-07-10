@@ -104,5 +104,8 @@ test("a persisted plan survives restart and replays identically through the engi
     }).process({ sessionKey: "session-1", turns: piCodec.encode(messages), contextLimit: 6_000 })
     assert.equal(replayed.outcome, "replayed")
     if (replayed.outcome !== "replayed") return
-    assert.deepEqual(piCodec.decode(replayed.turns, messages), piCodec.decode(first.turns, messages))
+    assert.deepEqual(
+        piCodec.decode(replayed.turns, messages),
+        piCodec.decode(first.turns, messages),
+    )
 })

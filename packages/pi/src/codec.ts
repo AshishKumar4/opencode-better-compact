@@ -10,7 +10,13 @@ import {
     type LadderSpec,
     type Turn,
 } from "@better-compact/core"
-import type { ImageContent, TextContent, ThinkingContent, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai"
+import type {
+    ImageContent,
+    TextContent,
+    ThinkingContent,
+    ToolCall,
+    ToolResultMessage,
+} from "@earendil-works/pi-ai"
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
 
 // The message union exactly as pi's context event delivers it. Importing it
@@ -58,7 +64,8 @@ export const piCodec: Codec<PiMessage> = {
     transcriptLine(item) {
         if (item.kind === "synthetic") return item.text
         if (item.kind === "text") return textOf(item.handle)
-        if (item.kind === "reasoning") return `[reasoning]\n${(item.handle as ThinkingContent).thinking}`
+        if (item.kind === "reasoning")
+            return `[reasoning]\n${(item.handle as ThinkingContent).thinking}`
         if (item.kind === "tool") return formatToolPair(pairOf(item))
         return formatOpaque(item.handle)
     },
@@ -105,12 +112,22 @@ function encodeGroup(group: PiMessage[], claimKey: (base: string) => string): Tu
             }
         } else if (message.role === "user") {
             if (typeof message.content === "string") {
-                items.push({ kind: "text", key: `${key}#${items.length}`, text: message.content, handle: message })
+                items.push({
+                    kind: "text",
+                    key: `${key}#${items.length}`,
+                    text: message.content,
+                    handle: message,
+                })
             } else {
                 for (const block of message.content) {
                     items.push(
                         block.type === "text"
-                            ? { kind: "text", key: `${key}#${items.length}`, text: block.text, handle: block }
+                            ? {
+                                  kind: "text",
+                                  key: `${key}#${items.length}`,
+                                  text: block.text,
+                                  handle: block,
+                              }
                             : { kind: "opaque", key: `${key}#${items.length}`, handle: block },
                     )
                 }
@@ -138,8 +155,10 @@ function encodeAssistantBlock(
     pendingCalls: Map<string, ToolPair>,
     claimKey: (base: string) => string,
 ): Item {
-    if (block.type === "text") return { kind: "text", key: `${turnKey}#${index}`, text: block.text, handle: block }
-    if (block.type === "thinking") return { kind: "reasoning", key: `${turnKey}#${index}`, handle: block }
+    if (block.type === "text")
+        return { kind: "text", key: `${turnKey}#${index}`, text: block.text, handle: block }
+    if (block.type === "thinking")
+        return { kind: "reasoning", key: `${turnKey}#${index}`, handle: block }
     if (block.type === "toolCall") {
         const pair: ToolPair = { call: block }
         pendingCalls.set(block.id, pair)
@@ -171,13 +190,17 @@ function decodeTurn(turn: Turn): PiMessage[] {
     // message to carry them are re-emitted as a user message.
     if (!group.some((message) => message.role === "assistant")) {
         const text = syntheticText(turn.items)
-        if (text) out.unshift({ role: "user", content: [{ type: "text", text }], timestamp: turn.stamp })
+        if (text)
+            out.unshift({ role: "user", content: [{ type: "text", text }], timestamp: turn.stamp })
     }
     return out
 }
 
 function survives(message: PiMessage, items: Item[]): boolean {
-    if (message.role === "toolResult" && items.some((item) => item.kind === "tool" && pairOf(item).result === message)) {
+    if (
+        message.role === "toolResult" &&
+        items.some((item) => item.kind === "tool" && pairOf(item).result === message)
+    ) {
         return true
     }
     return opaqueSurvives(message, items)
@@ -200,7 +223,11 @@ function rebuildAssistant(message: AssistantMessage, items: Item[]): AssistantMe
 }
 
 function synthesizeUserMessage(turn: Turn): PiMessage {
-    return { role: "user", content: [{ type: "text", text: syntheticText(turn.items) }], timestamp: turn.stamp }
+    return {
+        role: "user",
+        content: [{ type: "text", text: syntheticText(turn.items) }],
+        timestamp: turn.stamp,
+    }
 }
 
 function syntheticText(items: Item[]): string {
@@ -287,7 +314,8 @@ function charsOfTurn(turn: Turn): number {
             chars += charsOfContextMessage(message)
         }
     }
-    if (!group.some((message) => message.role === "assistant")) chars += syntheticText(turn.items).length
+    if (!group.some((message) => message.role === "assistant"))
+        chars += syntheticText(turn.items).length
     return chars
 }
 
@@ -316,9 +344,15 @@ function charsOfContextMessage(message: PiMessage): number {
         case "custom":
             return charsOfUserContent(message.content)
         case "branchSummary":
-            return BRANCH_SUMMARY_PREFIX.length + message.summary.length + BRANCH_SUMMARY_SUFFIX.length
+            return (
+                BRANCH_SUMMARY_PREFIX.length + message.summary.length + BRANCH_SUMMARY_SUFFIX.length
+            )
         case "compactionSummary":
-            return COMPACTION_SUMMARY_PREFIX.length + message.summary.length + COMPACTION_SUMMARY_SUFFIX.length
+            return (
+                COMPACTION_SUMMARY_PREFIX.length +
+                message.summary.length +
+                COMPACTION_SUMMARY_SUFFIX.length
+            )
         default:
             // Unrecognized roles never reach the model (convertToLlm drops them).
             return 0
@@ -342,7 +376,8 @@ function bashExecutionText(bash: Extract<PiMessage, { role: "bashExecution" }>):
     else if (bash.exitCode !== null && bash.exitCode !== undefined && bash.exitCode !== 0) {
         text += `\n\nCommand exited with code ${bash.exitCode}`
     }
-    if (bash.truncated && bash.fullOutputPath) text += `\n\n[Output truncated. Full output: ${bash.fullOutputPath}]`
+    if (bash.truncated && bash.fullOutputPath)
+        text += `\n\n[Output truncated. Full output: ${bash.fullOutputPath}]`
     return text
 }
 
@@ -368,7 +403,9 @@ function formatOpaque(handle: unknown): string {
     const message = handle
     switch (message.role) {
         case "user":
-            return typeof message.content === "string" ? message.content : contentText(message.content)
+            return typeof message.content === "string"
+                ? message.content
+                : contentText(message.content)
         case "toolResult":
             return `[orphaned tool result:${message.toolName}] callId=${message.toolCallId}\n${truncate(contentText(message.content), 20_000)}`
         case "bashExecution":

@@ -2,14 +2,21 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import type { Item, Turn } from "@better-compact/core"
 import { piCodec, type PiMessage, type ToolPair } from "../src/codec"
-import { assistantMessage, kitchenSinkConversation, toolResultMessage, userMessage } from "./fixtures"
+import {
+    assistantMessage,
+    kitchenSinkConversation,
+    toolResultMessage,
+    userMessage,
+} from "./fixtures"
 
 function roundTrip(messages: PiMessage[]): PiMessage[] {
     return piCodec.decode(piCodec.encode(messages), messages)
 }
 
 function toolItems(turn: Turn): Extract<Item, { kind: "tool" }>[] {
-    return turn.items.filter((item): item is Extract<Item, { kind: "tool" }> => item.kind === "tool")
+    return turn.items.filter(
+        (item): item is Extract<Item, { kind: "tool" }> => item.kind === "tool",
+    )
 }
 
 test("round-trip is identity on every message kind", () => {
@@ -33,7 +40,8 @@ test("round-trip preserves string and block user content verbatim", () => {
 
 test("round-trip survives injected vendor junk fields", () => {
     const messages = kitchenSinkConversation().map(
-        (message, index) => ({ ...message, vendorJunk: { index, nested: [1, "two"] } }) as unknown as PiMessage,
+        (message, index) =>
+            ({ ...message, vendorJunk: { index, nested: [1, "two"] } }) as unknown as PiMessage,
     )
     assert.deepEqual(roundTrip(messages), messages)
 })
@@ -41,7 +49,9 @@ test("round-trip survives injected vendor junk fields", () => {
 test("tool call and its result message live in one IR item", () => {
     const messages: PiMessage[] = [
         userMessage("run it"),
-        assistantMessage([{ type: "toolCall", id: "call_9", name: "bash", arguments: { command: "make" } }]),
+        assistantMessage([
+            { type: "toolCall", id: "call_9", name: "bash", arguments: { command: "make" } },
+        ]),
         toolResultMessage("call_9", "built"),
     ]
     const turns = piCodec.encode(messages)
@@ -87,13 +97,19 @@ test("an orphaned tool result survives as an opaque item", () => {
     turns[1].items = turns[1].items.filter((item) => item.kind !== "tool")
     const decoded = piCodec.decode(turns, messages)
     assert.deepEqual(decoded.at(-1), messages[3])
-    assert.ok(!decoded.some((message) => message.role === "toolResult" && message.toolCallId === "call_1"))
+    assert.ok(
+        !decoded.some(
+            (message) => message.role === "toolResult" && message.toolCallId === "call_1",
+        ),
+    )
 })
 
 test("a call without a result drops cleanly with its tool item", () => {
     const messages: PiMessage[] = [
         userMessage("go"),
-        assistantMessage([{ type: "toolCall", id: "call_unfinished", name: "bash", arguments: {} }]),
+        assistantMessage([
+            { type: "toolCall", id: "call_unfinished", name: "bash", arguments: {} },
+        ]),
     ]
     assert.deepEqual(roundTrip(messages), messages)
     const turns = piCodec.encode(messages)
@@ -143,7 +159,13 @@ test("ladder-synthesized turns decode to pi user messages", () => {
         key: "better_compact_context_x",
         stamp: 0,
         role: "user",
-        items: [{ kind: "synthetic", key: "better_compact_context_x", text: "[Better Compact context pruning applied]" }],
+        items: [
+            {
+                kind: "synthetic",
+                key: "better_compact_context_x",
+                text: "[Better Compact context pruning applied]",
+            },
+        ],
     })
     const decoded = piCodec.decode(turns, messages)
     assert.deepEqual(decoded[1], {
@@ -170,7 +192,9 @@ test("estimate drops when a tool pair is stripped and prices the pair as one ite
     const bigOutput = "x".repeat(8_000)
     const messages: PiMessage[] = [
         userMessage("go"),
-        assistantMessage([{ type: "toolCall", id: "call_1", name: "bash", arguments: { command: "make" } }]),
+        assistantMessage([
+            { type: "toolCall", id: "call_1", name: "bash", arguments: { command: "make" } },
+        ]),
         toolResultMessage("call_1", bigOutput),
         userMessage("next"),
     ]
@@ -194,7 +218,11 @@ test("estimator prices bash executions and summaries as pi serializes them, and 
         excludeFromContext: true,
         timestamp: 1,
     } as PiMessage
-    const unknown = { role: "hologram", payload: "z".repeat(4_000), timestamp: 2 } as unknown as PiMessage
+    const unknown = {
+        role: "hologram",
+        payload: "z".repeat(4_000),
+        timestamp: 2,
+    } as unknown as PiMessage
     const summary = {
         role: "compactionSummary",
         summary: "s".repeat(400),

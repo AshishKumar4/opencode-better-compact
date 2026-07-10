@@ -4,15 +4,25 @@
     "version": "0.1.0",
     "type": "module",
     "description": "pi extension that improves long-session context with boundary-time pruning",
-    "keywords": ["pi-package", "pi", "context", "pruning", "tokens"],
+    "keywords": [
+        "pi-package",
+        "pi",
+        "context",
+        "pruning",
+        "tokens"
+    ],
     "pi": {
-        "extensions": ["./dist/extension.js"]
+        "extensions": [
+            "./dist/extension.js"
+        ]
     },
     "main": "./dist/extension.js",
     "exports": {
         ".": "./dist/extension.js"
     },
-    "files": ["dist/"],
+    "files": [
+        "dist/"
+    ],
     "repository": {
         "type": "git",
         "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
@@ -25,6 +35,8 @@
     "author": "AshishKumar4",
     "license": "AGPL-3.0-or-later",
     "scripts": {
+        "clean": "rm -rf dist",
+        "build": "pnpm run clean && tsup",
         "typecheck": "tsc --noEmit",
         "test": "node --import tsx --test tests/*.test.ts"
     },
