@@ -1,17 +1,20 @@
+import { existsSync } from "node:fs"
+import { join } from "node:path"
 import {
     buildPlan,
+    rangeHash,
     replayPlanSnapshot,
     toPlanSnapshot,
     transformTurns,
     writeTranscript,
     type BoundaryContextOptions,
     type BoundaryContextPlan,
-    type PlanSnapshot,
     type ReplayOptions,
 } from "@better-compact/core"
 import type { Logger } from "../logger"
 import { openCodeCodec, openCodeSpec, sessionKeyOf } from "../codec"
-import type { SessionState, WithParts } from "../state"
+import { loadPersistedBoundaryPlans, type BoundaryPlanSnapshot, type SessionState, type WithParts } from "../state"
+import { boundaryRangeHash } from "./fingerprint"
 import { createTranscriptStore, transcriptCitablePath } from "./transcripts"
 
 export type {
@@ -41,7 +44,7 @@ export function applyBoundaryContextPlan(messages: WithParts[], plan: BoundaryCo
 
 export function applyBoundaryPlanSnapshot(
     messages: WithParts[],
-    snapshot: PlanSnapshot,
+    snapshot: BoundaryPlanSnapshot,
     options: ReplayOptions = {},
 ): boolean {
     const replayed = replayPlanSnapshot(openCodeCodec.encode(messages), snapshot, openCodeSpec, options)
@@ -50,8 +53,47 @@ export function applyBoundaryPlanSnapshot(
     return true
 }
 
-export function storeBoundaryPlan(state: SessionState, plan: BoundaryContextPlan): void {
-    state.boundary.activePlan = toPlanSnapshot(plan)
+// Core snapshots carry the id-based rangeHash; the OpenCode layer adds a
+// content-addressed prefix identity so forked sessions can inherit the plan.
+export function toBoundaryPlanSnapshot(plan: BoundaryContextPlan, messages: WithParts[]): BoundaryPlanSnapshot {
+    const prefix = messages.slice(0, plan.rawTailStartIndex)
+    return {
+        ...toPlanSnapshot(plan),
+        prefixFingerprint: boundaryRangeHash(prefix),
+        compactedMessageCount: prefix.length,
+    }
+}
+
+export function storeBoundaryPlan(state: SessionState, plan: BoundaryContextPlan, messages: WithParts[]): void {
+    state.boundary.activePlan = toBoundaryPlanSnapshot(plan, messages)
+}
+
+// A forked session copies message content but mints new ids. Match this
+// session's prefix against persisted plans by content fingerprint and rebase
+// the winning snapshot onto the fork's ids so core replay validation holds.
+export async function findMatchingBoundaryPlan(
+    sessionId: string,
+    messages: WithParts[],
+    directory: string,
+    logger: Logger,
+): Promise<BoundaryPlanSnapshot | null> {
+    const plans = await loadPersistedBoundaryPlans(logger)
+    const hashes = new Map<number, string>()
+    for (const plan of plans) {
+        const compactedCount = plan.compactedMessageCount
+        if (!plan.prefixFingerprint || !compactedCount || compactedCount >= messages.length) continue
+        const hash = hashes.get(compactedCount) ?? boundaryRangeHash(messages.slice(0, compactedCount))
+        hashes.set(compactedCount, hash)
+        if (hash !== plan.prefixFingerprint) continue
+        if (!existsSync(join(directory, plan.transcriptRelativePath))) continue
+        return {
+            ...plan,
+            sessionId,
+            rawTailStartMessageId: messages[compactedCount].info.id,
+            rangeHash: rangeHash(openCodeCodec.encode(messages.slice(0, compactedCount))),
+        }
+    }
+    return null
 }
 
 export async function writeBoundaryTranscript(

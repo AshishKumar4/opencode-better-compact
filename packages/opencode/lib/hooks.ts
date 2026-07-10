@@ -14,6 +14,7 @@ import { compressPermission, syncCompressPermissionState } from "./compress-perm
 import { saveSessionState } from "./state"
 import {
     buildBoundaryContextPlan,
+    findMatchingBoundaryPlan,
     formatBoundaryReport,
     appendBoundaryLog,
     applyBoundaryPlanSnapshot,
@@ -100,6 +101,18 @@ export function createChatMessageTransformHandler(
         }
 
         stripHallucinations(messages)
+
+        if (!state.boundary.activePlan && messages.length >= 3) {
+            const inherited = await findMatchingBoundaryPlan(sessionId, messages, workingDirectory, logger)
+            if (inherited) {
+                state.boundary.activePlan = inherited
+                await saveSessionState(state, logger).catch((error) => {
+                    logger.warn("Failed to persist inherited Better Compact plan", {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                })
+            }
+        }
 
         const automaticAllowed =
             currentConfig.compaction.automatic && compressPermission(state, currentConfig) === "allow"
@@ -660,7 +673,7 @@ async function runBetterCompact(input: {
 
         setBoundaryStage(input.state, "store", "running", "Persisting virtual context plan")
         await saveProgress()
-        storeBoundaryPlan(input.state, finalPlan)
+        storeBoundaryPlan(input.state, finalPlan, input.messages)
         updateBoundaryCounters(input.state, {
             afterTokens: finalPlan.afterPruneTokens,
             currentTokens: finalPlan.afterPruneTokens,

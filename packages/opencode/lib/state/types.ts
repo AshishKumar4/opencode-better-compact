@@ -50,9 +50,17 @@ export interface BoundaryJobProgress {
     error?: string
 }
 
+// Core snapshots plus the content-addressed prefix identity the OpenCode
+// layer stamps at store time so forked sessions (new message ids, same
+// content) can inherit a matching plan.
+export interface BoundaryPlanSnapshot extends PlanSnapshot {
+    prefixFingerprint?: string
+    compactedMessageCount?: number
+}
+
 export interface BoundaryState {
     job: BoundaryJobProgress | null
-    activePlan: PlanSnapshot | null
+    activePlan: BoundaryPlanSnapshot | null
 }
 
 export interface SessionState {

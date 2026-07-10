@@ -937,7 +937,9 @@
           "status": "target-met"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "b29e96d5a0483f23",
+      "compactedMessageCount": 2
     },
     "replays": {
       "identical": {
@@ -2006,7 +2008,9 @@
           "status": "target-met"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "b29e96d5a0483f23",
+      "compactedMessageCount": 2
     },
     "replays": {
       "identical": {
@@ -2794,7 +2798,9 @@
           "status": "applied"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "54a34a21da0d28b0",
+      "compactedMessageCount": 5
     },
     "replays": {
       "identical": {
@@ -4688,7 +4694,9 @@
           "status": "applied"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "54a34a21da0d28b0",
+      "compactedMessageCount": 5
     },
     "replays": {
       "identical": {
@@ -5440,7 +5448,9 @@
           "status": "failed"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "54a34a21da0d28b0",
+      "compactedMessageCount": 5
     },
     "replays": {
       "identical": {
@@ -6101,7 +6111,9 @@
           "status": "applied"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "54a34a21da0d28b0",
+      "compactedMessageCount": 5
     },
     "replays": {
       "identical": {
@@ -6794,7 +6806,9 @@
           "status": "target-met"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "54a34a21da0d28b0",
+      "compactedMessageCount": 5
     },
     "replays": {
       "identical": {
@@ -7726,7 +7740,9 @@
           "status": "applied"
         }
       ],
-      "createdAt": 0
+      "createdAt": 0,
+      "prefixFingerprint": "76fbb97096d2f61b",
+      "compactedMessageCount": 4
     },
     "replays": {
       "identical": {

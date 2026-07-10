@@ -8,7 +8,7 @@ import * as fs from "fs/promises"
 import { existsSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
-import type { SessionState } from "./types"
+import type { BoundaryPlanSnapshot, SessionState } from "./types"
 import type { Logger } from "../logger"
 import { ensurePrivateDirectory, securePrivateFile, securePrivateTree, writePrivateFile } from "../private-storage"
 
@@ -39,6 +39,7 @@ export async function secureSessionStorage(): Promise<void> {
 }
 
 const stateWrites = new Map<string, Promise<void>>()
+let boundaryPlanIndex: Promise<BoundaryPlanSnapshot[]> | undefined
 
 function getSessionFilePath(sessionId: string): string {
     if (!/^[a-zA-Z0-9._-]{1,160}$/.test(sessionId)) {
@@ -59,6 +60,7 @@ async function writePersistedSessionState(
     stateWrites.set(sessionId, current)
     try {
         await current
+        boundaryPlanIndex = undefined
     } finally {
         if (stateWrites.get(sessionId) === current) stateWrites.delete(sessionId)
     }
@@ -127,6 +129,21 @@ export async function loadSessionState(
         })
         return null
     }
+}
+
+// Every persisted boundary plan, newest first, cached until the next state
+// write. Fork inheritance scans these for a content-matching prefix.
+export async function loadPersistedBoundaryPlans(logger: Logger): Promise<BoundaryPlanSnapshot[]> {
+    if (!existsSync(STORAGE_DIR)) return []
+    boundaryPlanIndex ??= (async () => {
+        const files = (await fs.readdir(STORAGE_DIR)).filter((file) => file.endsWith(".json")).sort()
+        const states = await Promise.all(files.map((file) => loadSessionState(file.slice(0, -5), logger)))
+        return states
+            .map((state) => state?.boundary?.activePlan)
+            .filter((plan): plan is BoundaryPlanSnapshot => !!plan)
+            .sort((left, right) => right.createdAt - left.createdAt)
+    })()
+    return boundaryPlanIndex
 }
 
 function emptyPersistedState(manualMode: boolean): PersistedSessionState {

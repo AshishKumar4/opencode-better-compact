@@ -1,9 +1,12 @@
 import { afterEach, expect, test } from "bun:test"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { parse } from "jsonc-parser/lib/esm/main.js"
 import { availableSummaryEfforts, resolveSummaryVariant } from "../lib/tui/data"
+import { boundaryRangeHash } from "../lib/boundary/fingerprint"
+import { createSessionState, saveSessionState, type WithParts } from "../lib/state"
+import { Logger } from "../lib/logger"
 
 const previousConfigHome = process.env.XDG_CONFIG_HOME
 const previousDataHome = process.env.XDG_DATA_HOME
@@ -209,4 +212,72 @@ test("server entrypoint suppresses duplicate plugin instances", async () => {
     expect(typeof first["experimental.chat.messages.transform"]).toBe("function")
     expect(Object.keys(second)).toEqual([])
     expect(toasts).toHaveLength(1)
+})
+
+test("forked sessions remap a matching semantic plan to new message IDs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-fork-plan-"))
+    roots.push(root)
+    process.env.XDG_DATA_HOME = join(root, "data")
+    const project = join(root, "project")
+    const transcriptRelativePath = ".opencode/better-compact/sessions/source/plan.md"
+    const transcriptPath = join(project, transcriptRelativePath)
+    mkdirSync(dirname(transcriptPath), { recursive: true })
+    writeFileSync(transcriptPath, "source transcript")
+    const message = (id: string, sessionID: string, text: string, created: number): WithParts => ({
+        info: {
+            id,
+            sessionID,
+            role: "user",
+            agent: "assistant",
+            model: { providerID: "test", modelID: "model" },
+            time: { created },
+        } as WithParts["info"],
+        parts: [
+            {
+                id: `${id}-part`,
+                messageID: id,
+                sessionID,
+                type: "text",
+                text,
+            },
+        ],
+    })
+    const sourceMessages = [
+        message("source-1", "source", "shared prefix", 1),
+        message("source-2", "source", "raw tail", 2),
+    ]
+    const sourceState = createSessionState("source")
+    sourceState.boundary.activePlan = {
+        sessionId: "source",
+        rangeHash: "0123456789abcdef",
+        contextLimit: 100_000,
+        rawTailStartMessageId: "source-2",
+        prefixFingerprint: boundaryRangeHash(sourceMessages.slice(0, 1)),
+        compactedMessageCount: 1,
+        transcriptRelativePath,
+        beforeTokens: 90_000,
+        afterPruneTokens: 20_000,
+        overheadTokens: 0,
+        triggerTokens: 85_000,
+        targetTokens: 35_000,
+        requiresCustomCompaction: false,
+        createdAt: 1,
+    }
+    await saveSessionState(sourceState, new Logger(false))
+    const childMessages = [
+        message("child-1", "child", "shared prefix", 1),
+        message("child-2", "child", "raw tail", 2),
+    ]
+
+    const boundary = await import(`../lib/boundary/context.ts?fork=${Date.now()}`)
+    const inherited = await boundary.findMatchingBoundaryPlan(
+        "child",
+        childMessages,
+        project,
+        new Logger(false),
+    )
+
+    expect(inherited?.sessionId).toBe("child")
+    expect(inherited?.rawTailStartMessageId).toBe("child-2")
+    expect(inherited?.rangeHash).not.toBe("0123456789abcdef")
 })

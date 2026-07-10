@@ -533,7 +533,7 @@ async function captureScenario(scenario: Scenario, workDirectory: string): Promi
     if (scenario.replays) {
         const state = createSessionState()
         state.sessionId = sessionID
-        storeBoundaryPlan(state, plan)
+        storeBoundaryPlan(state, plan, clone(input))
         const snapshot = state.boundary.activePlan!
         snapshot.createdAt = 0
         record.snapshot = normalize(snapshot)

@@ -4,11 +4,13 @@ import {
     type BoundaryContextPlan,
     type BoundarySummaryJob,
     type EnginePorts,
+    type PlanSnapshot,
 } from "@better-compact/core"
 import type { PluginConfig } from "../config"
 import type { Logger } from "../logger"
 import { openCodeCodec, openCodeSpec, sessionKeyOf } from "../codec"
 import { saveSessionState, type SessionState, type WithParts } from "../state"
+import { boundaryRangeHash } from "./fingerprint"
 import { createTranscriptStore } from "./transcripts"
 
 // The auto transform path: replay the session's cached plan when it still
@@ -32,7 +34,7 @@ export async function processBoundaryTransform(input: {
             load: () => input.state.boundary.activePlan,
             save: async (_sessionKey, snapshot) => {
                 const previous = input.state.boundary.activePlan
-                input.state.boundary.activePlan = snapshot
+                input.state.boundary.activePlan = snapshot ? stampForkIdentity(snapshot, input.messages) : null
                 try {
                     await saveSessionState(input.state, input.logger)
                 } catch (error) {
@@ -60,4 +62,15 @@ export async function processBoundaryTransform(input: {
     input.messages.length = 0
     input.messages.push(...decoded)
     return result.outcome === "planned" ? result.plan : null
+}
+
+function stampForkIdentity(snapshot: PlanSnapshot, messages: WithParts[]) {
+    const tailIndex = messages.findIndex((message) => message.info.id === snapshot.rawTailStartMessageId)
+    if (tailIndex <= 0) return snapshot
+    const prefix = messages.slice(0, tailIndex)
+    return {
+        ...snapshot,
+        prefixFingerprint: boundaryRangeHash(prefix),
+        compactedMessageCount: prefix.length,
+    }
 }
