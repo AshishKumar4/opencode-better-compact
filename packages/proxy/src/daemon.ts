@@ -14,6 +14,21 @@ export type HealthState =
     | { kind: "foreign" }
     | { kind: "down" }
 
+export type StopDecision =
+    | { action: "signal"; pid: number }
+    | { action: "clear-stale" }
+    | { action: "none" }
+
+// Only ever signal a pid we can prove is our live daemon. A "down" port with a
+// leftover lockfile is a crashed daemon whose pid may have been recycled by an
+// unrelated process — clear the stale lock instead of killing that pid. A
+// "foreign" occupant is not ours to touch at all.
+export function decideStop(health: HealthState, lock: LockInfo | null): StopDecision {
+    if (health.kind === "ours") return { action: "signal", pid: health.pid }
+    if (health.kind === "down" && lock) return { action: "clear-stale" }
+    return { action: "none" }
+}
+
 export function readLock(paths: ProxyPaths): LockInfo | null {
     try {
         const lock = JSON.parse(readFileSync(paths.lockfile, "utf-8")) as LockInfo

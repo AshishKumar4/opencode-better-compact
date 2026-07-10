@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process"
-import { mkdirSync, openSync } from "node:fs"
+import { mkdirSync, openSync, rmSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { DEFAULT_PORT, loadConfig, proxyPaths, type ProxyPaths } from "./config"
-import { checkHealth, readLock, runDaemon } from "./daemon"
+import { checkHealth, decideStop, readLock, runDaemon } from "./daemon"
 import { CODEX_PROXY_BASE_URL, installCodex } from "./install"
 
 const HELP = `better-compact-proxy — local context-pruning proxy for coding agents
@@ -35,15 +35,14 @@ async function main(): Promise<void> {
             return
         }
         case "stop": {
-            const lock = readLock(paths)
-            const health = await checkHealth(DEFAULT_PORT)
-            const pid = health.kind === "ours" ? health.pid : lock?.pid
-            if (!pid) {
+            const decision = decideStop(await checkHealth(DEFAULT_PORT), readLock(paths))
+            if (decision.action !== "signal") {
+                if (decision.action === "clear-stale") rmSync(paths.lockfile, { force: true })
                 console.log("better-compact-proxy is not running")
                 return
             }
             try {
-                process.kill(pid, "SIGTERM")
+                process.kill(decision.pid, "SIGTERM")
             } catch {
                 console.log("better-compact-proxy is not running")
                 return
@@ -55,8 +54,8 @@ async function main(): Promise<void> {
             )
             console.log(
                 stopped
-                    ? `Stopped better-compact-proxy (pid ${pid})`
-                    : `Sent SIGTERM to pid ${pid}`,
+                    ? `Stopped better-compact-proxy (pid ${decision.pid})`
+                    : `Sent SIGTERM to pid ${decision.pid}`,
             )
             return
         }
