@@ -888,3 +888,101 @@ test("manual mode persisted setting refreshes server session state", async () =>
     await refreshManualMode(state, sessionId, logger, true)
     assert.equal(state.manualMode, false)
 })
+
+function buildForkFixture(sessionID: string): { messages: WithParts[]; prefix: WithParts[] } {
+    const messages = [
+        buildUserMessage(`${sessionID}-user-1`, "shared fork prefix", 1, sessionID),
+        buildMessage(`${sessionID}-assistant-1`, "assistant", "shared fork answer"),
+        buildUserMessage(`${sessionID}-user-2`, "fork raw tail", 3, sessionID),
+        buildUserMessage(`${sessionID}-user-3`, "fork latest", 5, sessionID),
+    ]
+    messages[1].info.sessionID = sessionID
+    for (const part of messages[1].parts) part.sessionID = sessionID
+    return { messages, prefix: messages.slice(0, 2) }
+}
+
+async function persistForkSourcePlan(directory: string, prefix: WithParts[]): Promise<void> {
+    const { boundaryRangeHash } = await import("../lib/boundary/fingerprint")
+    const { mkdirSync } = await import("node:fs")
+    const transcriptRelativePath = ".opencode/better-compact/sessions/fork-source/plan.md"
+    mkdirSync(join(directory, ".opencode/better-compact/sessions/fork-source"), { recursive: true })
+    writeFileSync(join(directory, transcriptRelativePath), "source transcript")
+    const source = createSessionState(`fork-source-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    source.boundary.activePlan = {
+        sessionId: source.sessionId!,
+        rangeHash: "0123456789abcdef",
+        contextLimit: 100_000,
+        rawTailStartMessageId: "source-raw-tail",
+        prefixFingerprint: boundaryRangeHash(prefix),
+        compactedMessageCount: prefix.length,
+        transcriptRelativePath,
+        beforeTokens: 90_000,
+        afterPruneTokens: 20_000,
+        overheadTokens: 0,
+        triggerTokens: 85_000,
+        targetTokens: 35_000,
+        requiresCustomCompaction: false,
+        stages: [],
+        createdAt: 1,
+    }
+    await saveSessionState(source, new Logger(false))
+}
+
+test("fork plan inheritance is skipped when compress permission is deny", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "better-compact-inherit-deny-"))
+    const stamp = `${process.pid}-${Date.now()}`
+    const allowSession = `fork-child-allow-${stamp}`
+    const denySession = `fork-child-deny-${stamp}`
+    const allowFixture = buildForkFixture(allowSession)
+    const denyFixture = buildForkFixture(denySession)
+    await persistForkSourcePlan(directory, allowFixture.prefix)
+    await persistForkSourcePlan(directory, denyFixture.prefix)
+
+    // Same fixtures, permission allow: the plan is inherited.
+    const allowClient = transformClient(100_000)
+    const allowRuntime = createRuntimeState(allowClient, new Logger(false))
+    await transformHandler(allowClient, allowRuntime, buildConfig("allow"), directory)(
+        {},
+        { messages: allowFixture.messages },
+    )
+    assert.ok(allowRuntime.get(allowSession).boundary.activePlan)
+
+    // Same fixtures, permission deny: inheritance must not even happen.
+    const denyClient = transformClient(100_000)
+    const denyRuntime = createRuntimeState(denyClient, new Logger(false))
+    await transformHandler(denyClient, denyRuntime, buildConfig("deny"), directory)(
+        {},
+        { messages: denyFixture.messages },
+    )
+    assert.equal(denyRuntime.get(denySession).boundary.activePlan, null)
+})
+
+test("a waiting transform is not rejected when the active compaction fails", async () => {
+    const sessionId = `ses-loser-shield-${Date.now()}`
+    const messages = buildOverTriggerConversation(sessionId)
+    const toasts: unknown[] = []
+    const client = transformClient(10_000, toasts)
+    const runtime = createRuntimeState(client, new Logger(false))
+    let rejectWinner!: (error: Error) => void
+    runtime.startCompaction(sessionId, () => new Promise((_, reject) => {
+        rejectWinner = reject
+    }))
+    const before = JSON.stringify(messages)
+    const handler = transformHandler(
+        client,
+        runtime,
+        buildConfig("allow"),
+        mkdtempSync(join(tmpdir(), "better-compact-loser-shield-")),
+    )
+
+    const waiting = handler({}, { messages })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    rejectWinner(new Error("winner exploded"))
+    await waiting
+
+    // The waiting transform degrades quietly: no rejection, no failure toast
+    // of its own, request continues unpruned.
+    assert.equal(toasts.length, 0)
+    assert.equal(JSON.stringify(messages), before)
+    await waitFor(() => runtime.activeCompaction(sessionId) === undefined)
+})

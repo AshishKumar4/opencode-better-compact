@@ -12,7 +12,8 @@ export function rangeHash(turns: Turn[]): string {
 
 // Summary keys survive forks: forked sessions mint new message ids but copy
 // roles and creation stamps, so a content-inherited plan can keep reusing
-// its paid-for assistant summaries (ported from origin/master 173146f).
+// its paid-for assistant summaries. Adapted from origin/master 173146f,
+// which additionally hashed provider/model metadata the IR does not carry.
 export function assistantRunKey(turns: Turn[]): string {
     const seed = turns.map((turn) => `${turn.role}:${turn.stamp}`).join("|")
     return createHash("sha256").update(seed).digest("hex").slice(0, 16)
