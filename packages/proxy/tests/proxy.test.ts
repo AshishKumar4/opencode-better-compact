@@ -272,6 +272,37 @@ test("relays SSE byte-for-byte and forwards request headers verbatim", async () 
     assert.equal(seen.headers.host, `127.0.0.1:${harness.upstream.port}`)
 })
 
+test("drops content-encoding when the body is rewritten, keeps it verbatim otherwise", async () => {
+    const harness = await startHarness()
+
+    // Rewritten (pruned) request: the fresh plaintext body must not carry the
+    // client's content-encoding, or the upstream would try to decompress it.
+    await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody(bigConversation()))),
+        { ...CLIENT_HEADERS, "x-session": "s-enc-pruned", "content-encoding": "gzip" },
+    )
+    const prunedSeen = streamRequests(harness.upstream).at(-1)
+    assert.ok(prunedSeen)
+    const prunedBody = JSON.parse(prunedSeen.body.toString("utf-8")) as { messages: WireMessage[] }
+    assert.ok(prunedBody.messages.length < bigConversation().length, "request must have been rewritten")
+    assert.equal(
+        prunedSeen.headers["content-encoding"],
+        undefined,
+        "rewritten body must not forward content-encoding",
+    )
+
+    // Below the trigger nothing is rewritten: content-encoding rides along.
+    harness.upstream.requests.length = 0
+    await post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(messagesBody([userMessage("hi")]))), {
+        ...CLIENT_HEADERS,
+        "x-session": "s-enc-plain",
+        "content-encoding": "identity",
+    })
+    assert.equal(harness.upstream.requests[0].headers["content-encoding"], "identity")
+})
+
 test("prunes past the trigger, reuses the plan across requests, and never touches system", async () => {
     const harness = await startHarness()
     const messages = bigConversation()

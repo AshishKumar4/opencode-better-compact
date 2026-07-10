@@ -112,7 +112,13 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
             upstream = await requestUpstream(options.upstream, {
                 method: "POST",
                 path,
-                headers: forwardableHeaders(req.rawHeaders),
+                // When we rewrote the body it is fresh plaintext, so any
+                // client content-encoding no longer applies; content-length is
+                // re-derived from the Buffer. Unpruned bodies forward verbatim.
+                headers: forwardableHeaders(
+                    req.rawHeaders,
+                    rewrite.pruned ? ["content-encoding"] : undefined,
+                ),
                 body: rewrite.body,
             })
         } catch (error) {

@@ -8,12 +8,18 @@ import type { Readable } from "node:stream"
 const EXCLUDED_HEADERS = new Set(["host", "content-length", "connection", "transfer-encoding"])
 
 // Preserves original header casing (rawHeaders) and duplicate headers.
-export function forwardableHeaders(rawHeaders: string[]): OutgoingHttpHeaders {
+// `extraExcluded` drops further headers (lowercased names) — the rewrite path
+// passes "content-encoding" because it replaces the body with fresh plaintext.
+export function forwardableHeaders(
+    rawHeaders: string[],
+    extraExcluded?: Iterable<string>,
+): OutgoingHttpHeaders {
+    const excluded = extraExcluded ? new Set([...EXCLUDED_HEADERS, ...extraExcluded]) : EXCLUDED_HEADERS
     const headers: OutgoingHttpHeaders = {}
     for (let index = 0; index < rawHeaders.length; index += 2) {
         const name = rawHeaders[index]
         const value = rawHeaders[index + 1]
-        if (EXCLUDED_HEADERS.has(name.toLowerCase())) continue
+        if (excluded.has(name.toLowerCase())) continue
         const existing = headers[name]
         if (existing === undefined) headers[name] = value
         else if (Array.isArray(existing)) existing.push(value)
