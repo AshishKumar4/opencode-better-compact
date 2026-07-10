@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "name": "@better-compact/pi",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "pi extension that improves long-session context with boundary-time pruning",
+    "keywords": ["pi-package", "pi", "context", "pruning", "tokens"],
+    "pi": {
+        "extensions": ["./dist/extension.js"]
+    },
+    "main": "./dist/extension.js",
+    "exports": {
+        ".": "./dist/extension.js"
+    },
+    "files": ["dist/"],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "directory": "packages/pi"
+    },
+    "bugs": {
+        "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
+    },
+    "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
+    "author": "AshishKumar4",
+    "license": "AGPL-3.0-or-later",
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "node --import tsx --test tests/*.test.ts"
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*"
+    },
+    "devDependencies": {
+        "@better-compact/core": "workspace:*",
+        "@earendil-works/pi-agent-core": "^0.80.6",
+        "@earendil-works/pi-ai": "^0.80.6",
+        "@earendil-works/pi-coding-agent": "^0.80.6",
+        "@types/node": "^25.5.0",
+        "tsup": "^8.5.1",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.2"
+    }
+}
