@@ -57,7 +57,11 @@ export function createAnthropicRoute(options: AnthropicRouteOptions) {
         logger: options.logger,
     }
 
-    return async function handle(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+    return async function handle(
+        req: IncomingMessage,
+        res: ServerResponse,
+        path: string,
+    ): Promise<void> {
         if (req.method !== "POST" || path.split("?")[0] !== "/v1/messages") {
             await passthrough(req, res, path, options)
             return
@@ -148,10 +152,16 @@ async function rewriteMessages(
 
         const decoded = anthropicCodec.decode(result.turns, body.messages)
         const rewritten = Buffer.from(JSON.stringify({ ...body, messages: decoded }))
-        if (result.outcome === "planned" && result.plan.summaryJobs.length > 0 && !runtime.summarizing) {
+        if (
+            result.outcome === "planned" &&
+            result.plan.summaryJobs.length > 0 &&
+            !runtime.summarizing
+        ) {
             runtime.summarizing = true
             void upgradePlanWithSummaries(result.plan, turns, planInputs, body.model, req, options)
-                .catch((error) => options.logger.warn("Plan summary upgrade failed", { error: String(error) }))
+                .catch((error) =>
+                    options.logger.warn("Plan summary upgrade failed", { error: String(error) }),
+                )
                 .finally(() => {
                     runtime.summarizing = false
                 })
@@ -177,7 +187,12 @@ async function upgradePlanWithSummaries(
     req: IncomingMessage,
     options: AnthropicRouteOptions,
 ): Promise<void> {
-    const summarizer = createSummarizer(options.upstream, model, forwardableHeaders(req.rawHeaders), options.logger)
+    const summarizer = createSummarizer(
+        options.upstream,
+        model,
+        forwardableHeaders(req.rawHeaders),
+        options.logger,
+    )
     const summaries = await summarizeJobs({
         jobs: plan.summaryJobs,
         summarizer,
@@ -210,7 +225,11 @@ async function passthrough(
             headers: forwardableHeaders(req.rawHeaders),
             body: req.method === "GET" || req.method === "HEAD" ? null : req,
         })
-        options.logger.info("anthropic passthrough", { method: req.method, path, status: upstream.statusCode })
+        options.logger.info("anthropic passthrough", {
+            method: req.method,
+            path,
+            status: upstream.statusCode,
+        })
         relay(upstream, res, {})
     } catch (error) {
         respondGatewayError(res, error, options.logger)
@@ -226,16 +245,16 @@ function relay(
     hooks: { onChunk?: (chunk: Buffer) => void; onEnd?: () => Promise<void> | void },
 ): void {
     res.writeHead(upstream.statusCode ?? 502, filterResponseHeaders(upstream.rawHeaders))
-    upstream.on("data", (chunk: Buffer) => {
-        res.write(chunk)
-        hooks.onChunk?.(chunk)
-    })
+    if (hooks.onChunk) upstream.on("data", hooks.onChunk)
+    upstream.pipe(res)
     upstream.on("end", () => {
-        res.end()
         void hooks.onEnd?.()
     })
     upstream.on("error", () => {
         res.destroy()
+    })
+    res.on("close", () => {
+        upstream.destroy()
     })
 }
 
@@ -276,13 +295,21 @@ function bufferBody(req: IncomingMessage): Promise<Buffer> {
 
 // Captures hold the request body only — headers, and with them credentials,
 // are never written to disk.
-async function captureBody(raw: Buffer, sessionKey: string | null, options: AnthropicRouteOptions): Promise<void> {
+async function captureBody(
+    raw: Buffer,
+    sessionKey: string | null,
+    options: AnthropicRouteOptions,
+): Promise<void> {
     await mkdir(options.capturesDir, { recursive: true })
     const name = `${Date.now()}-${sanitizeKey(sessionKey ?? "unknown")}.json`
     await writeFile(join(options.capturesDir, name), raw)
 }
 
-async function dumpRewrittenBody(rewrite: Rewrite, status: number, options: AnthropicRouteOptions): Promise<void> {
+async function dumpRewrittenBody(
+    rewrite: Rewrite,
+    status: number,
+    options: AnthropicRouteOptions,
+): Promise<void> {
     await mkdir(options.debugDir, { recursive: true })
     const name = `${Date.now()}-${status}-${sanitizeKey(rewrite.sessionKey ?? "unknown")}.json`
     await writeFile(join(options.debugDir, name), rewrite.body)
@@ -293,9 +320,16 @@ async function dumpRewrittenBody(rewrite: Rewrite, status: number, options: Anth
 }
 
 function respondGatewayError(res: ServerResponse, error: unknown, logger: Logger): void {
-    logger.error("Upstream request failed", { error: error instanceof Error ? error.message : String(error) })
+    logger.error("Upstream request failed", {
+        error: error instanceof Error ? error.message : String(error),
+    })
     if (!res.headersSent) {
         res.writeHead(502, { "content-type": "application/json" })
     }
-    res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: "better-compact-proxy: upstream unreachable" } }))
+    res.end(
+        JSON.stringify({
+            type: "error",
+            error: { type: "api_error", message: "better-compact-proxy: upstream unreachable" },
+        }),
+    )
 }
