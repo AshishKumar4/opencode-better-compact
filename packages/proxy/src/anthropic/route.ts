@@ -83,6 +83,13 @@ export function createAnthropicRoute(options: AnthropicRouteOptions) {
         }
 
         const status = upstream.statusCode ?? 502
+        options.logger.info("anthropic /v1/messages", {
+            sessionKey: rewrite.sessionKey,
+            pruned: rewrite.pruned,
+            status,
+            originalBytes: raw.length,
+            sentBytes: rewrite.body.length,
+        })
         if (rewrite.pruned && status >= 400 && status < 500) {
             void dumpRewrittenBody(rewrite, status, options).catch(() => {})
         }
@@ -149,12 +156,6 @@ async function rewriteMessages(
                     runtime.summarizing = false
                 })
         }
-        options.logger.info("Rewrote /v1/messages request", {
-            sessionKey,
-            outcome: result.outcome,
-            originalBytes: raw.length,
-            rewrittenBytes: rewritten.length,
-        })
         return { body: rewritten, pruned: true, sessionKey }
     } catch (error) {
         options.logger.error("Rewrite failed; forwarding original request", {
@@ -209,6 +210,7 @@ async function passthrough(
             headers: forwardableHeaders(req.rawHeaders),
             body: req.method === "GET" || req.method === "HEAD" ? null : req,
         })
+        options.logger.info("anthropic passthrough", { method: req.method, path, status: upstream.statusCode })
         relay(upstream, res, {})
     } catch (error) {
         respondGatewayError(res, error, options.logger)
