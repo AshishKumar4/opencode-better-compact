@@ -21,7 +21,10 @@ export function createPlanStore(plansDir: string, logger: Logger): PlanStore {
                 snapshot = JSON.parse(await readFile(fileOf(sessionKey), "utf-8")) as PlanSnapshot
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-                    logger.warn("Failed to read persisted plan", { sessionKey, error: String(error) })
+                    logger.warn("Failed to read persisted plan", {
+                        sessionKey,
+                        error: String(error),
+                    })
                 }
             }
             cache.set(sessionKey, snapshot)
@@ -43,7 +46,8 @@ export function createPlanStore(plansDir: string, logger: Logger): PlanStore {
 // agent's Read tool can open from any cwd.
 export function createTranscriptStore(transcriptsDir: string): TranscriptStore {
     return {
-        citablePath: (sessionKey, rangeHash) => join(transcriptsDir, sanitizeKey(sessionKey), `${rangeHash}.md`),
+        citablePath: (sessionKey, rangeHash) =>
+            join(transcriptsDir, sanitizeKey(sessionKey), `${rangeHash}.md`),
         async write(path, content) {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, content, "utf-8")

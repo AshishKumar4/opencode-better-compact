@@ -44,7 +44,8 @@ export function loadConfig(paths: ProxyPaths): ProxyConfig {
     } catch {
         // Missing or unreadable config means defaults.
     }
-    const upstream = typeof raw.anthropicUpstream === "string" ? raw.anthropicUpstream : DEFAULT_UPSTREAM
+    const upstream =
+        typeof raw.anthropicUpstream === "string" ? raw.anthropicUpstream : DEFAULT_UPSTREAM
     const preset = normalizePreset(raw.preset)
     return {
         anthropicUpstream: upstream.replace(/\/+$/, ""),

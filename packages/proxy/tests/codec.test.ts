@@ -9,14 +9,24 @@ import {
     type WireBlock,
     type WireMessage,
 } from "../src/anthropic/codec"
-import { assistantMessage, bigConversation, kitchenSinkMessages, thinking, toolResult, toolUse, userMessage } from "./fixtures"
+import {
+    assistantMessage,
+    bigConversation,
+    kitchenSinkMessages,
+    thinking,
+    toolResult,
+    toolUse,
+    userMessage,
+} from "./fixtures"
 
 function roundTrip(messages: WireMessage[]): WireMessage[] {
     return anthropicCodec.decode(anthropicCodec.encode(messages), messages)
 }
 
 function toolItems(turn: Turn): Extract<Item, { kind: "tool" }>[] {
-    return turn.items.filter((item): item is Extract<Item, { kind: "tool" }> => item.kind === "tool")
+    return turn.items.filter(
+        (item): item is Extract<Item, { kind: "tool" }> => item.kind === "tool",
+    )
 }
 
 function blocksOf(message: WireMessage): WireBlock[] {
@@ -59,12 +69,18 @@ test("tool_use and its tool_result from the next user message form one IR item",
 test("dropping a tool item removes the tool_use block and its tool_result block", () => {
     const messages = kitchenSinkMessages()
     const turns = anthropicCodec.encode(messages)
-    turns[1].items = turns[1].items.filter((item) => !(item.kind === "tool" && item.callId === "toolu_01"))
+    turns[1].items = turns[1].items.filter(
+        (item) => !(item.kind === "tool" && item.callId === "toolu_01"),
+    )
     const decoded = anthropicCodec.decode(turns, messages)
 
     const assistant = decoded[1]
-    assert.ok(!blocksOf(assistant).some((block) => block.type === "tool_use" && block.id === "toolu_01"))
-    assert.ok(blocksOf(assistant).some((block) => block.type === "tool_use" && block.id === "toolu_02"))
+    assert.ok(
+        !blocksOf(assistant).some((block) => block.type === "tool_use" && block.id === "toolu_01"),
+    )
+    assert.ok(
+        blocksOf(assistant).some((block) => block.type === "tool_use" && block.id === "toolu_02"),
+    )
     const carrier = decoded[2]
     assert.ok(!blocksOf(carrier).some((block) => block.tool_use_id === "toolu_01"))
     assert.ok(blocksOf(carrier).some((block) => block.tool_use_id === "toolu_02"))
@@ -81,7 +97,10 @@ test("an emptied carrier user message collapses away entirely", () => {
     turns[1].items = [{ kind: "synthetic", key: "s1", text: "[tool calls/results cleared]" }]
     const decoded = anthropicCodec.decode(turns, messages)
     assert.equal(decoded.length, 3)
-    assert.deepEqual(decoded[1], { role: "assistant", content: [{ type: "text", text: "[tool calls/results cleared]" }] })
+    assert.deepEqual(decoded[1], {
+        role: "assistant",
+        content: [{ type: "text", text: "[tool calls/results cleared]" }],
+    })
     assert.equal(decoded[2], messages[3])
 })
 
@@ -91,7 +110,9 @@ test("a mixed carrier keeps its system-reminder text when results are pruned", (
     turns[1].items = turns[1].items.filter((item) => item.kind !== "tool")
     const decoded = anthropicCodec.decode(turns, messages)
     const carrier = decoded[2]
-    assert.deepEqual(blocksOf(carrier), [{ type: "text", text: "<system-reminder>stay focused</system-reminder>" }])
+    assert.deepEqual(blocksOf(carrier), [
+        { type: "text", text: "<system-reminder>stay focused</system-reminder>" },
+    ])
 })
 
 test("an orphaned tool_result survives as an opaque item", () => {
@@ -128,7 +149,13 @@ test("ladder-synthesized turns decode to user messages with one text block", () 
         key: "better_compact_context_x",
         stamp: 0,
         role: "user",
-        items: [{ kind: "synthetic", key: "better_compact_context_x", text: "[Better Compact context pruning applied]" }],
+        items: [
+            {
+                kind: "synthetic",
+                key: "better_compact_context_x",
+                text: "[Better Compact context pruning applied]",
+            },
+        ],
     })
     const decoded = anthropicCodec.decode(turns, messages)
     assert.deepEqual(decoded[1], {
@@ -164,7 +191,9 @@ test("cache_control on a pruned block migrates to the nearest surviving earlier 
             { type: "text", text: "surviving assistant text" },
             toolUse("toolu_1", "Bash", { command: "ls" }),
         ]),
-        userMessage([toolResult("toolu_1", "big output", { cache_control: { type: "ephemeral" } })]),
+        userMessage([
+            toolResult("toolu_1", "big output", { cache_control: { type: "ephemeral" } }),
+        ]),
         userMessage("next"),
     ]
     const turns = anthropicCodec.encode(messages)
@@ -182,7 +211,9 @@ test("cache_control on a pruned block migrates to the nearest surviving earlier 
 
 test("a marker migrating onto an already-marked block leaves the existing marker", () => {
     const messages = [
-        userMessage([{ type: "text", text: "anchor", cache_control: { type: "ephemeral", ttl: "1h" } }]),
+        userMessage([
+            { type: "text", text: "anchor", cache_control: { type: "ephemeral", ttl: "1h" } },
+        ]),
         assistantMessage([toolUse("toolu_1", "Bash", { command: "ls" })]),
         userMessage([toolResult("toolu_1", "out", { cache_control: { type: "ephemeral" } })]),
         userMessage("next"),
@@ -239,7 +270,10 @@ test("claude code conventions select Skill and TodoWrite tool calls", () => {
     assert.equal(claudeCodeConventions.isSkillItem?.(bash), false)
     assert.equal(claudeCodeConventions.todo?.isTodoItem(todo), true)
     assert.equal(claudeCodeConventions.todo?.isTodoItem(bash), false)
-    assert.equal(claudeCodeConventions.todo?.format(todo), "1. [completed] fix bug; 2. [in_progress] add test")
+    assert.equal(
+        claudeCodeConventions.todo?.format(todo),
+        "1. [completed] fix bug; 2. [in_progress] add test",
+    )
 })
 
 test("full ladder output decodes to a valid /v1/messages history", () => {
@@ -259,7 +293,10 @@ test("full ladder output decodes to a valid /v1/messages history", () => {
     const decoded = anthropicCodec.decode(transformed, messages)
 
     assert.ok(decoded.length < messages.length)
-    assert.ok(anthropicCodec.estimateTurns(anthropicCodec.encode(decoded)) < anthropicCodec.estimateTurns(turns))
+    assert.ok(
+        anthropicCodec.estimateTurns(anthropicCodec.encode(decoded)) <
+            anthropicCodec.estimateTurns(turns),
+    )
     for (let index = 0; index < decoded.length; index++) {
         const message = decoded[index]
         // No empty content.
@@ -273,7 +310,8 @@ test("full ladder output decodes to a valid /v1/messages history", () => {
             assert.ok(next && Array.isArray(next.content))
             assert.ok(
                 (next.content as WireBlock[]).some(
-                    (candidate) => candidate.type === "tool_result" && candidate.tool_use_id === block.id,
+                    (candidate) =>
+                        candidate.type === "tool_result" && candidate.tool_use_id === block.id,
                 ),
                 `tool_use ${String(block.id)} lost its tool_result`,
             )
@@ -290,7 +328,8 @@ test("full ladder output decodes to a valid /v1/messages history", () => {
             (message) =>
                 Array.isArray(message.content) &&
                 message.content.some(
-                    (block) => block.type === "text" && String(block.text).includes("/tmp/ses_validity/"),
+                    (block) =>
+                        block.type === "text" && String(block.text).includes("/tmp/ses_validity/"),
                 ),
         ),
     )

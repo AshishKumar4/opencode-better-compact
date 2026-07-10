@@ -60,7 +60,11 @@ interface WireUsage {
 }
 
 function inputSide(usage: WireUsage): number {
-    return (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
+    return (
+        (usage.input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        (usage.cache_read_input_tokens ?? 0)
+    )
 }
 
 function sseUsageParser(): UsageParser {
@@ -110,7 +114,9 @@ function jsonUsageParser(): UsageParser {
         finish() {
             if (size === 0 || size > MAX_BUFFERED_JSON) return null
             try {
-                const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as { usage?: WireUsage }
+                const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as {
+                    usage?: WireUsage
+                }
                 if (!body.usage) return null
                 return inputSide(body.usage) + (body.usage.output_tokens ?? 0)
             } catch {

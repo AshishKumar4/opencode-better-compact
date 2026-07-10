@@ -8,11 +8,20 @@ export function assistantMessage(content: string | WireBlock[]): WireMessage {
     return { role: "assistant", content }
 }
 
-export function toolUse(id: string, name: string, input: unknown, extra: Record<string, unknown> = {}): WireBlock {
+export function toolUse(
+    id: string,
+    name: string,
+    input: unknown,
+    extra: Record<string, unknown> = {},
+): WireBlock {
     return { type: "tool_use", id, name, input, ...extra }
 }
 
-export function toolResult(id: string, content: unknown, extra: Record<string, unknown> = {}): WireBlock {
+export function toolResult(
+    id: string,
+    content: unknown,
+    extra: Record<string, unknown> = {},
+): WireBlock {
     return { type: "tool_result", tool_use_id: id, content, ...extra }
 }
 
@@ -30,7 +39,12 @@ export function kitchenSinkMessages(): WireMessage[] {
         assistantMessage([
             thinking("private reasoning"),
             { type: "text", text: "Reading the file." },
-            toolUse("toolu_01", "Read", { file_path: "/etc/hosts" }, { caller: { type: "direct" } }),
+            toolUse(
+                "toolu_01",
+                "Read",
+                { file_path: "/etc/hosts" },
+                { caller: { type: "direct" } },
+            ),
             toolUse("toolu_02", "Bash", { command: "ls" }),
         ]),
         userMessage([
@@ -41,7 +55,12 @@ export function kitchenSinkMessages(): WireMessage[] {
         assistantMessage([
             { type: "redacted_thinking", data: "opaquedata==" },
             { type: "text", text: "Done. Next I will edit.", cache_control: { type: "ephemeral" } },
-            { type: "server_tool_use", id: "srvtoolu_01", name: "web_search", input: { query: "x" } },
+            {
+                type: "server_tool_use",
+                id: "srvtoolu_01",
+                name: "web_search",
+                input: { query: "x" },
+            },
         ]),
         userMessage([
             toolResult("toolu_ghost", "orphaned result"),
@@ -53,7 +72,10 @@ export function kitchenSinkMessages(): WireMessage[] {
     ]
 }
 
-export function messagesBody(messages: WireMessage[], overrides: Record<string, unknown> = {}): Record<string, unknown> {
+export function messagesBody(
+    messages: WireMessage[],
+    overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
     return {
         model: "claude-sonnet-4-5",
         max_tokens: 32_000,
@@ -82,7 +104,14 @@ export function bigConversation(exchanges = 12, outputChars = 80_000): WireMessa
                 toolUse(`toolu_big_${index}`, "Bash", { command: `make module-${index}` }),
             ]),
         )
-        messages.push(userMessage([toolResult(`toolu_big_${index}`, `output-${index} `.repeat(Math.ceil(outputChars / 10)))]))
+        messages.push(
+            userMessage([
+                toolResult(
+                    `toolu_big_${index}`,
+                    `output-${index} `.repeat(Math.ceil(outputChars / 10)),
+                ),
+            ]),
+        )
     }
     messages.push(userMessage("second-to-last user prompt"))
     messages.push(assistantMessage([{ type: "text", text: "tail assistant reply" }]))

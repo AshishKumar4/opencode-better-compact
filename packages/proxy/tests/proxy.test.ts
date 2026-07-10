@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { after, test } from "node:test"
-import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http"
+import {
+    createServer,
+    request as httpRequest,
+    type IncomingHttpHeaders,
+    type Server,
+} from "node:http"
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,7 +13,14 @@ import { COMPACTION_PRESETS, type Logger, type PlanSnapshot } from "@better-comp
 import { checkHealth } from "../src/daemon"
 import { createProxyServer } from "../src/server"
 import type { WireMessage } from "../src/anthropic/codec"
-import { assistantMessage, bigConversation, messagesBody, toolResult, toolUse, userMessage } from "./fixtures"
+import {
+    assistantMessage,
+    bigConversation,
+    messagesBody,
+    toolResult,
+    toolUse,
+    userMessage,
+} from "./fixtures"
 
 const silent: Logger = { info() {}, debug() {}, warn() {}, error() {} }
 
@@ -23,7 +35,11 @@ interface Captured {
 interface FakeUpstream {
     port: number
     requests: Captured[]
-    respond: (req: Captured) => { status: number; headers: Record<string, string>; chunks: Buffer[] }
+    respond: (req: Captured) => {
+        status: number
+        headers: Record<string, string>
+        chunks: Buffer[]
+    }
     close(): Promise<void>
 }
 
@@ -38,11 +54,16 @@ function sseBytes(inputTokens: number, outputTokens: number): Buffer[] {
     // Deliberately misaligned chunk boundaries: relay must not care.
     const raw = Buffer.from(events)
     const chunks: Buffer[] = []
-    for (let offset = 0; offset < raw.length; offset += 37) chunks.push(raw.subarray(offset, offset + 37))
+    for (let offset = 0; offset < raw.length; offset += 37)
+        chunks.push(raw.subarray(offset, offset + 37))
     return chunks
 }
 
-function defaultResponder(req: Captured): { status: number; headers: Record<string, string>; chunks: Buffer[] } {
+function defaultResponder(req: Captured): {
+    status: number
+    headers: Record<string, string>
+    chunks: Buffer[]
+} {
     let body: { stream?: boolean } = {}
     try {
         body = JSON.parse(req.body.toString("utf-8") || "{}") as { stream?: boolean }
@@ -166,12 +187,22 @@ function post(
 ): Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }> {
     return new Promise((resolve, reject) => {
         const req = httpRequest(
-            { host: "127.0.0.1", port, path, method: "POST", headers: { ...headers, "content-length": body.length } },
+            {
+                host: "127.0.0.1",
+                port,
+                path,
+                method: "POST",
+                headers: { ...headers, "content-length": body.length },
+            },
             (res) => {
                 const chunks: Buffer[] = []
                 res.on("data", (chunk: Buffer) => chunks.push(chunk))
                 res.on("end", () =>
-                    resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }),
+                    resolve({
+                        status: res.statusCode ?? 0,
+                        headers: res.headers,
+                        body: Buffer.concat(chunks),
+                    }),
                 )
             },
         )
@@ -200,7 +231,10 @@ function streamRequests(upstream: FakeUpstream): Captured[] {
     })
 }
 
-async function waitUntil(probe: () => Promise<boolean> | boolean, timeoutMs = 5_000): Promise<boolean> {
+async function waitUntil(
+    probe: () => Promise<boolean> | boolean,
+    timeoutMs = 5_000,
+): Promise<boolean> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         if (await probe()) return true
@@ -218,7 +252,10 @@ test("relays SSE byte-for-byte and forwards request headers verbatim", async () 
     })
 
     assert.equal(response.status, 200)
-    assert.equal(response.body.toString("utf-8"), Buffer.concat(sseBytes(1_000, 12)).toString("utf-8"))
+    assert.equal(
+        response.body.toString("utf-8"),
+        Buffer.concat(sseBytes(1_000, 12)).toString("utf-8"),
+    )
     assert.equal(response.headers["content-type"], "text/event-stream")
     assert.equal(response.headers["x-upstream-mark"], "fake")
 
@@ -240,10 +277,15 @@ test("prunes past the trigger, reuses the plan across requests, and never touche
     const body = messagesBody(messages)
     const sentSystem = JSON.stringify(body.system)
 
-    const first = await post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(body)), {
-        ...CLIENT_HEADERS,
-        "x-session": "s-big",
-    })
+    const first = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(body)),
+        {
+            ...CLIENT_HEADERS,
+            "x-session": "s-big",
+        },
+    )
     assert.equal(first.status, 200)
 
     const firstSeen = JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8")) as {
@@ -260,7 +302,9 @@ test("prunes past the trigger, reuses the plan across requests, and never touche
         firstSeen.messages.some(
             (message) =>
                 Array.isArray(message.content) &&
-                message.content.some((block) => String(block.text ?? "").includes("Better Compact context pruning applied")),
+                message.content.some((block) =>
+                    String(block.text ?? "").includes("Better Compact context pruning applied"),
+                ),
         ),
         "reference message must be injected",
     )
@@ -290,7 +334,11 @@ test("prunes past the trigger, reuses the plan across requests, and never touche
     }
     assert.ok(secondSeen.messages.length < grown.length)
     const planAfterSecond = JSON.parse(await readFile(planFile, "utf-8")) as PlanSnapshot
-    assert.equal(planAfterSecond.rangeHash, planAfterFirst.rangeHash, "replay must not rebuild the plan")
+    assert.equal(
+        planAfterSecond.rangeHash,
+        planAfterFirst.rangeHash,
+        "replay must not rebuild the plan",
+    )
     assert.equal(planAfterSecond.createdAt, planAfterFirst.createdAt)
 })
 
@@ -298,28 +346,51 @@ test("fails open: a body the codec cannot handle reaches upstream byte-identical
     const harness = await startHarness()
     for (const raw of [
         JSON.stringify({ model: "m", stream: true, messages: 42 }),
-        JSON.stringify({ model: "m", stream: true, messages: [{ role: "system", content: "sneaky" }] }),
+        JSON.stringify({
+            model: "m",
+            stream: true,
+            messages: [{ role: "system", content: "sneaky" }],
+        }),
         "{not json at all",
     ]) {
         harness.upstream.requests.length = 0
         const body = Buffer.from(raw)
-        const response = await post(harness.proxyPort, "/anthropic/v1/messages", body, CLIENT_HEADERS)
+        const response = await post(
+            harness.proxyPort,
+            "/anthropic/v1/messages",
+            body,
+            CLIENT_HEADERS,
+        )
         assert.equal(response.status, 200)
-        assert.deepEqual(harness.upstream.requests[0].body, body, `must forward original bytes for: ${raw.slice(0, 30)}`)
+        assert.deepEqual(
+            harness.upstream.requests[0].body,
+            body,
+            `must forward original bytes for: ${raw.slice(0, 30)}`,
+        )
     }
 })
 
 test("serves concurrent sessions independently", async () => {
     const harness = await startHarness()
     const [a, b] = await Promise.all([
-        post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(messagesBody(bigConversation()))), {
-            ...CLIENT_HEADERS,
-            "x-session": "s-alpha",
-        }),
-        post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(messagesBody(bigConversation(11)))), {
-            ...CLIENT_HEADERS,
-            "x-session": "s-beta",
-        }),
+        post(
+            harness.proxyPort,
+            "/anthropic/v1/messages",
+            Buffer.from(JSON.stringify(messagesBody(bigConversation()))),
+            {
+                ...CLIENT_HEADERS,
+                "x-session": "s-alpha",
+            },
+        ),
+        post(
+            harness.proxyPort,
+            "/anthropic/v1/messages",
+            Buffer.from(JSON.stringify(messagesBody(bigConversation(11)))),
+            {
+                ...CLIENT_HEADERS,
+                "x-session": "s-beta",
+            },
+        ),
     ])
     assert.equal(a.status, 200)
     assert.equal(b.status, 200)
@@ -329,7 +400,10 @@ test("serves concurrent sessions independently", async () => {
 
 test("dumps the rewritten body when upstream rejects it with a 4xx", async () => {
     const harness = await startHarness()
-    const errorBody = JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "boom" } })
+    const errorBody = JSON.stringify({
+        type: "error",
+        error: { type: "invalid_request_error", message: "boom" },
+    })
     harness.upstream.respond = () => ({
         status: 400,
         headers: { "content-type": "application/json" },
@@ -343,7 +417,11 @@ test("dumps the rewritten body when upstream rejects it with a 4xx", async () =>
     )
     assert.equal(response.status, 400)
     assert.equal(response.body.toString("utf-8"), errorBody)
-    assert.ok(await waitUntil(async () => (await readdir(join(harness.home, "debug")).catch(() => [])).length > 0))
+    assert.ok(
+        await waitUntil(
+            async () => (await readdir(join(harness.home, "debug")).catch(() => [])).length > 0,
+        ),
+    )
     const dumps = await readdir(join(harness.home, "debug"))
     const dumped = JSON.parse(await readFile(join(harness.home, "debug", dumps[0]), "utf-8")) as {
         messages: WireMessage[]
@@ -356,7 +434,11 @@ test("feeds relayed usage into the next request's trigger accounting", async () 
     harness.upstream.respond = (req) => {
         const body = JSON.parse(req.body.toString("utf-8")) as { stream?: boolean }
         return body.stream
-            ? { status: 200, headers: { "content-type": "text/event-stream" }, chunks: sseBytes(185_000, 500) }
+            ? {
+                  status: 200,
+                  headers: { "content-type": "text/event-stream" },
+                  chunks: sseBytes(185_000, 500),
+              }
             : defaultResponder(req)
     }
     const small = [
@@ -366,16 +448,28 @@ test("feeds relayed usage into the next request's trigger accounting", async () 
         assistantMessage([{ type: "text", text: "reply two" }]),
         userMessage("third"),
     ]
-    const first = await post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(messagesBody(small))), {
-        ...CLIENT_HEADERS,
-        "x-session": "s-usage",
-    })
+    const first = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody(small))),
+        {
+            ...CLIENT_HEADERS,
+            "x-session": "s-usage",
+        },
+    )
     assert.equal(first.status, 200)
-    assert.deepEqual(JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8")).messages, small)
+    assert.deepEqual(
+        JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8")).messages,
+        small,
+    )
 
     // The provider said 185k+ tokens; the raw estimate alone would never
     // trigger on this tiny history.
-    const grown = [...small, assistantMessage([{ type: "text", text: "reply three" }]), userMessage("fourth")]
+    const grown = [
+        ...small,
+        assistantMessage([{ type: "text", text: "reply three" }]),
+        userMessage("fourth"),
+    ]
     const second = await post(
         harness.proxyPort,
         "/anthropic/v1/messages",
@@ -396,7 +490,9 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     const messages: WireMessage[] = []
     for (let index = 0; index < 8; index++) {
         messages.push(userMessage(`chapter ${index}`))
-        messages.push(assistantMessage([{ type: "text", text: `analysis ${index} `.repeat(9_000) }]))
+        messages.push(
+            assistantMessage([{ type: "text", text: `analysis ${index} `.repeat(9_000) }]),
+        )
     }
     messages.push(userMessage("penultimate prompt"))
     messages.push(assistantMessage([{ type: "text", text: "tail reply" }]))
@@ -424,7 +520,10 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     )
     const summaryCall = harness.upstream.requests.find((req) => {
         try {
-            const body = JSON.parse(req.body.toString("utf-8")) as { stream?: boolean; messages?: unknown }
+            const body = JSON.parse(req.body.toString("utf-8")) as {
+                stream?: boolean
+                messages?: unknown
+            }
             return body.stream === undefined && Array.isArray(body.messages)
         } catch {
             return false
@@ -442,18 +541,32 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     }
     assert.equal(summaryBody.model, "claude-sonnet-4-5")
     assert.ok(summaryBody.max_tokens <= 4_096)
-    assert.ok(summaryBody.messages[0].content[0].text.includes("Summarize this historical assistant turn"))
+    assert.ok(
+        summaryBody.messages[0].content[0].text.includes(
+            "Summarize this historical assistant turn",
+        ),
+    )
 })
 
 test("captures sanitized request bodies when --capture is on", async () => {
     const harness = await startHarness(true)
     const body = Buffer.from(JSON.stringify(messagesBody([userMessage("hello capture")])))
-    await post(harness.proxyPort, "/anthropic/v1/messages", body, { ...CLIENT_HEADERS, "x-session": "s-cap" })
-    assert.ok(await waitUntil(async () => (await readdir(join(harness.home, "captures")).catch(() => [])).length > 0))
+    await post(harness.proxyPort, "/anthropic/v1/messages", body, {
+        ...CLIENT_HEADERS,
+        "x-session": "s-cap",
+    })
+    assert.ok(
+        await waitUntil(
+            async () => (await readdir(join(harness.home, "captures")).catch(() => [])).length > 0,
+        ),
+    )
     const captures = await readdir(join(harness.home, "captures"))
     const captured = await readFile(join(harness.home, "captures", captures[0]))
     assert.deepEqual(captured, body)
-    assert.ok(!captured.toString("utf-8").includes("sk-ant-test-key"), "captures must never contain credentials")
+    assert.ok(
+        !captured.toString("utf-8").includes("sk-ant-test-key"),
+        "captures must never contain credentials",
+    )
 })
 
 test("passes other /anthropic paths through untouched", async () => {
@@ -464,7 +577,12 @@ test("passes other /anthropic paths through untouched", async () => {
         chunks: [Buffer.from(JSON.stringify({ input_tokens: 42 }))],
     })
     const body = Buffer.from(JSON.stringify({ model: "claude-sonnet-4-5", messages: [] }))
-    const response = await post(harness.proxyPort, "/anthropic/v1/messages/count_tokens", body, CLIENT_HEADERS)
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages/count_tokens",
+        body,
+        CLIENT_HEADERS,
+    )
     assert.equal(response.status, 200)
     assert.equal(response.body.toString("utf-8"), JSON.stringify({ input_tokens: 42 }))
     const seen = harness.upstream.requests[0]

@@ -28,32 +28,35 @@ export function readLock(paths: ProxyPaths): LockInfo | null {
 // free.
 export function checkHealth(port: number): Promise<HealthState> {
     return new Promise((resolve) => {
-        const request = get({ host: "127.0.0.1", port, path: "/healthz", timeout: 1_000 }, (response) => {
-            const chunks: Buffer[] = []
-            response.on("data", (chunk: Buffer) => chunks.push(chunk))
-            response.on("end", () => {
-                try {
-                    const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as {
-                        service?: string
-                        pid?: number
-                        upstream?: string
-                        capture?: boolean
+        const request = get(
+            { host: "127.0.0.1", port, path: "/healthz", timeout: 1_000 },
+            (response) => {
+                const chunks: Buffer[] = []
+                response.on("data", (chunk: Buffer) => chunks.push(chunk))
+                response.on("end", () => {
+                    try {
+                        const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as {
+                            service?: string
+                            pid?: number
+                            upstream?: string
+                            capture?: boolean
+                        }
+                        if (body.service === SERVICE_NAME && typeof body.pid === "number") {
+                            resolve({
+                                kind: "ours",
+                                pid: body.pid,
+                                upstream: body.upstream ?? "",
+                                capture: body.capture ?? false,
+                            })
+                            return
+                        }
+                    } catch {
+                        // Fall through: it responded, but it is not us.
                     }
-                    if (body.service === SERVICE_NAME && typeof body.pid === "number") {
-                        resolve({
-                            kind: "ours",
-                            pid: body.pid,
-                            upstream: body.upstream ?? "",
-                            capture: body.capture ?? false,
-                        })
-                        return
-                    }
-                } catch {
-                    // Fall through: it responded, but it is not us.
-                }
-                resolve({ kind: "foreign" })
-            })
-        })
+                    resolve({ kind: "foreign" })
+                })
+            },
+        )
         request.on("timeout", () => {
             request.destroy()
             resolve({ kind: "foreign" })

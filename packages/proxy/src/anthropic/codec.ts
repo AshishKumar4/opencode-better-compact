@@ -76,7 +76,8 @@ export const anthropicCodec: Codec<WireMessage> = {
     transcriptLine(item) {
         if (item.kind === "synthetic") return item.text
         if (item.kind === "text") return item.text
-        if (item.kind === "reasoning") return `[reasoning]\n${reasoningText(item.handle as WireBlock)}`
+        if (item.kind === "reasoning")
+            return `[reasoning]\n${reasoningText(item.handle as WireBlock)}`
         if (item.kind === "tool") return formatToolPair(pairOf(item))
         return formatOpaque(item.handle)
     },
@@ -91,7 +92,10 @@ export const claudeCodeConventions: Conventions = {
     isSkillItem: (item) => item.kind === "tool" && pairOf(item).use.name === "Skill",
     todo: {
         isTodoItem: (item) => item.kind === "tool" && pairOf(item).use.name === "TodoWrite",
-        format: (item) => (item.kind === "tool" ? formatTodoInput(pairOf(item).use.input) : "todo state unavailable"),
+        format: (item) =>
+            item.kind === "tool"
+                ? formatTodoInput(pairOf(item).use.input)
+                : "todo state unavailable",
     },
 }
 
@@ -173,12 +177,22 @@ function encodeAssistantContent(
     claimKey: (base: string) => string,
 ): void {
     if (typeof message.content === "string") {
-        items.push({ kind: "text", key: `${turnKey}#${items.length}`, text: message.content, handle: message })
+        items.push({
+            kind: "text",
+            key: `${turnKey}#${items.length}`,
+            text: message.content,
+            handle: message,
+        })
         return
     }
     for (const block of message.content) {
         if (block.type === "text" && typeof block.text === "string") {
-            items.push({ kind: "text", key: `${turnKey}#${items.length}`, text: block.text, handle: block })
+            items.push({
+                kind: "text",
+                key: `${turnKey}#${items.length}`,
+                text: block.text,
+                handle: block,
+            })
         } else if (block.type === "thinking" || block.type === "redacted_thinking") {
             items.push({ kind: "reasoning", key: `${turnKey}#${items.length}`, handle: block })
         } else if (isToolUse(block)) {
@@ -193,13 +207,23 @@ function encodeAssistantContent(
 
 function encodeUserContent(message: WireMessage, turnKey: string, items: Item[]): void {
     if (typeof message.content === "string") {
-        items.push({ kind: "text", key: `${turnKey}#${items.length}`, text: message.content, handle: message })
+        items.push({
+            kind: "text",
+            key: `${turnKey}#${items.length}`,
+            text: message.content,
+            handle: message,
+        })
         return
     }
     for (const block of message.content) {
         items.push(
             block.type === "text" && typeof block.text === "string"
-                ? { kind: "text", key: `${turnKey}#${items.length}`, text: block.text, handle: block }
+                ? {
+                      kind: "text",
+                      key: `${turnKey}#${items.length}`,
+                      text: block.text,
+                      handle: block,
+                  }
                 : { kind: "opaque", key: `${turnKey}#${items.length}`, handle: block },
         )
     }
@@ -218,7 +242,10 @@ function encodeCarrier(
         items.push({
             kind: "opaque",
             key: `${turnKey}#${items.length}`,
-            handle: { carrier: message, block: { type: "text", text: message.content } } satisfies CarrierRef,
+            handle: {
+                carrier: message,
+                block: { type: "text", text: message.content },
+            } satisfies CarrierRef,
         })
         return
     }
@@ -300,12 +327,18 @@ function rebuildCarrier(carrier: WireMessage, items: Item[]): WireMessage | null
         if (item.kind === "tool") {
             const result = pairOf(item).result
             if (result && result.carrier === carrier) survivors.add(result.block)
-        } else if (item.kind === "opaque" && isCarrierRef(item.handle) && item.handle.carrier === carrier) {
+        } else if (
+            item.kind === "opaque" &&
+            isCarrierRef(item.handle) &&
+            item.handle.carrier === carrier
+        ) {
             survivors.add(item.handle.block)
         }
     }
     if (typeof carrier.content === "string") {
-        return [...survivors].some((block) => block.type === "text" && block.text === carrier.content)
+        return [...survivors].some(
+            (block) => block.type === "text" && block.text === carrier.content,
+        )
             ? carrier
             : null
     }
@@ -372,7 +405,9 @@ function migrateCacheControl(original: WireMessage[], output: WireMessage[]): vo
         if (target.block.cache_control !== undefined) continue
         const patched: WireBlock = { ...target.block, cache_control: mark.block.cache_control }
         const message = output[target.message]
-        const content = (message.content as WireBlock[]).map((block) => (block === target.block ? patched : block))
+        const content = (message.content as WireBlock[]).map((block) =>
+            block === target.block ? patched : block,
+        )
         output[target.message] = { ...message, content }
         target.block = patched
         surviving.add(patched)
@@ -467,13 +502,21 @@ function blockContentText(content: unknown): string {
     if (typeof content === "string") return content
     if (!Array.isArray(content)) return previewJson(content, 20_000)
     return content
-        .map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : `[${block?.type}]`))
+        .map((block) =>
+            block?.type === "text" && typeof block.text === "string"
+                ? block.text
+                : `[${block?.type}]`,
+        )
         .filter(Boolean)
         .join("\n")
 }
 
 function formatTodoInput(input: unknown): string {
-    if (!input || typeof input !== "object" || !Array.isArray((input as { todos?: unknown }).todos)) {
+    if (
+        !input ||
+        typeof input !== "object" ||
+        !Array.isArray((input as { todos?: unknown }).todos)
+    ) {
         return previewJson(input, 480) || "todo state unavailable"
     }
     const todos = (input as { todos: unknown[] }).todos
@@ -498,7 +541,9 @@ function reasoningText(block: WireBlock): string {
 }
 
 function isToolUse(block: WireBlock): block is ToolUseBlock {
-    return block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string"
+    return (
+        block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string"
+    )
 }
 
 function isToolResult(block: WireBlock): block is ToolResultBlock {

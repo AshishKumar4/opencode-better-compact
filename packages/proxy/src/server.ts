@@ -51,11 +51,21 @@ export function createProxyServer(options: ProxyServerOptions): Server {
             anthropic(req, res, path).catch((error) => {
                 options.logger.error("Request handling failed", { error: String(error) })
                 if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" })
-                res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: "proxy failure" } }))
+                res.end(
+                    JSON.stringify({
+                        type: "error",
+                        error: { type: "api_error", message: "proxy failure" },
+                    }),
+                )
             })
             return
         }
         res.writeHead(404, { "content-type": "application/json" })
-        res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "unknown route" } }))
+        res.end(
+            JSON.stringify({
+                type: "error",
+                error: { type: "not_found_error", message: "unknown route" },
+            }),
+        )
     })
 }

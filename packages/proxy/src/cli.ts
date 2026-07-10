@@ -23,11 +23,15 @@ async function main(): Promise<void> {
         case "start": {
             const health = await checkHealth(DEFAULT_PORT)
             if (health.kind === "ours") {
-                console.log(`better-compact-proxy already running (pid ${health.pid}, port ${DEFAULT_PORT})`)
+                console.log(
+                    `better-compact-proxy already running (pid ${health.pid}, port ${DEFAULT_PORT})`,
+                )
                 return
             }
             if (health.kind === "foreign") {
-                console.error(`Port ${DEFAULT_PORT} is in use by another process; refusing to start.`)
+                console.error(
+                    `Port ${DEFAULT_PORT} is in use by another process; refusing to start.`,
+                )
                 process.exit(1)
             }
             mkdirSync(paths.home, { recursive: true })
@@ -38,7 +42,11 @@ async function main(): Promise<void> {
                 { detached: true, stdio: ["ignore", log, log] },
             )
             child.unref()
-            const started = await waitFor(() => checkHealth(DEFAULT_PORT), (state) => state.kind === "ours", 5_000)
+            const started = await waitFor(
+                () => checkHealth(DEFAULT_PORT),
+                (state) => state.kind === "ours",
+                5_000,
+            )
             if (started?.kind !== "ours") {
                 console.error(`Daemon failed to start; see ${paths.logFile}`)
                 process.exit(1)
@@ -65,8 +73,16 @@ async function main(): Promise<void> {
                 console.log("better-compact-proxy is not running")
                 return
             }
-            const stopped = await waitFor(() => checkHealth(DEFAULT_PORT), (state) => state.kind === "down", 3_000)
-            console.log(stopped ? `Stopped better-compact-proxy (pid ${pid})` : `Sent SIGTERM to pid ${pid}`)
+            const stopped = await waitFor(
+                () => checkHealth(DEFAULT_PORT),
+                (state) => state.kind === "down",
+                3_000,
+            )
+            console.log(
+                stopped
+                    ? `Stopped better-compact-proxy (pid ${pid})`
+                    : `Sent SIGTERM to pid ${pid}`,
+            )
             return
         }
         case "status": {
@@ -78,7 +94,9 @@ async function main(): Promise<void> {
                 console.log(`port ${DEFAULT_PORT} is occupied by a foreign process`)
                 process.exit(1)
             } else {
-                console.log(`stopped  (configured upstream: ${loadConfig(paths).anthropicUpstream})`)
+                console.log(
+                    `stopped  (configured upstream: ${loadConfig(paths).anthropicUpstream})`,
+                )
             }
             return
         }

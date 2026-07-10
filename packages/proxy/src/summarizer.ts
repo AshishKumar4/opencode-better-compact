@@ -26,7 +26,11 @@ export function createSummarizer(
                 const response = await requestUpstream(upstream, {
                     method: "POST",
                     path: "/v1/messages",
-                    headers: { ...headers, accept: "application/json", "content-type": "application/json" },
+                    headers: {
+                        ...headers,
+                        accept: "application/json",
+                        "content-type": "application/json",
+                    },
                     body,
                 })
                 const chunks: Buffer[] = []
@@ -39,7 +43,9 @@ export function createSummarizer(
                     })
                     return null
                 }
-                const parsed = JSON.parse(text) as { content?: Array<{ type?: string; text?: string }> }
+                const parsed = JSON.parse(text) as {
+                    content?: Array<{ type?: string; text?: string }>
+                }
                 return (parsed.content ?? [])
                     .filter((block) => block.type === "text" && typeof block.text === "string")
                     .map((block) => block.text)
