@@ -12,6 +12,18 @@ importers:
         specifier: ^3.8.1
         version: 3.9.4
 
+  packages/claude-code:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.9.4
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.5
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+
   packages/core:
     devDependencies:
       '@types/node':

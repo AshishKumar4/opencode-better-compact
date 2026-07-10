@@ -43,6 +43,15 @@ sha256_file() {
 need tar
 need node
 
+# Validate the config files we will rewrite BEFORE touching anything on disk.
+# A bare JSON.parse failure mid-install (after the payload was extracted and
+# symlinked) would leave a half-install and a stack trace; refuse up front.
+for file in "$CONFIG_DIR/opencode.json" "$CONFIG_DIR/tui.json"; do
+  if [ -f "$file" ]; then
+    node -e 'const {readFileSync}=require("node:fs");const p=process.argv[1];const t=readFileSync(p,"utf8").trim();if(!t)process.exit(0);try{JSON.parse(t)}catch(e){console.error(`better-compact installer: ${p} is not valid JSON (${e.message}); fix or remove it, then re-run.`);process.exit(1)}' "$file" || exit 1
+  fi
+done
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 

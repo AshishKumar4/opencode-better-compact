@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -94,6 +94,26 @@ test("install.sh installs, rewrites config, and exits 0", () => {
 
         const current = realpathSync(join(fixture.installRoot, "current"))
         assert.equal(current, realpathSync(join(fixture.installRoot, "9.9.9")))
+    } finally {
+        rmSync(fixture.root, { recursive: true, force: true })
+    }
+})
+
+test("install.sh refuses malformed config JSON before any mutation", () => {
+    const fixture = buildFixture()
+    try {
+        mkdirSync(fixture.configDir, { recursive: true })
+        const badPath = join(fixture.configDir, "opencode.json")
+        writeFileSync(badPath, "{ not: valid json")
+        const before = readFileSync(badPath, "utf8")
+
+        const result = runInstaller(fixture)
+        assert.notEqual(result.status, 0)
+        assert.match(result.stderr, /opencode\.json is not valid JSON/)
+        // Zero side effects: the bad file is untouched and nothing was installed.
+        assert.equal(readFileSync(badPath, "utf8"), before)
+        assert.equal(existsSync(fixture.installRoot), false)
+        assert.equal(existsSync(join(fixture.configDir, "tui.json")), false)
     } finally {
         rmSync(fixture.root, { recursive: true, force: true })
     }
