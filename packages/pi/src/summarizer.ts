@@ -1,9 +1,44 @@
 import type { Logger, Summarizer } from "@better-compact/core"
 import type { TextContent } from "@earendil-works/pi-ai"
-import { complete } from "@earendil-works/pi-ai/compat"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 
 const SUMMARY_MAX_TOKENS = 8_192
+type Complete = typeof import("@earendil-works/pi-ai/compat").complete
+type CompleteLoader = () => Promise<unknown>
+
+let completePromise: Promise<Complete> | undefined
+
+export async function resolvePiComplete(
+    loadCompat: CompleteLoader = () => import("@earendil-works/pi-ai/compat"),
+    loadLegacy: CompleteLoader = () => import("@earendil-works/pi-ai"),
+): Promise<Complete> {
+    try {
+        return readComplete(await loadCompat())
+    } catch (compatError) {
+        try {
+            return readComplete(await loadLegacy())
+        } catch (legacyError) {
+            throw new AggregateError(
+                [compatError, legacyError],
+                "pi-ai exposes complete() from neither the compat nor legacy entrypoint",
+            )
+        }
+    }
+}
+
+function readComplete(module: unknown): Complete {
+    if (typeof module !== "object" || module === null) {
+        throw new TypeError("pi-ai entrypoint is not a module namespace")
+    }
+    const candidate = Reflect.get(module, "complete")
+    if (typeof candidate !== "function") throw new TypeError("pi-ai complete export is not a function")
+    return candidate as Complete
+}
+
+async function complete(...args: Parameters<Complete>): ReturnType<Complete> {
+    const run = await (completePromise ??= resolvePiComplete())
+    return run(...args)
+}
 
 // Side-model transport: one non-streaming completion per job on the session's
 // current model, authenticated through pi's own credential resolution.
