@@ -76,7 +76,16 @@ export const piSpec: LadderSpec = {
     codec: piCodec,
     // pi has no skill parts and its todo state lives in session details,
     // outside messages — nothing in-band to select or preserve.
-    conventions: {},
+    conventions: {
+        tool: (item) => {
+            const pair = pairOf(item)
+            return {
+                name: pair.call.name,
+                input: pair.call.arguments,
+                error: pair.result?.isError ? contentText(pair.result.content) : undefined,
+            }
+        },
+    },
     stages: [toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
 }
 

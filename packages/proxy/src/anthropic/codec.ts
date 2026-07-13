@@ -90,6 +90,16 @@ export const anthropicCodec: Codec<WireMessage> = {
 // list in any single call, so there is nothing in-band to preserve for them).
 export const claudeCodeConventions: Conventions = {
     isSkillItem: (item) => item.kind === "tool" && pairOf(item).use.name === "Skill",
+    tool: (item) => {
+        const pair = pairOf(item)
+        return {
+            name: pair.use.name,
+            input: pair.use.input,
+            error: pair.result?.block.is_error
+                ? blockContentText(pair.result.block.content)
+                : undefined,
+        }
+    },
     todo: {
         isTodoItem: (item) => item.kind === "tool" && pairOf(item).use.name === "TodoWrite",
         format: (item) =>

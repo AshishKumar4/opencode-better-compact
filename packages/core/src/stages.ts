@@ -44,7 +44,7 @@ export const skillsStage: Stage = {
     label: "Pruned loaded skills",
     always: true,
     run: (working, ctx) =>
-        stripAssistantItems(working, ctx.rawTailStartIndex, (item) => ctx.conventions.isSkillItem?.(item) ?? false),
+        stubToolItems(working, ctx, (item) => ctx.conventions.isSkillItem?.(item) ?? false),
 }
 
 export const toolsOldStage: Stage = {
@@ -57,7 +57,8 @@ export const toolsOldStage: Stage = {
 export const reasoningStage: Stage = {
     name: "reasoning",
     label: "Pruned thinking tokens",
-    run: (working, ctx) => stripAssistantItems(working, ctx.rawTailStartIndex, (item) => item.kind === "reasoning"),
+    run: (working, ctx) =>
+        stripAssistantItems(working, ctx.rawTailStartIndex, (item) => item.kind === "reasoning"),
 }
 
 export const toolsRemainingStage: Stage = {
@@ -72,7 +73,11 @@ export const assistantRunsStage: Stage = {
     run: (working, ctx) => compactAssistantRuns(working, ctx),
 }
 
-export function findRawTailStartIndex(turns: Turn[], minTurns: number, minUserTurns: number): number {
+export function findRawTailStartIndex(
+    turns: Turn[],
+    minTurns: number,
+    minUserTurns: number,
+): number {
     let userTurns = 0
     for (let index = turns.length - 1; index >= 0; index--) {
         if (turns[index].role !== "user" || turns[index].ephemeral) continue
@@ -175,10 +180,14 @@ export function formatPrefixSummary(turns: Turn[]): string {
         "Older context was compacted as a last resort. Exact raw history is available in the reference transcript.",
         "",
         "## Preserved User Messages From Prefix",
-        ...(userMessages.length > 0 ? userMessages.map((text) => `- ${truncate(text, 600)}`) : ["- (none)"]),
+        ...(userMessages.length > 0
+            ? userMessages.map((text) => `- ${truncate(text, 600)}`)
+            : ["- (none)"]),
         "",
         "## Assistant Progress From Prefix",
-        ...(assistantFacts.length > 0 ? assistantFacts.map((text) => `- ${truncate(text, 600)}`) : ["- (none)"]),
+        ...(assistantFacts.length > 0
+            ? assistantFacts.map((text) => `- ${truncate(text, 600)}`)
+            : ["- (none)"]),
     ].join("\n")
 }
 
@@ -203,9 +212,38 @@ function stripAssistantItems(
     return { changedTurns, changedItems }
 }
 
-function stripToolItems(working: Turn[], ctx: StageContext, preserved: ReadonlySet<string>): StageMutationResult {
+function stubToolItems(
+    working: Turn[],
+    ctx: StageContext,
+    matches: (item: Extract<Item, { kind: "tool" }>) => boolean,
+): StageMutationResult {
+    const changedTurns = new Set<string>()
+    let changedItems = 0
+    for (let index = 0; index < ctx.rawTailStartIndex; index++) {
+        const turn = working[index]
+        if (!turn || turn.role !== "assistant") continue
+        let changed = false
+        turn.items = turn.items.map((item) => {
+            if (item.kind !== "tool" || !matches(item)) return item
+            changed = true
+            changedItems++
+            return toolStub(item, ctx.conventions)
+        })
+        if (changed) changedTurns.add(turn.key)
+    }
+    return { changedTurns, changedItems }
+}
+
+function stripToolItems(
+    working: Turn[],
+    ctx: StageContext,
+    preserved: ReadonlySet<string>,
+): StageMutationResult {
     const todo = ctx.conventions.todo
-    const latestTodoCallId = findLatestTodoCallId(working.slice(0, ctx.rawTailStartIndex), ctx.conventions)
+    const latestTodoCallId = findLatestTodoCallId(
+        working.slice(0, ctx.rawTailStartIndex),
+        ctx.conventions,
+    )
     const changedTurns = new Set<string>()
     let changedItems = 0
 
@@ -228,15 +266,11 @@ function stripToolItems(working: Turn[], ctx: StageContext, preserved: ReadonlyS
             if (todo?.isTodoItem(item) && item.callId === latestTodoCallId) {
                 latestTodoState = `Latest todo state preserved: ${todo.format(item)}`
             }
+            nextItems.push(toolStub(item, ctx.conventions))
             removedTools++
         }
 
         if (latestTodoState) nextItems.push(syntheticText(turn, latestTodoState))
-        if (removedTools > 0 && nextItems.length === 0) {
-            nextItems.push(
-                syntheticText(turn, `[tool calls/results cleared]\nRaw transcript: ${ctx.transcriptRelativePath}`),
-            )
-        }
         if (removedTools > 0) {
             turn.items = nextItems
             changedTurns.add(turn.key)
@@ -245,6 +279,68 @@ function stripToolItems(working: Turn[], ctx: StageContext, preserved: ReadonlyS
     }
 
     return { changedTurns, changedItems }
+}
+
+function toolStub(item: Extract<Item, { kind: "tool" }>, conventions: Conventions): Item {
+    const details = conventions.tool?.(item)
+    const name = oneLine(details?.name || "tool")
+    const target = primaryToolTarget(details?.input) ?? `callId=${oneLine(item.callId)}`
+    const outcome = details?.error === undefined ? "ok" : `error: ${firstLine(details.error)}`
+    const text = `[tool:${name}] ${target} — ${outcome}`
+    return { kind: "synthetic", key: syntheticTextKey(item.key, text), text }
+}
+
+function primaryToolTarget(input: unknown): string | null {
+    const parsed = parseToolInput(input)
+    if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+        const target = oneLine(String(parsed)).trim()
+        return target || null
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+
+    const record = parsed as Record<string, unknown>
+    const keys = [
+        "filePath",
+        "file_path",
+        "path",
+        "filename",
+        "directory",
+        "dir",
+        "command",
+        "cmd",
+        "key",
+        "query",
+        "pattern",
+        "url",
+        "uri",
+        "id",
+        "name",
+    ]
+    for (const key of keys) {
+        const value = record[key]
+        if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")
+            continue
+        const target = oneLine(String(value)).trim()
+        if (target) return target
+    }
+    return null
+}
+
+function parseToolInput(input: unknown): unknown {
+    if (typeof input !== "string") return input
+    try {
+        return JSON.parse(input)
+    } catch {
+        return input
+    }
+}
+
+function oneLine(value: string): string {
+    return value.replace(/\r\n|\n|\r/g, " ").replace(/\s+/g, " ")
+}
+
+function firstLine(value: string): string {
+    return value.split(/\r\n|\n|\r/, 1)[0]
 }
 
 function compactAssistantRuns(working: Turn[], ctx: StageContext): StageMutationResult {
@@ -272,8 +368,13 @@ function compactAssistantRuns(working: Turn[], ctx: StageContext): StageMutation
     return { changedTurns, changedItems }
 }
 
-function selectAssistantRunsToSummarize(compacted: Turn[], allTurns: Turn[], ctx: StageContext): Set<string> {
-    const needed = estimateTurns(allTurns, ctx.codec, ctx.estimator) + ctx.referenceTokens - ctx.targetTokens
+function selectAssistantRunsToSummarize(
+    compacted: Turn[],
+    allTurns: Turn[],
+    ctx: StageContext,
+): Set<string> {
+    const needed =
+        estimateTurns(allTurns, ctx.codec, ctx.estimator) + ctx.referenceTokens - ctx.targetTokens
     if (needed <= 0) return new Set()
 
     let selectedSavings = 0
@@ -281,7 +382,10 @@ function selectAssistantRunsToSummarize(compacted: Turn[], allTurns: Turn[], ctx
         .map((group) => {
             const before = estimateTurns(group.turns, ctx.codec, { overheadTokens: 0 })
             const summaryText = group.turns.map(turnText).filter(Boolean).join("\n\n")
-            const after = Math.max(1, countTokens(truncate(summaryText, ASSISTANT_TEXT_PREVIEW_CHARS)))
+            const after = Math.max(
+                1,
+                countTokens(truncate(summaryText, ASSISTANT_TEXT_PREVIEW_CHARS)),
+            )
             const savings = Math.max(0, Math.round(before - after))
             const age = compacted.length <= 1 ? 1 : 1 - group.endIndex / (compacted.length - 1)
             return {
@@ -364,7 +468,13 @@ function collapseAssistantRun(group: Turn[], ctx: StageContext): Turn {
         stamp: first.stamp,
         role: first.role,
         handle: first.handle,
-        items: [{ kind: "synthetic", key: `${first.key}_better_compact_compactified`, text: lines.join("\n") }],
+        items: [
+            {
+                kind: "synthetic",
+                key: `${first.key}_better_compact_compactified`,
+                text: lines.join("\n"),
+            },
+        ],
     }
 }
 

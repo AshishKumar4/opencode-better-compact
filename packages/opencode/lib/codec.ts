@@ -44,7 +44,9 @@ export const openCodeCodec: Codec<WithParts> = {
     },
 
     decode(turns, messages) {
-        return turns.map((turn) => (turn.handle ? decodeNativeTurn(turn) : decodeSyntheticTurn(turn, messages)))
+        return turns.map((turn) =>
+            turn.handle ? decodeNativeTurn(turn) : decodeSyntheticTurn(turn, messages),
+        )
     },
 
     estimateTurns(turns) {
@@ -77,10 +79,20 @@ export const openCodeCodec: Codec<WithParts> = {
 
 export const openCodeConventions: Conventions = {
     isSkillItem: (item) => item.kind === "tool" && toolPartOf(item).tool === "skill",
+    tool: (item) => {
+        const part = toolPartOf(item)
+        return {
+            name: part.tool,
+            input: part.state?.input,
+            error: part.state?.status === "error" ? String(part.state.error ?? "") : undefined,
+        }
+    },
     todo: {
         isTodoItem: (item) => item.kind === "tool" && toolPartOf(item).tool === "todowrite",
         format: (item) =>
-            item.kind === "tool" ? formatTodoInput(toolPartOf(item).state?.input) : "todo state unavailable",
+            item.kind === "tool"
+                ? formatTodoInput(toolPartOf(item).state?.input)
+                : "todo state unavailable",
     },
     itemNote: (item) => {
         if (item.kind !== "opaque") return null
@@ -131,7 +143,9 @@ function decodeNativeTurn(turn: Turn): WithParts {
     return {
         info: message.info,
         parts: turn.items.map((item) =>
-            item.kind === "synthetic" ? (syntheticTextPart(item, turn.key, message.info.sessionID) as MessagePart) : partOf(item),
+            item.kind === "synthetic"
+                ? (syntheticTextPart(item, turn.key, message.info.sessionID) as MessagePart)
+                : partOf(item),
         ),
     }
 }
@@ -160,7 +174,11 @@ function decodeSyntheticTurn(turn: Turn, messages: WithParts[]): WithParts {
     } as WithParts
 }
 
-function syntheticTextPart(item: Extract<Item, { kind: "synthetic" }>, messageId: string, sessionId: string) {
+function syntheticTextPart(
+    item: Extract<Item, { kind: "synthetic" }>,
+    messageId: string,
+    sessionId: string,
+) {
     return {
         id: item.key,
         messageID: messageId,
@@ -178,7 +196,9 @@ function estimableMessage(turn: Turn): WithParts {
     return {
         info,
         parts: turn.items.map((item) =>
-            item.kind === "synthetic" ? ({ type: "text", text: item.text } as MessagePart) : partOf(item),
+            item.kind === "synthetic"
+                ? ({ type: "text", text: item.text } as MessagePart)
+                : partOf(item),
         ),
     }
 }
@@ -200,7 +220,11 @@ function formatPart(part: MessagePart): string {
 }
 
 function formatTodoInput(input: unknown): string {
-    if (!input || typeof input !== "object" || !Array.isArray((input as { todos?: unknown }).todos)) {
+    if (
+        !input ||
+        typeof input !== "object" ||
+        !Array.isArray((input as { todos?: unknown }).todos)
+    ) {
         return previewJson(input, 480) || "todo state unavailable"
     }
     const todos = (input as { todos: unknown[] }).todos

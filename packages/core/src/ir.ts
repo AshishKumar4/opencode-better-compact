@@ -52,6 +52,11 @@ export interface Codec<Native> extends CodecOps {
 // that needs a missing convention simply finds nothing to act on.
 export interface Conventions {
     isSkillItem?(item: Item): boolean
+    tool?(item: Extract<Item, { kind: "tool" }>): {
+        name: string
+        input: unknown
+        error?: string
+    }
     todo?: {
         isTodoItem(item: Item): boolean
         format(item: Item): string

@@ -85,7 +85,16 @@ export const openaiCodec: Codec<ResponseItemWire> = {
 
 // Codex has neither a Skill tool nor an in-band todo list, so its ladder omits
 // the skills stage and the todo convention (architecture §1.2, §5).
-export const codexConventions: Conventions = {}
+export const codexConventions: Conventions = {
+    tool: (item) => {
+        const pair = pairOf(item)
+        return {
+            name: pair.call.name ?? "function",
+            input: pair.call.arguments,
+            error: callError(pair.output),
+        }
+    },
+}
 
 export const openaiSpec: LadderSpec = {
     codec: openaiCodec,
@@ -351,6 +360,30 @@ function outputText(output: unknown): string {
         .map((part) => (typeof part?.text === "string" ? part.text : `[${part?.type}]`))
         .filter(Boolean)
         .join("\n")
+}
+
+function callError(output: FunctionCallOutputItem | undefined): string | undefined {
+    if (!output) return undefined
+    if (output.status === "failed" || output.status === "error") return outputText(output.output)
+    const value = parseOutput(output.output)
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+    const error = (value as { error?: unknown }).error
+    if (typeof error === "string") return error
+    const metadata = (value as { metadata?: unknown }).metadata
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined
+    const exitCode = (metadata as { exit_code?: unknown }).exit_code
+    if (typeof exitCode !== "number" || exitCode === 0) return undefined
+    const text = (value as { output?: unknown }).output
+    return typeof text === "string" ? text : outputText(output.output)
+}
+
+function parseOutput(output: unknown): unknown {
+    if (typeof output !== "string") return output
+    try {
+        return JSON.parse(output)
+    } catch {
+        return output
+    }
 }
 
 // --- guards & helpers ---

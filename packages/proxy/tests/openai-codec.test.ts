@@ -1,7 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { buildPlan, transformTurns, type Item, type Turn } from "@better-compact/core"
-import { openaiCodec, openaiSpec, type CallPair, type ResponseItemWire } from "../src/openai/codec"
+import {
+    codexConventions,
+    openaiCodec,
+    openaiSpec,
+    type CallPair,
+    type ResponseItemWire,
+} from "../src/openai/codec"
 import {
     assistantMessage,
     bigConversation,
@@ -184,6 +190,28 @@ test("estimates price a tool pair as one item and drop when it is stripped", () 
     assert.ok(openaiCodec.estimateItem(toolItems(turns[1])[0]) >= big.length / 4)
     turns[1].items = turns[1].items.filter((item) => item.kind !== "tool")
     assert.ok(openaiCodec.estimateTurns(turns) < before / 4)
+})
+
+test("Codex conventions preserve JSON-string command failures verbatim", () => {
+    const input = [
+        userMessage("go"),
+        functionCall("call_1", "shell", { cmd: "missing-command" }),
+        functionCallOutput(
+            "call_1",
+            JSON.stringify({
+                output: "bash: missing-command: command not found\nsecond line",
+                metadata: { exit_code: 127 },
+            }),
+        ),
+        userMessage("next"),
+    ]
+    const item = toolItems(openaiCodec.encode(input)[1])[0]
+
+    assert.deepEqual(codexConventions.tool?.(item), {
+        name: "shell",
+        input: JSON.stringify({ cmd: "missing-command" }),
+        error: "bash: missing-command: command not found\nsecond line",
+    })
 })
 
 test("full ladder output decodes to a valid Responses input history", () => {

@@ -55,9 +55,19 @@ function modelLikeItem(item: Item): unknown[] {
 
 function toolShape(part: TestToolPart): unknown {
     if (part.error !== undefined) {
-        return { type: `tool-${part.tool}`, state: "output-error", input: part.input, errorText: part.error }
+        return {
+            type: `tool-${part.tool}`,
+            state: "output-error",
+            input: part.input,
+            errorText: part.error,
+        }
     }
-    return { type: `tool-${part.tool}`, state: "output-available", input: part.input, output: part.output }
+    return {
+        type: `tool-${part.tool}`,
+        state: "output-available",
+        input: part.input,
+        output: part.output,
+    }
 }
 
 const codec: CodecOps = {
@@ -85,12 +95,19 @@ function toolHandle(item: Item): TestToolPart | null {
 
 const conventions: Conventions = {
     isSkillItem: (item) => toolHandle(item)?.tool === "skill",
+    tool: (item) => {
+        const tool = item.handle as TestToolPart
+        return { name: tool.tool, input: tool.input, error: tool.error }
+    },
     todo: {
         isTodoItem: (item) => toolHandle(item)?.tool === "todowrite",
         format: (item) => {
             const input = toolHandle(item)?.input as { todos: Array<Record<string, string>> }
             return input.todos
-                .map((todo, index) => `${index + 1}. [${todo.status}/${todo.priority}] ${todo.content}`)
+                .map(
+                    (todo, index) =>
+                        `${index + 1}. [${todo.status}/${todo.priority}] ${todo.content}`,
+                )
                 .join("; ")
         },
     },
@@ -113,15 +130,30 @@ function inputs(options: Partial<BuildPlanInputs> = {}): BuildPlanInputs {
 }
 
 function textItem(turnKey: string, text: string): Item {
-    return { kind: "text", key: `${turnKey}-part`, text, handle: { type: "text", text } satisfies TestPart }
+    return {
+        kind: "text",
+        key: `${turnKey}-part`,
+        text,
+        handle: { type: "text", text } satisfies TestPart,
+    }
 }
 
 function reasoningItem(turnKey: string, text: string): Item {
-    return { kind: "reasoning", key: `${turnKey}-reasoning`, handle: { type: "reasoning", text } satisfies TestPart }
+    return {
+        kind: "reasoning",
+        key: `${turnKey}-reasoning`,
+        handle: { type: "reasoning", text } satisfies TestPart,
+    }
 }
 
-function toolItem(turnKey: string, tool: string, output: string, input?: Record<string, unknown>): Item {
-    const resolvedInput = input ?? (tool === "skill" ? { name: "root-cause-debug" } : { filePath: "src/app.ts" })
+function toolItem(
+    turnKey: string,
+    tool: string,
+    output: string,
+    input?: Record<string, unknown>,
+): Item {
+    const resolvedInput =
+        input ?? (tool === "skill" ? { name: "root-cause-debug" } : { filePath: "src/app.ts" })
     return {
         kind: "tool",
         key: `${turnKey}-${tool}`,
@@ -130,7 +162,12 @@ function toolItem(turnKey: string, tool: string, output: string, input?: Record<
     }
 }
 
-function errorToolItem(turnKey: string, tool: string, error: string, input: Record<string, unknown>): Item {
+function errorToolItem(
+    turnKey: string,
+    tool: string,
+    error: string,
+    input: Record<string, unknown>,
+): Item {
     return {
         kind: "tool",
         key: `${turnKey}-${tool}`,
@@ -143,20 +180,26 @@ function turn(key: string, role: "user" | "assistant", items: Item[], stamp: num
     return { key, stamp, role, items, handle: { key } }
 }
 
-// The single text item a pruned turn collapses to, whether a surviving
-// original text or ladder-synthesized replacement text.
 function syntheticTextOf(target: Turn | undefined): string {
     assert.ok(target)
-    assert.equal(target.items.length, 1)
-    const item = target.items[0]
-    assert.ok(item.kind === "text" || item.kind === "synthetic")
-    return item.kind === "text" || item.kind === "synthetic" ? item.text : ""
+    return target.items
+        .filter(
+            (item): item is Extract<Item, { kind: "text" | "synthetic" }> =>
+                item.kind === "text" || item.kind === "synthetic",
+        )
+        .map((item) => item.text)
+        .join("\n")
 }
 
 function buildLargeConversation(): Turn[] {
     const bigToolOutput = "tool-output ".repeat(4_000)
     return [
-        turn("msg-user-1", "user", [textItem("msg-user-1", "Please preserve this exact requirement.")], 1),
+        turn(
+            "msg-user-1",
+            "user",
+            [textItem("msg-user-1", "Please preserve this exact requirement.")],
+            1,
+        ),
         turn(
             "msg-assistant-1",
             "assistant",
@@ -168,15 +211,35 @@ function buildLargeConversation(): Turn[] {
             ],
             2,
         ),
-        turn("msg-user-2", "user", [textItem("msg-user-2", "Continue with the plugin-only design.")], 3),
-        turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "Recent assistant tail should remain raw.")], 4),
-        turn("msg-user-3", "user", [textItem("msg-user-3", "Latest user tail should remain raw.")], 5),
+        turn(
+            "msg-user-2",
+            "user",
+            [textItem("msg-user-2", "Continue with the plugin-only design.")],
+            3,
+        ),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [textItem("msg-assistant-2", "Recent assistant tail should remain raw.")],
+            4,
+        ),
+        turn(
+            "msg-user-3",
+            "user",
+            [textItem("msg-user-3", "Latest user tail should remain raw.")],
+            5,
+        ),
     ]
 }
 
 function buildMultiRunConversation(): Turn[] {
     return [
-        turn("msg-user-1", "user", [textItem("msg-user-1", "First task, keep this requirement.")], 1),
+        turn(
+            "msg-user-1",
+            "user",
+            [textItem("msg-user-1", "First task, keep this requirement.")],
+            1,
+        ),
         turn(
             "msg-assistant-big",
             "assistant",
@@ -194,12 +257,19 @@ function buildMultiRunConversation(): Turn[] {
             [
                 reasoningItem("msg-assistant-small", "small private reasoning ".repeat(200)),
                 textItem("msg-assistant-small", "small assistant detail"),
-                toolItem("msg-assistant-small", "grep", "small tool output ".repeat(200), { pattern: "needle" }),
+                toolItem("msg-assistant-small", "grep", "small tool output ".repeat(200), {
+                    pattern: "needle",
+                }),
             ],
             4,
         ),
         turn("msg-user-3", "user", [textItem("msg-user-3", "Third task stays raw.")], 5),
-        turn("msg-assistant-tail", "assistant", [textItem("msg-assistant-tail", "tail assistant")], 6),
+        turn(
+            "msg-assistant-tail",
+            "assistant",
+            [textItem("msg-assistant-tail", "tail assistant")],
+            6,
+        ),
         turn("msg-user-4", "user", [textItem("msg-user-4", "Latest user stays raw.")], 7),
     ]
 }
@@ -216,14 +286,21 @@ test("planner does nothing before 85 percent usage", () => {
 
 test("planner compactifies old assistant/tool context and preserves raw tail", () => {
     const turns = buildLargeConversation()
-    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
 
     assert.ok(plan)
     assert.ok(plan.afterPruneTokens < plan.beforeTokens)
     assert.ok(plan.stages.some((stage) => stage.name === "reasoning" && stage.clearedTokens > 0))
     assert.ok(plan.stages.some((stage) => stage.name === "skills" && stage.clearedTokens > 0))
     assert.ok(plan.stages.some((stage) => stage.name === "tools-old" && stage.clearedTokens > 0))
-    assert.match(plan.transcript.relativePath, /^\.opencode\/better-compact\/sessions\/ses_boundary_context\//)
+    assert.match(
+        plan.transcript.relativePath,
+        /^\.opencode\/better-compact\/sessions\/ses_boundary_context\//,
+    )
     assert.equal(plan.transcript.content, "")
     assert.deepEqual(plan.transcript.messageIds, ["msg-user-1", "msg-assistant-1"])
 
@@ -249,7 +326,10 @@ test("planner compactifies old assistant/tool context and preserves raw tail", (
     assert.ok(reference)
     const referenceText = syntheticTextOf(reference)
     assert.match(referenceText, /## Reference Files/)
-    assert.match(referenceText, new RegExp(plan.transcript.relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    assert.match(
+        referenceText,
+        new RegExp(plan.transcript.relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    )
 })
 
 test("applied output matches the simulated plan when assistant runs are summarized", () => {
@@ -257,11 +337,18 @@ test("applied output matches the simulated plan when assistant runs are summariz
     const options = inputs({ contextLimit: 40_000, recentToolResultBudgetTokens: 0 })
     const firstPass = buildPlan(turns, options, spec)
     assert.ok(firstPass)
-    assert.ok(firstPass.stages.some((stage) => stage.name === "assistant-runs" && stage.status === "applied"))
+    assert.ok(
+        firstPass.stages.some(
+            (stage) => stage.name === "assistant-runs" && stage.status === "applied",
+        ),
+    )
     assert.ok(firstPass.summaryJobs.length > 0)
 
     const assistantSummaries = Object.fromEntries(
-        firstPass.assistantSummaryKeys.map((key) => [key, "Accepted summary: shipped the first task end to end."]),
+        firstPass.assistantSummaryKeys.map((key) => [
+            key,
+            "Accepted summary: shipped the first task end to end.",
+        ]),
     )
     const plan = buildPlan(turns, { ...options, assistantSummaries }, spec)
     assert.ok(plan)
@@ -274,20 +361,29 @@ test("applied output matches the simulated plan when assistant runs are summariz
     assert.ok(codec.estimateTurns(transformed) < plan.triggerTokens)
 
     const selectedRun = transformed.find((item) => item.key === "msg-assistant-big")
-    assert.match(syntheticTextOf(selectedRun), /Accepted summary: shipped the first task end to end\./)
+    assert.match(
+        syntheticTextOf(selectedRun),
+        /Accepted summary: shipped the first task end to end\./,
+    )
 
     // The core drift bug: non-selected prefix runs must keep the stage 1-4
     // pruning (no tool/reasoning items) in the applied output.
     const nonSelectedRun = transformed.find((item) => item.key === "msg-assistant-small")
     assert.ok(nonSelectedRun)
-    assert.ok(!nonSelectedRun.items.some((item) => item.kind === "tool" || item.kind === "reasoning"))
+    assert.ok(
+        !nonSelectedRun.items.some((item) => item.kind === "tool" || item.kind === "reasoning"),
+    )
 
     assert.ok(transformed.some((item) => item.key === "msg-assistant-tail"))
 })
 
 test("prefix summary fires when pruning cannot get the applied output below trigger", () => {
     const turns = buildMultiRunConversation()
-    const plan = buildPlan(turns, inputs({ contextLimit: 500, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 500, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
     assert.equal(plan.requiresCustomCompaction, true)
     assert.ok(plan.stages.some((stage) => stage.name === "prefix-summary"))
@@ -304,14 +400,21 @@ test("projection does not scale transformed context by raw provider ratio", () =
     const providerReportedTokens = 10_000
     const plan = buildPlan(
         turns,
-        inputs({ contextLimit: 100_000, force: true, providerReportedTokens, recentToolResultBudgetTokens: 0 }),
+        inputs({
+            contextLimit: 100_000,
+            force: true,
+            providerReportedTokens,
+            recentToolResultBudgetTokens: 0,
+        }),
         spec,
     )
     assert.ok(plan)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
     const directAfter = codec.estimateTurns(transformed)
-    const oldScaledAfter = Math.round(directAfter * (providerReportedTokens / codec.estimateTurns(turns)))
+    const oldScaledAfter = Math.round(
+        directAfter * (providerReportedTokens / codec.estimateTurns(turns)),
+    )
 
     assert.equal(plan.beforeTokens, providerReportedTokens)
     assert.equal(plan.afterPruneTokens, directAfter + plan.overheadTokens)
@@ -319,7 +422,11 @@ test("projection does not scale transformed context by raw provider ratio", () =
 })
 
 function storedPlanFor(turns: Turn[]) {
-    const plan = buildPlan(turns, inputs({ contextLimit: 40_000, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 40_000, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
     return toPlanSnapshot(plan)
 }
@@ -342,7 +449,12 @@ test("plan snapshot refuses to apply once the transformed output regrows past tr
     const regrown = buildMultiRunConversation()
     for (let index = 0; index < 12; index++) {
         regrown.push(
-            turn(`msg-user-new-${index}`, "user", [textItem(`msg-user-new-${index}`, "next task")], 100 + index * 2),
+            turn(
+                `msg-user-new-${index}`,
+                "user",
+                [textItem(`msg-user-new-${index}`, "next task")],
+                100 + index * 2,
+            ),
             turn(
                 `msg-assistant-new-${index}`,
                 "assistant",
@@ -360,7 +472,12 @@ test("provider-reported totals keep plan accounting on a single scale", () => {
     const providerReportedTokens = rawEstimate + 50_000
     const plan = buildPlan(
         turns,
-        inputs({ contextLimit: 120_000, force: true, recentToolResultBudgetTokens: 0, providerReportedTokens }),
+        inputs({
+            contextLimit: 120_000,
+            force: true,
+            recentToolResultBudgetTokens: 0,
+            providerReportedTokens,
+        }),
         spec,
     )
     assert.ok(plan)
@@ -380,7 +497,11 @@ test("provider-reported totals keep plan accounting on a single scale", () => {
 })
 
 test("planner marks custom compaction as last resort only after pruning is still too large", () => {
-    const plan = buildPlan(buildLargeConversation(), inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        buildLargeConversation(),
+        inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
 
     assert.ok(plan)
     assert.equal(plan.requiresCustomCompaction, true)
@@ -388,7 +509,11 @@ test("planner marks custom compaction as last resort only after pruning is still
 
 test("last-resort summary emits exactly one transcript reference section", () => {
     const turns = buildLargeConversation()
-    const plan = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
@@ -401,7 +526,11 @@ test("last-resort summary emits exactly one transcript reference section", () =>
 
 test("legacy snapshot summary does not duplicate its persisted transcript reference section", () => {
     const turns = buildLargeConversation()
-    const plan = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
     const snapshot = toPlanSnapshot(plan)
     const referenceBlock = `## Reference Files\n- "${snapshot.transcriptRelativePath}"`
@@ -417,7 +546,11 @@ test("legacy snapshot summary does not duplicate its persisted transcript refere
 
 test("replacement plan replaces a legacy transcript reference from its prior plan", () => {
     const turns = buildLargeConversation()
-    const first = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(first)
     const prior = toPlanSnapshot(first)
     const priorReferenceBlock = `## Reference Files\n- "${prior.transcriptRelativePath}"`
@@ -448,13 +581,32 @@ test("replacement plan replaces a legacy transcript reference from its prior pla
 test("planner preserves the latest two user turns as raw tail", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),
-        turn("msg-assistant-1", "assistant", [toolItem("msg-assistant-1", "read", "old output ".repeat(4_000))], 2),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [toolItem("msg-assistant-1", "read", "old output ".repeat(4_000))],
+            2,
+        ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user must stay raw")], 3),
-        turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant must stay raw")], 4),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [textItem("msg-assistant-2", "middle assistant must stay raw")],
+            4,
+        ),
         turn("msg-user-3", "user", [textItem("msg-user-3", "latest user must stay raw")], 5),
-        turn("msg-assistant-3", "assistant", [textItem("msg-assistant-3", "latest assistant must stay raw")], 6),
+        turn(
+            "msg-assistant-3",
+            "assistant",
+            [textItem("msg-assistant-3", "latest assistant must stay raw")],
+            6,
+        ),
     ]
-    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
@@ -463,33 +615,50 @@ test("planner preserves the latest two user turns as raw tail", () => {
     assert.ok(transformed.some((item) => item.key === "msg-assistant-2"))
     assert.ok(transformed.some((item) => item.key === "msg-user-3"))
     assert.ok(transformed.some((item) => item.key === "msg-assistant-3"))
-    const oldAssistantText = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-1"))
-    assert.match(oldAssistantText, /tool calls\/results cleared|Assistant turn summary/)
+    const oldAssistantText = syntheticTextOf(
+        transformed.find((item) => item.key === "msg-assistant-1"),
+    )
+    assert.match(oldAssistantText, /\[tool:read\] src\/app\.ts — ok|Assistant turn summary/)
     assert.doesNotMatch(oldAssistantText, /old output/)
 })
 
 test("planner compactifies contiguous assistant turns within an old turn", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
-        turn("msg-assistant-1", "assistant", [textItem("msg-assistant-1", "first assistant detail ".repeat(4_000))], 2),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [textItem("msg-assistant-1", "first assistant detail ".repeat(4_000))],
+            2,
+        ),
         turn(
             "msg-assistant-2",
             "assistant",
-            [toolItem("msg-assistant-2", "bash", "build output ".repeat(4_000), { command: "npm test" })],
+            [
+                toolItem("msg-assistant-2", "bash", "build output ".repeat(4_000), {
+                    command: "npm test",
+                }),
+            ],
             3,
         ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 4),
         turn("msg-assistant-3", "assistant", [textItem("msg-assistant-3", "middle assistant")], 5),
         turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 6),
     ]
-    const plan = buildPlan(turns, inputs({ contextLimit: 5_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 5_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
     assert.ok(plan.stages.some((stage) => stage.name === "assistant-runs"))
     assert.ok(plan.summaryJobs.length > 0)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
 
-    const oldAssistantTurns = transformed.filter((item) => item.key === "msg-assistant-1" || item.key === "msg-assistant-2")
+    const oldAssistantTurns = transformed.filter(
+        (item) => item.key === "msg-assistant-1" || item.key === "msg-assistant-2",
+    )
     assert.equal(oldAssistantTurns.length, 1)
     const compactedText = syntheticTextOf(oldAssistantTurns[0])
     assert.match(compactedText, /first assistant detail/)
@@ -500,19 +669,44 @@ test("planner compactifies contiguous assistant turns within an old turn", () =>
 test("planner ranks assistant turns and summarizes only enough to meet target", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),
-        turn("msg-assistant-big-old", "assistant", [textItem("msg-assistant-big-old", "big old detail ".repeat(8_000))], 2),
+        turn(
+            "msg-assistant-big-old",
+            "assistant",
+            [textItem("msg-assistant-big-old", "big old detail ".repeat(8_000))],
+            2,
+        ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
-        turn("msg-assistant-small-old", "assistant", [textItem("msg-assistant-small-old", "small old detail ".repeat(200))], 4),
+        turn(
+            "msg-assistant-small-old",
+            "assistant",
+            [textItem("msg-assistant-small-old", "small old detail ".repeat(200))],
+            4,
+        ),
         turn("msg-user-3", "user", [textItem("msg-user-3", "newer user")], 5),
-        turn("msg-assistant-big-newer", "assistant", [textItem("msg-assistant-big-newer", "big newer detail ".repeat(8_000))], 6),
+        turn(
+            "msg-assistant-big-newer",
+            "assistant",
+            [textItem("msg-assistant-big-newer", "big newer detail ".repeat(8_000))],
+            6,
+        ),
         turn("msg-user-4", "user", [textItem("msg-user-4", "tail user")], 7),
-        turn("msg-assistant-tail", "assistant", [textItem("msg-assistant-tail", "tail assistant")], 8),
+        turn(
+            "msg-assistant-tail",
+            "assistant",
+            [textItem("msg-assistant-tail", "tail assistant")],
+            8,
+        ),
         turn("msg-user-5", "user", [textItem("msg-user-5", "latest user")], 9),
     ]
 
     const plan = buildPlan(
         turns,
-        inputs({ contextLimit: 50_000, force: true, targetRatio: 0.7, recentToolResultBudgetTokens: 0 }),
+        inputs({
+            contextLimit: 50_000,
+            force: true,
+            targetRatio: 0.7,
+            recentToolResultBudgetTokens: 0,
+        }),
         spec,
     )
 
@@ -525,22 +719,43 @@ test("planner ranks assistant turns and summarizes only enough to meet target", 
 test("planner preserves recent tool results under the tool-tail budget", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),
-        turn("msg-assistant-old", "assistant", [toolItem("msg-assistant-old", "read", "old output ".repeat(4_000))], 2),
+        turn(
+            "msg-assistant-old",
+            "assistant",
+            [toolItem("msg-assistant-old", "read", "old output ".repeat(4_000))],
+            2,
+        ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
-        turn("msg-assistant-recent", "assistant", [toolItem("msg-assistant-recent", "read", "recent output ".repeat(200))], 4),
+        turn(
+            "msg-assistant-recent",
+            "assistant",
+            [toolItem("msg-assistant-recent", "read", "recent output ".repeat(200))],
+            4,
+        ),
         turn("msg-user-3", "user", [textItem("msg-user-3", "tail user")], 5),
-        turn("msg-assistant-tail", "assistant", [textItem("msg-assistant-tail", "tail assistant")], 6),
+        turn(
+            "msg-assistant-tail",
+            "assistant",
+            [textItem("msg-assistant-tail", "tail assistant")],
+            6,
+        ),
         turn("msg-user-4", "user", [textItem("msg-user-4", "latest user")], 7),
     ]
 
-    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 1_500 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 1_500 }),
+        spec,
+    )
     assert.ok(plan)
     assert.equal(plan.preservedToolCallIds.length, 1)
     assert.match(plan.preservedToolCallIds[0], /msg-assistant-recent-read-call/)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
 
-    const oldAssistantText = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-old"))
+    const oldAssistantText = syntheticTextOf(
+        transformed.find((item) => item.key === "msg-assistant-old"),
+    )
     assert.doesNotMatch(oldAssistantText, /old output/)
 
     const recentAssistant = transformed.find((item) => item.key === "msg-assistant-recent")
@@ -571,41 +786,90 @@ test("planner preserves only the latest compacted todo state", () => {
         turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 4),
         turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 5),
     ]
-    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
 
-    const compactedText = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-1"))
+    const compactedText = syntheticTextOf(
+        transformed.find((item) => item.key === "msg-assistant-1"),
+    )
     assert.match(compactedText, /Latest todo state preserved/)
     assert.match(compactedText, /current task/)
     assert.doesNotMatch(compactedText, /obsolete task/)
 })
 
-test("planner removes errored tool details from compactified turns", () => {
+test("pruned tools leave compact success and verbatim failure stubs", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
         turn(
             "msg-assistant-1",
             "assistant",
-            [errorToolItem("msg-assistant-1", "bash", "ENOENT: missing config", { command: "npm run test" })],
+            [
+                toolItem("msg-assistant-1", "read", "package contents", { filePath: "src/app.ts" }),
+                errorToolItem("msg-assistant-1", "bash", "ENOENT: missing config\nstack detail", {
+                    command: "npm run test",
+                }),
+            ],
             2,
         ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
         turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 4),
         turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 5),
     ]
-    const plan = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(plan)
     assert.equal(plan.transcript.content, "")
     assert.deepEqual(plan.transcript.messageIds, ["msg-user-1", "msg-assistant-1"])
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
 
-    const compactedText = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-1"))
-    assert.match(compactedText, /tool calls\/results cleared|Assistant turn summary/)
-    assert.doesNotMatch(compactedText, /ENOENT: missing config/)
-    assert.doesNotMatch(compactedText, /npm run test/)
+    const compacted = transformed.find((item) => item.key === "msg-assistant-1")
+    assert.ok(compacted)
+    assert.deepEqual(
+        compacted.items.map((item) => (item.kind === "synthetic" ? item.text : item.kind)),
+        ["[tool:read] src/app.ts — ok", "[tool:bash] npm run test — error: ENOENT: missing config"],
+    )
+})
+
+test("tool stubs replay byte-stably", () => {
+    const turns = [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [
+                errorToolItem("msg-assistant-1", "read", "EACCES: denied", {
+                    filePath: "src/secret.ts",
+                }),
+            ],
+            2,
+        ),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
+        turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 4),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 5),
+    ]
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const first = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), spec, { allowRegrown: true })
+
+    assert.ok(replayed)
+    assert.equal(JSON.stringify(replayed), JSON.stringify(first))
+    assert.match(JSON.stringify(replayed), /\[tool:read\] src\/secret\.ts — error: EACCES: denied/)
 })
 
 test("engine prunes on provider-reported usage the raw estimate alone misses", async () => {
@@ -643,15 +907,25 @@ test("planner triggers when either the provider total or the raw estimate crosse
     assert.ok(plan)
 
     // Neither scale over the trigger: no plan.
-    const calm = buildPlan(turns, inputs({ contextLimit: estimate * 4, providerReportedTokens: 10 }), spec)
+    const calm = buildPlan(
+        turns,
+        inputs({ contextLimit: estimate * 4, providerReportedTokens: 10 }),
+        spec,
+    )
     assert.equal(calm, null)
 })
 
 test("replacement plans keep prior pruning stages and preserved tools as a monotonic floor", () => {
     const turns = buildLargeConversation()
-    const first = buildPlan(turns, inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }), spec)
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(first)
-    assert.ok(first.stages.some((stage) => stage.name === "reasoning" && stage.status !== "skipped"))
+    assert.ok(
+        first.stages.some((stage) => stage.name === "reasoning" && stage.status !== "skipped"),
+    )
 
     const replacement = buildPlan(
         turns,
@@ -667,7 +941,11 @@ test("replacement plans keep prior pruning stages and preserved tools as a monot
     assert.ok(replacement)
     // A generous limit alone would skip reasoning; the prior plan already
     // pruned it, so the replacement must not resurrect it.
-    assert.ok(replacement.stages.some((stage) => stage.name === "reasoning" && stage.status !== "skipped"))
+    assert.ok(
+        replacement.stages.some(
+            (stage) => stage.name === "reasoning" && stage.status !== "skipped",
+        ),
+    )
     // Tool results the model already lost inside the prior compacted prefix
     // stay lost even under a larger recent-tool budget.
     const priorPreserved = new Set(first.preservedToolCallIds)
@@ -675,20 +953,33 @@ test("replacement plans keep prior pruning stages and preserved tools as a monot
         if (priorPreserved.has(callId)) continue
         const previouslyCompacted = turns
             .slice(0, first.rawTailStartIndex)
-            .some((item) => item.items.some((part) => part.kind === "tool" && part.callId === callId))
+            .some((item) =>
+                item.items.some((part) => part.kind === "tool" && part.callId === callId),
+            )
         assert.equal(previouslyCompacted, false)
     }
 })
 
 test("replacement plans reuse prior assistant summaries without new summary jobs", () => {
     const turns = buildMultiRunConversation()
-    const first = buildPlan(turns, inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }), spec)
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }),
+        spec,
+    )
     assert.ok(first)
     assert.ok(first.summaryJobs.length > 0)
-    const summaries = Object.fromEntries(first.summaryJobs.map((job) => [job.key, "Accepted summary."]))
+    const summaries = Object.fromEntries(
+        first.summaryJobs.map((job) => [job.key, "Accepted summary."]),
+    )
     const settled = buildPlan(
         turns,
-        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true, assistantSummaries: summaries }),
+        inputs({
+            contextLimit: 9_000,
+            recentToolResultBudgetTokens: 0,
+            force: true,
+            assistantSummaries: summaries,
+        }),
         spec,
     )
     assert.ok(settled)
@@ -734,7 +1025,12 @@ test("expanded prefix summaries include newly compacted user context", () => {
 
     const replacement = buildPlan(
         grown,
-        inputs({ contextLimit: 100, force: true, recentToolResultBudgetTokens: 0, priorPlan: toPlanSnapshot(first) }),
+        inputs({
+            contextLimit: 100,
+            force: true,
+            recentToolResultBudgetTokens: 0,
+            priorPlan: toPlanSnapshot(first),
+        }),
         spec,
     )
 
@@ -744,7 +1040,11 @@ test("expanded prefix summaries include newly compacted user context", () => {
 
 test("custom compaction stays sticky for replacement plans", () => {
     const turns = buildMultiRunConversation()
-    const first = buildPlan(turns, inputs({ contextLimit: 500, recentToolResultBudgetTokens: 0 }), spec)
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 500, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
     assert.ok(first?.requiresCustomCompaction)
 
     // A huge limit would normally clear custom compaction entirely, but the
@@ -761,11 +1061,21 @@ test("custom compaction stays sticky for replacement plans", () => {
 })
 
 test("ephemeral turns do not count as protected user turns", () => {
-    const ignored = turn("msg-ignored", "user", [textItem("msg-ignored", "Better Compact report")], 4)
+    const ignored = turn(
+        "msg-ignored",
+        "user",
+        [textItem("msg-ignored", "Better Compact report")],
+        4,
+    )
     ignored.ephemeral = true
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),
-        turn("msg-assistant-1", "assistant", [textItem("msg-assistant-1", "old detail ".repeat(2_000))], 2),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [textItem("msg-assistant-1", "old detail ".repeat(2_000))],
+            2,
+        ),
         turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
         ignored,
         turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 5),
@@ -780,15 +1090,26 @@ test("ephemeral turns do not count as protected user turns", () => {
 
 test("assistant summaries survive a fork that mints new turn keys", () => {
     const turns = buildMultiRunConversation()
-    const first = buildPlan(turns, inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }), spec)
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true }),
+        spec,
+    )
     assert.ok(first)
     assert.ok(first.summaryJobs.length > 0)
-    const summaries = Object.fromEntries(first.summaryJobs.map((job) => [job.key, "Accepted summary."]))
+    const summaries = Object.fromEntries(
+        first.summaryJobs.map((job) => [job.key, "Accepted summary."]),
+    )
 
     const forked = buildMultiRunConversation().map((item) => ({ ...item, key: `fork-${item.key}` }))
     const replay = buildPlan(
         forked,
-        inputs({ contextLimit: 9_000, recentToolResultBudgetTokens: 0, force: true, assistantSummaries: summaries }),
+        inputs({
+            contextLimit: 9_000,
+            recentToolResultBudgetTokens: 0,
+            force: true,
+            assistantSummaries: summaries,
+        }),
         spec,
     )
 
