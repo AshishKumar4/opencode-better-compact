@@ -125,7 +125,10 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
 
     let requiresCustomCompaction = false
     const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
-    let prefixSummary = inputs.prefixSummary ?? (expandedPrefix ? undefined : prior?.prefixSummary)
+    const priorPrefixSummary = prior?.prefixSummary
+        ? stripTranscriptReference(prior.prefixSummary, prior.transcriptRelativePath)
+        : undefined
+    let prefixSummary = inputs.prefixSummary ?? (expandedPrefix ? undefined : priorPrefixSummary)
     if (projectedTokens() >= triggerTokens || prior?.requiresCustomCompaction) {
         const tailKey = turns[rawTailStartIndex]?.key
         const currentTailStartIndex = working.findIndex((turn) => turn.key === tailKey)
@@ -191,7 +194,7 @@ export function transformTurns(
         return [
             synthesizeSummaryTurn(
                 originalPrefix,
-                plan.prefixSummary || formatPrefixSummary(originalPrefix, plan.transcript.relativePath),
+                plan.prefixSummary || formatPrefixSummary(originalPrefix),
                 plan.transcript.relativePath,
             ),
             ...turns.slice(rawTailStartIndex),
@@ -433,7 +436,10 @@ function applyPrefixSummary(
         return { changedTurns: new Set<string>(), changedItems: 0, prefixSummary: prefixSummary ?? "" }
     }
     const compacted = working.slice(0, rawTailStartIndex)
-    const summary = prefixSummary?.trim() || formatPrefixSummary(compacted, transcriptRelativePath)
+    const summary = stripTranscriptReference(
+        prefixSummary?.trim() || formatPrefixSummary(compacted),
+        transcriptRelativePath,
+    )
     const summaryTurn = synthesizeSummaryTurn(compacted, summary, transcriptRelativePath)
     const changedTurns = new Set(compacted.map((turn) => turn.key))
     const changedItems = compacted.reduce((sum, turn) => sum + turn.items.length, 0)
@@ -474,6 +480,8 @@ function synthesizeReferenceTurn(turns: Turn[], compacted: Turn[], transcriptRel
 
 function synthesizeSummaryTurn(compacted: Turn[], summary: string, transcriptRelativePath: string): Turn {
     const key = `better_compact_summary_${rangeHash(compacted)}`
+    const referenceBlock = `## Reference Files\n- "${transcriptRelativePath}"`
+    const normalizedSummary = stripTranscriptReference(summary, transcriptRelativePath)
     return {
         key,
         stamp: 0,
@@ -484,14 +492,19 @@ function synthesizeSummaryTurn(compacted: Turn[], summary: string, transcriptRel
                 key,
                 text: [
                     "[Context Summary]",
-                    summary.trim(),
+                    normalizedSummary,
                     "",
-                    "## Reference Files",
-                    `- "${transcriptRelativePath}"`,
+                    referenceBlock,
                 ].join("\n"),
             },
         ],
     }
+}
+
+function stripTranscriptReference(summary: string, transcriptRelativePath: string): string {
+    const trimmed = summary.trim()
+    const referenceBlock = `## Reference Files\n- "${transcriptRelativePath}"`
+    return trimmed.endsWith(referenceBlock) ? trimmed.slice(0, -referenceBlock.length).trimEnd() : trimmed
 }
 
 function cloneTurns(turns: Turn[]): Turn[] {

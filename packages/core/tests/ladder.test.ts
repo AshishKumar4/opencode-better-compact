@@ -386,6 +386,65 @@ test("planner marks custom compaction as last resort only after pruning is still
     assert.equal(plan.requiresCustomCompaction, true)
 })
 
+test("last-resort summary emits exactly one transcript reference section", () => {
+    const turns = buildLargeConversation()
+    const plan = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const summary = syntheticTextOf(transformed[0])
+    const referenceBlock = `## Reference Files\n- "${plan.transcript.relativePath}"`
+
+    assert.equal(summary.match(/## Reference Files/g)?.length, 1)
+    assert.equal(summary.split(referenceBlock).length - 1, 1)
+})
+
+test("legacy snapshot summary does not duplicate its persisted transcript reference section", () => {
+    const turns = buildLargeConversation()
+    const plan = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    assert.ok(plan)
+    const snapshot = toPlanSnapshot(plan)
+    const referenceBlock = `## Reference Files\n- "${snapshot.transcriptRelativePath}"`
+    snapshot.prefixSummary = `${snapshot.prefixSummary}\n\n${referenceBlock}`
+
+    const replayed = replayPlanSnapshot(turns, snapshot, spec, { allowRegrown: true })
+    assert.ok(replayed)
+    const summary = syntheticTextOf(replayed[0])
+
+    assert.equal(summary.match(/## Reference Files/g)?.length, 1)
+    assert.equal(summary.split(referenceBlock).length - 1, 1)
+})
+
+test("replacement plan replaces a legacy transcript reference from its prior plan", () => {
+    const turns = buildLargeConversation()
+    const first = buildPlan(turns, inputs({ contextLimit: 200, recentToolResultBudgetTokens: 0 }), spec)
+    assert.ok(first)
+    const prior = toPlanSnapshot(first)
+    const priorReferenceBlock = `## Reference Files\n- "${prior.transcriptRelativePath}"`
+    prior.prefixSummary = `${prior.prefixSummary}\n\n${priorReferenceBlock}`
+
+    const replacement = buildPlan(
+        turns,
+        inputs({
+            sessionKey: "forked-session",
+            contextLimit: 200,
+            recentToolResultBudgetTokens: 0,
+            priorPlan: prior,
+        }),
+        spec,
+    )
+    assert.ok(replacement)
+    assert.notEqual(replacement.transcript.relativePath, prior.transcriptRelativePath)
+
+    const transformed = transformTurns(turns, replacement.rawTailStartIndex, replacement, spec)
+    const summary = syntheticTextOf(transformed[0])
+    const replacementReferenceBlock = `## Reference Files\n- "${replacement.transcript.relativePath}"`
+
+    assert.equal(summary.match(/## Reference Files/g)?.length, 1)
+    assert.equal(summary.includes(priorReferenceBlock), false)
+    assert.equal(summary.split(replacementReferenceBlock).length - 1, 1)
+})
+
 test("planner preserves the latest two user turns as raw tail", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old user")], 1),

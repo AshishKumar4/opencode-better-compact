@@ -161,7 +161,7 @@ export function turnText(turn: Turn): string {
         .join("\n\n")
 }
 
-export function formatPrefixSummary(turns: Turn[], transcriptRelativePath: string): string {
+export function formatPrefixSummary(turns: Turn[]): string {
     const userMessages = turns
         .filter((turn) => turn.role === "user" && !turn.ephemeral)
         .map((turn) => turnText(turn).trim())
@@ -179,9 +179,6 @@ export function formatPrefixSummary(turns: Turn[], transcriptRelativePath: strin
         "",
         "## Assistant Progress From Prefix",
         ...(assistantFacts.length > 0 ? assistantFacts.map((text) => `- ${truncate(text, 600)}`) : ["- (none)"]),
-        "",
-        "## Reference Files",
-        `- "${transcriptRelativePath}"`,
     ].join("\n")
 }
 
