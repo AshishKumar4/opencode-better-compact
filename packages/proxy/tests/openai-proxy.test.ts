@@ -9,6 +9,7 @@ import {
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { zstdCompressSync } from "node:zlib"
 import { COMPACTION_PRESETS, type Logger, type PlanSnapshot } from "@better-compact/core"
 import { createProxyServer } from "../src/server"
 import type { ResponseItemWire } from "../src/openai/codec"
@@ -262,6 +263,47 @@ test("relays Responses SSE byte-for-byte and forwards headers verbatim", async (
     assert.equal(seen.headers.host, `127.0.0.1:${harness.upstream.port}`)
 })
 
+test("decodes a compressed Responses body before pruning it", async () => {
+    const harness = await startHarness()
+    const input = bigConversation()
+    const compressed = zstdCompressSync(Buffer.from(JSON.stringify(responsesBody(input))))
+    const response = await post(harness.proxyPort, "/openai/responses", compressed, {
+        ...CLIENT_HEADERS,
+        "content-encoding": "zstd",
+        "thread-id": "t-zstd",
+    })
+
+    assert.equal(response.status, 200)
+    const seen = streamRequests(harness.upstream)[0]
+    const sent = JSON.parse(seen.body.toString("utf-8")) as { input: ResponseItemWire[] }
+    assert.ok(sent.input.length < input.length, "compressed request must be pruned")
+    assert.equal(seen.headers["content-encoding"], undefined)
+})
+
+test("signals HTTP fallback for Responses websocket upgrades", async () => {
+    const harness = await startHarness()
+    const status = await new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+            {
+                host: "127.0.0.1",
+                port: harness.proxyPort,
+                path: "/openai/responses",
+                method: "GET",
+                headers: { connection: "Upgrade", upgrade: "websocket" },
+            },
+            (res) => {
+                res.resume()
+                res.on("end", () => resolve(res.statusCode ?? 0))
+            },
+        )
+        req.on("error", reject)
+        req.end()
+    })
+
+    assert.equal(status, 426)
+    assert.equal(harness.upstream.requests.length, 0)
+})
+
 test("prunes past the trigger, reuses the plan, and never touches instructions", async () => {
     const harness = await startHarness()
     const input = bigConversation()
@@ -401,7 +443,7 @@ test("feeds relayed response.completed usage into the next request's trigger", a
         isStreaming(req)
             ? {
                   status: 200,
-                  headers: { "content-type": "text/event-stream" },
+                  headers: {},
                   chunks: sseBytes(260_000),
               }
             : defaultResponder(req)

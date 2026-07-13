@@ -6,6 +6,7 @@ import type {
     ServerResponse,
 } from "node:http"
 import { join } from "node:path"
+import { brotliDecompress, gunzip, inflate, zstdDecompress } from "node:zlib"
 import {
     buildPlan,
     createEngine,
@@ -96,6 +97,15 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
         res: ServerResponse,
         path: string,
     ): Promise<void> {
+        if (
+            req.method === "GET" &&
+            path.split("?")[0] === dialect.rewritePath &&
+            headerContains(req.headers.upgrade, "websocket")
+        ) {
+            res.writeHead(426)
+            res.end()
+            return
+        }
         if (req.method !== "POST" || path.split("?")[0] !== dialect.rewritePath) {
             await passthrough(req, res, path, options, dialect)
             return
@@ -151,6 +161,12 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
     }
 }
 
+function headerContains(header: string | string[] | undefined, value: string): boolean {
+    return (Array.isArray(header) ? header : [header]).some((entry) =>
+        entry?.split(",").some((part) => part.trim().toLowerCase() === value),
+    )
+}
+
 // Failure posture: ANY internal error in the rewrite pipeline logs and
 // forwards the original bytes unmodified — the session must never break
 // because of us. There is no retry-with-original; a rewrite either applies
@@ -164,7 +180,8 @@ async function rewriteBody<Body>(
 ): Promise<Rewrite> {
     let sessionKey: string | null = null
     try {
-        const { body, model } = dialect.readBody(raw)
+        const decoded = await decodeRequestBody(raw, req.headers["content-encoding"])
+        const { body, model } = dialect.readBody(decoded)
         sessionKey = dialect.sessionKeyOf(req, body)
         const runtime = options.sessions.runtime(sessionKey)
         const contextLimit = dialect.contextLimit(req)
@@ -211,6 +228,34 @@ async function rewriteBody<Body>(
         })
         return { body: raw, pruned: false, sessionKey }
     }
+}
+
+type Decoder = (input: Buffer, callback: (error: Error | null, result: Buffer) => void) => void
+
+async function decodeRequestBody(
+    raw: Buffer,
+    contentEncoding: string | string[] | undefined,
+): Promise<Buffer> {
+    const encodings = (Array.isArray(contentEncoding) ? contentEncoding : [contentEncoding])
+        .flatMap((value) => value?.split(",") ?? [])
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value && value !== "identity")
+    let decoded = raw
+    for (const encoding of encodings.reverse()) {
+        const decoder = decoderFor(encoding)
+        decoded = await new Promise<Buffer>((resolve, reject) => {
+            decoder(decoded, (error, result) => (error ? reject(error) : resolve(result)))
+        })
+    }
+    return decoded
+}
+
+function decoderFor(encoding: string): Decoder {
+    if (encoding === "zstd") return zstdDecompress
+    if (encoding === "gzip" || encoding === "x-gzip") return gunzip
+    if (encoding === "deflate") return inflate
+    if (encoding === "br") return brotliDecompress
+    throw new Error(`Unsupported content-encoding: ${encoding}`)
 }
 
 // Assistant-run summaries never block a request: they run in the background

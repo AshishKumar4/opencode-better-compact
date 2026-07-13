@@ -29,6 +29,9 @@
     "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
     "author": "AshishKumar4",
     "license": "AGPL-3.0-or-later",
+    "engines": {
+        "node": ">=22.15.0"
+    },
     "scripts": {
         "clean": "rm -rf dist",
         "build": "pnpm run clean && tsup",

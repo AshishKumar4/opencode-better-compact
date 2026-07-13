@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdirSync, openSync, rmSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { DEFAULT_PORT, loadConfig, proxyPaths, type ProxyPaths } from "./config"
-import { checkHealth, decideStop, readLock, runDaemon } from "./daemon"
+import { checkHealth, daemonNeedsRestart, decideStop, readLock, runDaemon } from "./daemon"
 import { CODEX_PROXY_BASE_URL, installCodex } from "./install"
 
 const HELP = `better-compact-proxy — local context-pruning proxy for coding agents
@@ -12,7 +12,7 @@ Usage:
   better-compact-proxy run [--capture]     Run in the foreground
   better-compact-proxy stop                Stop the daemon
   better-compact-proxy status              Show daemon status
-  better-compact-proxy install codex       Point Codex (~/.codex/config.toml) at the proxy
+  better-compact-proxy install codex       Point Codex config.toml at the proxy
 
 --capture writes sanitized request bodies to ~/.better-compact/captures/`
 
@@ -85,10 +85,32 @@ async function main(): Promise<void> {
 async function startDaemon(paths: ProxyPaths, capture: boolean): Promise<void> {
     const health = await checkHealth(DEFAULT_PORT)
     if (health.kind === "ours") {
-        console.log(
-            `better-compact-proxy already running (pid ${health.pid}, port ${DEFAULT_PORT})`,
+        const shouldRestart = daemonNeedsRestart(health, loadConfig(paths), capture)
+        if (!shouldRestart) {
+            console.log(
+                `better-compact-proxy already running (pid ${health.pid}, port ${DEFAULT_PORT})`,
+            )
+            return
+        }
+        capture = capture || health.capture
+        try {
+            process.kill(health.pid, "SIGTERM")
+        } catch {
+            const current = await checkHealth(DEFAULT_PORT)
+            if (current.kind !== "down") {
+                console.error(`Could not restart better-compact-proxy (pid ${health.pid})`)
+                process.exit(1)
+            }
+        }
+        const stopped = await waitFor(
+            () => checkHealth(DEFAULT_PORT),
+            (state) => state.kind === "down",
+            3_000,
         )
-        return
+        if (!stopped) {
+            console.error(`Could not restart better-compact-proxy (pid ${health.pid})`)
+            process.exit(1)
+        }
     }
     if (health.kind === "foreign") {
         console.error(`Port ${DEFAULT_PORT} is in use by another process; refusing to start.`)
@@ -129,7 +151,7 @@ async function installCommand(
     try {
         result = installCodex(paths)
     } catch (error) {
-        console.error(`Refusing to edit ~/.codex/config.toml: ${(error as Error).message}`)
+        console.error(`Codex installation failed: ${(error as Error).message}`)
         process.exit(1)
     }
 

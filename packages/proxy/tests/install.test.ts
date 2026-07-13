@@ -118,3 +118,127 @@ test("installCodex creates config.toml when Codex has none", async () => {
         await rm(home, { recursive: true, force: true })
     }
 })
+
+test("installCodex preserves the ChatGPT upstream selected by OAuth auth", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-install-"))
+    try {
+        await mkdir(join(home, ".codex"), { recursive: true })
+        await writeFile(join(home, ".codex", "auth.json"), '{"auth_mode":"chatgpt"}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        installCodex(paths, home)
+
+        const config = JSON.parse(await readFile(paths.configFile, "utf-8")) as {
+            openaiUpstream: string
+        }
+        assert.equal(config.openaiUpstream, "https://chatgpt.com/backend-api/codex")
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installCodex does not overwrite an explicit proxy upstream", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-install-"))
+    try {
+        await mkdir(join(home, ".codex"), { recursive: true })
+        await writeFile(join(home, ".codex", "auth.json"), '{"auth_mode":"chatgpt"}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+        await mkdir(paths.home, { recursive: true })
+        await writeFile(paths.configFile, '{"openaiUpstream":"https://explicit.example/v1"}\n')
+
+        installCodex(paths, home)
+
+        const config = JSON.parse(await readFile(paths.configFile, "utf-8")) as {
+            openaiUpstream: string
+        }
+        assert.equal(config.openaiUpstream, "https://explicit.example/v1")
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installCodex infers legacy ChatGPT auth without an auth_mode", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-install-"))
+    try {
+        await mkdir(join(home, ".codex"), { recursive: true })
+        await writeFile(join(home, ".codex", "auth.json"), '{"tokens":{}}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        installCodex(paths, home)
+
+        const config = JSON.parse(await readFile(paths.configFile, "utf-8")) as {
+            openaiUpstream: string
+        }
+        assert.equal(config.openaiUpstream, "https://chatgpt.com/backend-api/codex")
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installCodex honors CODEX_HOME", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-install-"))
+    const previous = process.env.CODEX_HOME
+    try {
+        const codexHome = join(root, "isolated-codex")
+        await mkdir(codexHome, { recursive: true })
+        await writeFile(join(codexHome, "auth.json"), '{"auth_mode":"chatgpt"}\n')
+        process.env.CODEX_HOME = codexHome
+        const paths = proxyPaths(join(root, ".better-compact"))
+
+        const result = installCodex(paths, root)
+
+        assert.equal(result.codexConfigPath, join(codexHome, "config.toml"))
+        assert.match(
+            await readFile(result.codexConfigPath, "utf-8"),
+            /openai_base_url = "http:\/\/127\.0\.0\.1:42817\/openai"/,
+        )
+    } finally {
+        if (previous === undefined) delete process.env.CODEX_HOME
+        else process.env.CODEX_HOME = previous
+        await rm(root, { recursive: true, force: true })
+    }
+})
+
+test("installCodex refuses malformed proxy config before editing Codex", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-install-"))
+    try {
+        const codexHome = join(home, ".codex")
+        await mkdir(codexHome, { recursive: true })
+        const original = 'model = "gpt-5.4-mini"\n'
+        await writeFile(join(codexHome, "config.toml"), original)
+        await writeFile(join(codexHome, "auth.json"), '{"auth_mode":"chatgpt"}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+        await mkdir(paths.home, { recursive: true })
+        await writeFile(paths.configFile, "{broken")
+
+        assert.throws(() => installCodex(paths, home), /valid JSON object/)
+        assert.equal(await readFile(join(codexHome, "config.toml"), "utf-8"), original)
+        assert.equal(await readFile(paths.configFile, "utf-8"), "{broken")
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installCodex refreshes an inferred upstream when the auth mode changes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "codex-install-"))
+    try {
+        const codexHome = join(home, ".codex")
+        await mkdir(codexHome, { recursive: true })
+        const authPath = join(codexHome, "auth.json")
+        await writeFile(authPath, '{"auth_mode":"chatgpt"}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        installCodex(paths, home)
+        await writeFile(authPath, '{"auth_mode":"apikey","OPENAI_API_KEY":"test"}\n')
+        installCodex(paths, home)
+
+        const config = JSON.parse(await readFile(paths.configFile, "utf-8")) as Record<
+            string,
+            unknown
+        >
+        assert.equal(config.openaiUpstream, undefined)
+        assert.equal(config.openaiUpstreamSource, undefined)
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})

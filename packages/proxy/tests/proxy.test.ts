@@ -9,6 +9,7 @@ import {
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { gzipSync } from "node:zlib"
 import { COMPACTION_PRESETS, type Logger, type PlanSnapshot } from "@better-compact/core"
 import { checkHealth } from "../src/daemon"
 import { createProxyServer } from "../src/server"
@@ -280,13 +281,16 @@ test("drops content-encoding when the body is rewritten, keeps it verbatim other
     await post(
         harness.proxyPort,
         "/anthropic/v1/messages",
-        Buffer.from(JSON.stringify(messagesBody(bigConversation()))),
+        gzipSync(Buffer.from(JSON.stringify(messagesBody(bigConversation())))),
         { ...CLIENT_HEADERS, "x-session": "s-enc-pruned", "content-encoding": "gzip" },
     )
     const prunedSeen = streamRequests(harness.upstream).at(-1)
     assert.ok(prunedSeen)
     const prunedBody = JSON.parse(prunedSeen.body.toString("utf-8")) as { messages: WireMessage[] }
-    assert.ok(prunedBody.messages.length < bigConversation().length, "request must have been rewritten")
+    assert.ok(
+        prunedBody.messages.length < bigConversation().length,
+        "request must have been rewritten",
+    )
     assert.equal(
         prunedSeen.headers["content-encoding"],
         undefined,
@@ -295,12 +299,14 @@ test("drops content-encoding when the body is rewritten, keeps it verbatim other
 
     // Below the trigger nothing is rewritten: content-encoding rides along.
     harness.upstream.requests.length = 0
-    await post(harness.proxyPort, "/anthropic/v1/messages", Buffer.from(JSON.stringify(messagesBody([userMessage("hi")]))), {
+    const unchanged = gzipSync(Buffer.from(JSON.stringify(messagesBody([userMessage("hi")]))))
+    await post(harness.proxyPort, "/anthropic/v1/messages", unchanged, {
         ...CLIENT_HEADERS,
         "x-session": "s-enc-plain",
-        "content-encoding": "identity",
+        "content-encoding": "gzip",
     })
-    assert.equal(harness.upstream.requests[0].headers["content-encoding"], "identity")
+    assert.deepEqual(harness.upstream.requests[0].body, unchanged)
+    assert.equal(harness.upstream.requests[0].headers["content-encoding"], "gzip")
 })
 
 test("prunes past the trigger, reuses the plan across requests, and never touches system", async () => {

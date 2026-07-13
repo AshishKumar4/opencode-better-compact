@@ -9,6 +9,7 @@ export const DEFAULT_UPSTREAM = "https://api.anthropic.com"
 // `/responses` (verified: model-provider-info/src/lib.rs:254, provider url join).
 // The proxy serves `/openai/responses`, so `/v1` lives in the upstream base.
 export const DEFAULT_OPENAI_UPSTREAM = "https://api.openai.com/v1"
+export const CHATGPT_CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex"
 
 export interface ProxyPaths {
     home: string

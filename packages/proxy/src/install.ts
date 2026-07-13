@@ -1,9 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { DEFAULT_PORT, type ProxyPaths } from "./config"
+import { CHATGPT_CODEX_UPSTREAM, DEFAULT_PORT, type ProxyPaths } from "./config"
 
 export const CODEX_PROXY_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}/openai`
+
+const CODEX_BACKEND_AUTH_MODES = new Set([
+    "chatgpt",
+    "chatgptAuthTokens",
+    "headers",
+    "agentIdentity",
+    "personalAccessToken",
+])
+const INFERRED_UPSTREAM_SOURCE = "codex-auth"
 
 export type CodexConfigEdit =
     | {
@@ -112,20 +121,36 @@ export interface CodexInstallResult {
 // Applies the config.toml edit and records a preserved upstream in the proxy's
 // config.json. Throws with a user-facing message when the edit is refused.
 export function installCodex(paths: ProxyPaths, home = homedir()): CodexInstallResult {
-    const codexConfigPath = join(home, ".codex", "config.toml")
+    const codexHome = process.env.CODEX_HOME || join(home, ".codex")
+    const codexConfigPath = join(codexHome, "config.toml")
     const existing = existsSync(codexConfigPath) ? readFileSync(codexConfigPath, "utf-8") : ""
     const edit = editCodexConfig(existing, CODEX_PROXY_BASE_URL)
     if (!edit.ok) throw new Error(edit.reason)
 
-    mkdirSync(dirname(codexConfigPath), { recursive: true })
-    writeFileSync(codexConfigPath, edit.content)
-
+    const config = readConfigJson(paths.configFile)
+    const originalConfig = JSON.stringify(config)
+    const configuredUpstream =
+        typeof config.openaiUpstream === "string" ? config.openaiUpstream : null
+    const inferredUpstream = codexAuthUpstream(codexHome)
     if (edit.previousBaseUrl) {
-        const config = readConfigJson(paths.configFile)
         config.openaiUpstream = edit.previousBaseUrl
+        delete config.openaiUpstreamSource
+    } else if (!configuredUpstream || config.openaiUpstreamSource === INFERRED_UPSTREAM_SOURCE) {
+        if (inferredUpstream) {
+            config.openaiUpstream = inferredUpstream
+            config.openaiUpstreamSource = INFERRED_UPSTREAM_SOURCE
+        } else {
+            delete config.openaiUpstream
+            delete config.openaiUpstreamSource
+        }
+    }
+    if (JSON.stringify(config) !== originalConfig) {
         mkdirSync(dirname(paths.configFile), { recursive: true })
         writeFileSync(paths.configFile, JSON.stringify(config, null, 4) + "\n")
     }
+
+    mkdirSync(dirname(codexConfigPath), { recursive: true })
+    writeFileSync(codexConfigPath, edit.content)
 
     return {
         codexConfigPath,
@@ -135,10 +160,33 @@ export function installCodex(paths: ProxyPaths, home = homedir()): CodexInstallR
     }
 }
 
-function readConfigJson(path: string): Record<string, unknown> {
+function codexAuthUpstream(codexHome: string): string | null {
     try {
-        return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>
+        const raw: unknown = JSON.parse(readFileSync(join(codexHome, "auth.json"), "utf-8"))
+        if (!raw || typeof raw !== "object") return null
+        const authMode = Reflect.get(raw, "auth_mode")
+        if (typeof authMode === "string") {
+            return CODEX_BACKEND_AUTH_MODES.has(authMode) ? CHATGPT_CODEX_UPSTREAM : null
+        }
+        if (Reflect.get(raw, "personal_access_token") != null) return CHATGPT_CODEX_UPSTREAM
+        if (Reflect.get(raw, "bedrock_api_key") != null) return null
+        if (Reflect.get(raw, "OPENAI_API_KEY") != null) return null
+        return CHATGPT_CODEX_UPSTREAM
     } catch {
-        return {}
+        return null
     }
+}
+
+function readConfigJson(path: string): Record<string, unknown> {
+    if (!existsSync(path)) return {}
+    let raw: unknown
+    try {
+        raw = JSON.parse(readFileSync(path, "utf-8"))
+    } catch (error) {
+        throw new Error(`${path} must contain a valid JSON object`, { cause: error })
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error(`${path} must contain a valid JSON object`)
+    }
+    return raw as Record<string, unknown>
 }

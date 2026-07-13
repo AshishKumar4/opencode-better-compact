@@ -25,12 +25,12 @@ export function createUsageReader(headers: IncomingHttpHeaders): UsageReader {
 // top-level `usage`.
 export function createResponsesUsageReader(headers: IncomingHttpHeaders): UsageReader {
     const contentType = String(headers["content-type"] ?? "")
-    return wrapDecompression(
-        headers,
-        contentType.includes("text/event-stream")
-            ? responsesSseUsageParser()
-            : responsesJsonUsageParser(),
-    )
+    const parser = contentType.includes("text/event-stream")
+        ? responsesSseUsageParser()
+        : contentType.includes("json")
+          ? responsesJsonUsageParser()
+          : firstUsage(responsesSseUsageParser(), responsesJsonUsageParser())
+    return wrapDecompression(headers, parser)
 }
 
 function wrapDecompression(headers: IncomingHttpHeaders, parser: UsageParser): UsageReader {
@@ -70,6 +70,21 @@ function wrapDecompression(headers: IncomingHttpHeaders, parser: UsageParser): U
 interface UsageParser {
     feed(chunk: Buffer): void
     finish(): number | null
+}
+
+function firstUsage(...parsers: UsageParser[]): UsageParser {
+    return {
+        feed(chunk) {
+            for (const parser of parsers) parser.feed(chunk)
+        },
+        finish() {
+            for (const parser of parsers) {
+                const usage = parser.finish()
+                if (usage !== null) return usage
+            }
+            return null
+        },
+    }
 }
 
 interface WireUsage {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { get } from "node:http"
-import { loadConfig, type ProxyPaths } from "./config"
+import { loadConfig, type ProxyConfig, type ProxyPaths } from "./config"
 import { createLogger } from "./logger"
 import { createProxyServer, SERVICE_NAME } from "./server"
 
@@ -18,6 +18,19 @@ export type StopDecision =
     | { action: "signal"; pid: number }
     | { action: "clear-stale" }
     | { action: "none" }
+
+export function daemonNeedsRestart(
+    health: HealthState,
+    config: ProxyConfig,
+    captureRequested = false,
+): boolean {
+    return (
+        health.kind === "ours" &&
+        (health.upstream !== config.anthropicUpstream ||
+            health.openaiUpstream !== config.openaiUpstream ||
+            (captureRequested && !health.capture))
+    )
+}
 
 // Only ever signal a pid we can prove is our live daemon. A "down" port with a
 // leftover lockfile is a crashed daemon whose pid may have been recycled by an

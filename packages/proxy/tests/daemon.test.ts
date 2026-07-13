@@ -1,8 +1,33 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { decideStop, type HealthState, type LockInfo } from "../src/daemon"
+import { COMPACTION_PRESETS } from "@better-compact/core"
+import { daemonNeedsRestart, decideStop, type HealthState, type LockInfo } from "../src/daemon"
+import type { ProxyConfig } from "../src/config"
 
 const lock: LockInfo = { port: 42817, pid: 4242 }
+const config: ProxyConfig = {
+    anthropicUpstream: "https://api.anthropic.com",
+    openaiUpstream: "https://chatgpt.com/backend-api/codex",
+    profile: COMPACTION_PRESETS.moderate,
+}
+
+test("daemon restart follows configured upstream changes", () => {
+    const current: HealthState = {
+        kind: "ours",
+        pid: 99,
+        upstream: config.anthropicUpstream,
+        openaiUpstream: config.openaiUpstream,
+        capture: false,
+    }
+    assert.equal(daemonNeedsRestart(current, config), false)
+    assert.equal(
+        daemonNeedsRestart(current, { ...config, openaiUpstream: "https://api.openai.com/v1" }),
+        true,
+    )
+    assert.equal(daemonNeedsRestart(current, config, true), true)
+    assert.equal(daemonNeedsRestart({ ...current, capture: true }, config, true), false)
+    assert.equal(daemonNeedsRestart({ kind: "down" }, config), false)
+})
 
 test("stop signals only the live daemon's own pid", () => {
     const health: HealthState = { kind: "ours", pid: 99, upstream: "", openaiUpstream: "", capture: false }
