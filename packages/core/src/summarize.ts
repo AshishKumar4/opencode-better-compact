@@ -6,6 +6,8 @@ import { formatTranscript } from "./transcript"
 const DEFAULT_CONCURRENCY = 4
 const MIN_SUMMARY_CHARS = 80
 const MAX_SUMMARY_CHARS = 4_000
+const FAILURE_THRESHOLD = 3
+const BREAKER_WINDOW_MS = 5 * 60_000
 
 export const SUMMARY_SECTION_HEADERS = [
     "## Decisions",
@@ -27,51 +29,160 @@ export interface SummarizeProgressEvent {
 }
 
 export interface SummarizeJobsInput {
+    sessionKey: string
     jobs: BoundarySummaryJob[]
     summarizer: Summarizer
-    logger: Logger
     concurrency?: number
     onProgress?: (event: SummarizeProgressEvent) => Promise<void> | void
 }
 
-export async function summarizeJobs(input: SummarizeJobsInput): Promise<Record<string, string>> {
-    if (input.jobs.length === 0) return {}
+export interface SummaryScheduler {
+    summarize(input: SummarizeJobsInput): Promise<Record<string, string>>
+    reset(sessionKey: string): void
+}
 
-    const summaries: Record<string, string> = {}
-    const pending = [...dedupeJobs(input.jobs)]
-    const concurrency = Math.max(1, Math.min(input.concurrency ?? DEFAULT_CONCURRENCY, pending.length))
-    let cursor = 0
-    let done = 0
-    let succeeded = 0
-    let failed = 0
+export interface SummarySchedulerOptions {
+    now?: () => number
+}
 
-    await Promise.all(
-        Array.from({ length: concurrency }, async () => {
-            while (cursor < pending.length) {
-                const job = pending[cursor++]
-                const raw = await input.summarizer.complete(job)
-                const summary = raw === null ? null : validateSummary(raw, job, input.logger)
-                if (summary) {
-                    summaries[job.key] = summary
-                    succeeded++
-                } else {
-                    failed++
-                }
-                done++
-                await input.onProgress?.({
-                    total: pending.length,
-                    done,
-                    succeeded,
-                    failed,
-                    ok: !!summary,
-                    rangeStartMessageId: job.rangeStartMessageId,
-                    rangeEndMessageId: job.rangeEndMessageId,
+interface FailureState {
+    consecutiveFailures: number
+    lastFailureAt: number
+    openUntil?: number
+}
+
+export function createSummaryScheduler(
+    logger: Logger,
+    options: SummarySchedulerOptions = {},
+): SummaryScheduler {
+    const now = options.now ?? Date.now
+    const failures = new Map<string, FailureState>()
+
+    return {
+        async summarize(input) {
+            if (input.jobs.length === 0) return {}
+
+            const startedAt = now()
+            expireFailures(failures, startedAt)
+            const state = failures.get(input.sessionKey)
+            if (state?.openUntil && state.openUntil > startedAt) {
+                logger.debug("Summary circuit breaker is open; using deterministic fallback", {
+                    sessionKey: input.sessionKey,
+                    retryAfterMs: state.openUntil - startedAt,
                 })
+                return {}
             }
-        }),
-    )
 
-    return summaries
+            const summaries: Record<string, string> = {}
+            const pending = dedupeJobs(input.jobs)
+            const concurrency = Math.max(
+                1,
+                Math.min(input.concurrency ?? DEFAULT_CONCURRENCY, pending.length),
+            )
+            let done = 0
+            let succeeded = 0
+            let failed = 0
+
+            for (let offset = 0; offset < pending.length; offset += concurrency) {
+                const jobs = pending.slice(offset, offset + concurrency)
+                const outcomes = await Promise.all(
+                    jobs.map((job) => runJob(input.sessionKey, job, input.summarizer, logger)),
+                )
+
+                for (let index = 0; index < jobs.length; index++) {
+                    const job = jobs[index]
+                    const summary = outcomes[index]
+                    if (summary) {
+                        summaries[job.key] = summary
+                        succeeded++
+                    } else {
+                        failed++
+                    }
+                    done++
+                    await input.onProgress?.({
+                        total: pending.length,
+                        done,
+                        succeeded,
+                        failed,
+                        ok: !!summary,
+                        rangeStartMessageId: job.rangeStartMessageId,
+                        rangeEndMessageId: job.rangeEndMessageId,
+                    })
+                }
+
+                updateFailureState(
+                    failures,
+                    input.sessionKey,
+                    outcomes.map(Boolean),
+                    now(),
+                    logger,
+                )
+                if (failures.get(input.sessionKey)?.openUntil) break
+            }
+
+            return summaries
+        },
+        reset(sessionKey) {
+            failures.delete(sessionKey)
+        },
+    }
+}
+
+async function runJob(
+    sessionKey: string,
+    job: BoundarySummaryJob,
+    summarizer: Summarizer,
+    logger: Logger,
+): Promise<string | null> {
+    try {
+        const raw = await summarizer.complete(job)
+        return raw === null ? null : validateSummary(raw, job, logger)
+    } catch (error) {
+        logger.warn("Summary job failed", {
+            sessionKey,
+            rangeStartMessageId: job.rangeStartMessageId,
+            rangeEndMessageId: job.rangeEndMessageId,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        return null
+    }
+}
+
+function expireFailures(failures: Map<string, FailureState>, now: number): void {
+    for (const [sessionKey, state] of failures) {
+        const expiresAt = state.openUntil ?? state.lastFailureAt + BREAKER_WINDOW_MS
+        if (expiresAt <= now) failures.delete(sessionKey)
+    }
+}
+
+function updateFailureState(
+    failures: Map<string, FailureState>,
+    sessionKey: string,
+    outcomes: boolean[],
+    now: number,
+    logger: Logger,
+): void {
+    let state = failures.get(sessionKey)
+    // Stable input order keeps concurrency timing from changing breaker state.
+    for (const succeeded of outcomes) {
+        if (succeeded) {
+            failures.delete(sessionKey)
+            state = undefined
+            continue
+        }
+        state = state ?? { consecutiveFailures: 0, lastFailureAt: now }
+        state.consecutiveFailures++
+        state.lastFailureAt = now
+        if (state.consecutiveFailures === FAILURE_THRESHOLD) {
+            state.openUntil = now + BREAKER_WINDOW_MS
+            logger.warn("Summary circuit breaker opened", {
+                sessionKey,
+                consecutiveFailures: state.consecutiveFailures,
+                retryAfterMs: BREAKER_WINDOW_MS,
+            })
+        }
+        failures.set(sessionKey, state)
+    }
 }
 
 export function formatAssistantSummaryPrompt(

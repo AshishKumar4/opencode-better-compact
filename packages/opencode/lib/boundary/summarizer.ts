@@ -1,5 +1,4 @@
 import {
-    summarizeJobs,
     type BoundarySummaryJob,
     type SummarizeProgressEvent,
     type Summarizer,
@@ -25,10 +24,10 @@ interface SummarizeBoundaryJobsInput {
 
 export async function summarizeBoundaryJobs(input: SummarizeBoundaryJobsInput): Promise<Record<string, string>> {
     if (input.jobs.length === 0 || !canRunScratchSession(input.client)) return {}
-    return summarizeJobs({
+    return input.runtime.summaryScheduler.summarize({
+        sessionKey: input.parentSessionId,
         jobs: input.jobs,
         summarizer: createScratchSummarizer(input),
-        logger: input.logger,
         concurrency: input.concurrency,
         onProgress: input.onProgress,
     })

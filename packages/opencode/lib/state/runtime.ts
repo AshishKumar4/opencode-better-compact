@@ -1,3 +1,4 @@
+import { createSummaryScheduler, type SummaryScheduler } from "@better-compact/core"
 import type { Logger } from "../logger"
 import type { WithParts, SessionState } from "./types"
 import { createSessionState, initializeSessionState, refreshSessionState } from "./state"
@@ -10,6 +11,7 @@ interface SessionEntry {
 }
 
 export interface RuntimeState {
+    summaryScheduler: SummaryScheduler
     get(sessionId: string): SessionState
     peek(sessionId: string): SessionState | undefined
     prepare(
@@ -32,6 +34,7 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
     const modelLimits = new Map<string, number>()
     const modelLimitRequests = new Map<string, Promise<number | undefined>>()
     const scratchSessions = new Set<string>()
+    const summaryScheduler = createSummaryScheduler(logger)
 
     const entry = (sessionId: string): SessionEntry => {
         const existing = sessions.get(sessionId)
@@ -45,6 +48,7 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
     }
 
     return {
+        summaryScheduler,
         get(sessionId) {
             return entry(sessionId).state
         },
@@ -86,6 +90,7 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
         },
         evict(sessionId) {
             sessions.delete(sessionId)
+            summaryScheduler.reset(sessionId)
         },
         setModelLimit(providerId, modelId, limit) {
             if (Number.isFinite(limit) && limit > 0) {

@@ -47,7 +47,7 @@ list. The pieces, and where they live:
   [`src/identity.ts`](src/identity.ts) (`contentHashKey`, `keyDeduper`,
   `rangeHash`), [`src/estimate.ts`](src/estimate.ts),
   [`src/transcript.ts`](src/transcript.ts),
-  [`src/summarize.ts`](src/summarize.ts) (`summarizeJobs`),
+  [`src/summarize.ts`](src/summarize.ts) (`createSummaryScheduler`),
   [`src/profiles.ts`](src/profiles.ts) (`COMPACTION_PRESETS`).
 
 ## How an adapter consumes it
@@ -72,9 +72,9 @@ const result = await engine.process({ sessionKey, turns, contextLimit /* … */ 
 
 `process` owns only the deterministic transform (plan load/validate/replay or
 build/persist/apply, transcript write). Summarization is **adapter-owned**: core
-gives you `summarizeJobs` (the concurrency/dedupe loop); the adapter provides the
-`Summarizer.complete` transport and schedules the background upgrade, which lands
-in the plan for the next request.
+gives you `createSummaryScheduler` (the concurrency, dedupe, and failure-circuit
+loop); the adapter provides the `Summarizer.complete` transport and schedules the
+background upgrade, which lands in the plan for the next request.
 
 The three shipping adapters — `packages/opencode`, `packages/pi`,
 `packages/proxy` (Anthropic + OpenAI Responses codecs) — are the reference

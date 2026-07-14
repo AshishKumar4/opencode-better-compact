@@ -4,10 +4,10 @@ import {
     buildPlan,
     COMPACTION_PRESETS,
     createEngine,
+    createSummaryScheduler,
     DEFAULT_CUSTOM_COMPACTION,
     normalizeCompactionCustom,
     resolveCompactionProfile,
-    summarizeJobs,
     toPlanSnapshot,
     writeTranscript,
     type BoundaryContextPlan,
@@ -51,6 +51,7 @@ const logger: Logger = {
 
 export default function betterCompact(pi: ExtensionAPI) {
     const plans = createPlanStore((customType, data) => pi.appendEntry(customType, data))
+    const summaryScheduler = createSummaryScheduler(logger)
     const summarizing = new Set<string>()
     let config = mergeCompactionConfig()
     let profile = COMPACTION_PRESETS.light
@@ -167,10 +168,10 @@ export default function betterCompact(pi: ExtensionAPI) {
                             "better-compact",
                             `Better Compact: running ${plan.summaryJobs.length} summary jobs…`,
                         )
-                        const summaries = await summarizeJobs({
+                        const summaries = await summaryScheduler.summarize({
+                            sessionKey,
                             jobs: plan.summaryJobs,
                             summarizer: createSummarizer(ctx, logger),
-                            logger,
                             concurrency: profile.summarizerConcurrency,
                         })
                         if (Object.keys(summaries).length > 0) {
@@ -240,10 +241,10 @@ export default function betterCompact(pi: ExtensionAPI) {
         if (summarizing.has(sessionKey)) return
         summarizing.add(sessionKey)
         try {
-            const summaries = await summarizeJobs({
+            const summaries = await summaryScheduler.summarize({
+                sessionKey,
                 jobs: plan.summaryJobs,
                 summarizer: createSummarizer(ctx, logger),
-                logger,
                 concurrency: profile.summarizerConcurrency,
             })
             if (Object.keys(summaries).length === 0) return

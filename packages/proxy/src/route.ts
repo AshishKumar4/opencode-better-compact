@@ -11,7 +11,6 @@ import {
     buildPlan,
     createEngine,
     isContextOverflowError,
-    summarizeJobs,
     toPlanSnapshot,
     type BoundaryContextPlan,
     type BuildPlanInputs,
@@ -21,6 +20,7 @@ import {
     type Logger,
     type PlanStore,
     type Summarizer,
+    type SummaryScheduler,
     type TranscriptStore,
     type Turn,
 } from "@better-compact/core"
@@ -35,6 +35,7 @@ export interface SharedRouteOptions {
     plans: PlanStore
     transcripts: TranscriptStore
     sessions: SessionTracker
+    summaryScheduler: SummaryScheduler
     logger: Logger
     capture: boolean
     capturesDir: string
@@ -435,10 +436,10 @@ async function upgradePlanWithSummaries<Body>(
         forwardableHeaders(req.rawHeaders),
         options.logger,
     )
-    const summaries = await summarizeJobs({
+    const summaries = await options.summaryScheduler.summarize({
+        sessionKey: plan.sessionId,
         jobs: plan.summaryJobs,
         summarizer,
-        logger: options.logger,
         concurrency: options.profile.summarizerConcurrency,
     })
     if (Object.keys(summaries).length === 0) return

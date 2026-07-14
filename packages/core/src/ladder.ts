@@ -389,17 +389,24 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                 return { outcome: "unchanged" }
             }
             if (summarize && plan.summaryJobs.length > 0) {
-                const assistantSummaries = await summarize(plan.summaryJobs)
-                if (Object.keys(assistantSummaries).length > 0) {
-                    plan = buildPlan(
-                        turns,
-                        {
-                            ...inputs,
-                            priorPlan: toPlanSnapshot(plan),
-                            assistantSummaries,
-                        },
-                        spec,
-                    ) ?? plan
+                try {
+                    const assistantSummaries = await summarize(plan.summaryJobs)
+                    if (Object.keys(assistantSummaries).length > 0) {
+                        plan = buildPlan(
+                            turns,
+                            {
+                                ...inputs,
+                                priorPlan: toPlanSnapshot(plan),
+                                assistantSummaries,
+                            },
+                            spec,
+                        ) ?? plan
+                    }
+                } catch (error) {
+                    ports.logger.warn("Summary scheduling failed; using deterministic fallback", {
+                        sessionId: sessionKey,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
                 }
             }
 

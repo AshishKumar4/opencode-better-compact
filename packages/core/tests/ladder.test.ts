@@ -1147,6 +1147,55 @@ test("engine prunes on provider-reported usage the raw estimate alone misses", a
     assert.equal(withUsage.outcome, "planned")
 })
 
+test("engine keeps the deterministic plan when summary scheduling rejects", async () => {
+    const turns = buildMultiRunConversation()
+    const planInputs = inputs({ contextLimit: 40_000, recentToolResultBudgetTokens: 0 })
+    const expectedPlan = buildPlan(turns, planInputs, spec)
+    assert.ok(expectedPlan)
+    assert.ok(expectedPlan.summaryJobs.length > 0)
+    const warnings: string[] = []
+    let saved: PlanSnapshot | null = null
+    const engine = createEngine(spec, {
+        transcripts: {
+            citablePath: planInputs.citablePath,
+            write: async () => ({}),
+        },
+        plans: {
+            load: () => null,
+            save: (_key, snapshot) => {
+                saved = snapshot
+            },
+        },
+        logger: {
+            info() {},
+            debug() {},
+            warn(message) {
+                warnings.push(message)
+            },
+            error() {},
+        },
+    })
+
+    const result = await engine.process({
+        sessionKey,
+        turns,
+        contextLimit: 40_000,
+        recentToolResultBudgetTokens: 0,
+        summarize: async () => {
+            throw new Error("scheduler failed")
+        },
+    })
+
+    assert.equal(result.outcome, "planned")
+    if (result.outcome !== "planned") return
+    assert.equal(
+        JSON.stringify(result.turns),
+        JSON.stringify(transformTurns(turns, expectedPlan.rawTailStartIndex, expectedPlan, spec)),
+    )
+    assert.ok(saved)
+    assert.ok(warnings.includes("Summary scheduling failed; using deterministic fallback"))
+})
+
 test("planner triggers when either the provider total or the raw estimate crosses the trigger", () => {
     const turns = buildLargeConversation()
     const estimate = codec.estimateTurns(turns)

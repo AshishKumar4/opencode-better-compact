@@ -35,7 +35,13 @@ export {
     type ReplayOptions,
 } from "./ladder"
 export { formatTranscript, writeTranscript } from "./transcript"
-export { summarizeJobs, type SummarizeJobsInput, type SummarizeProgressEvent } from "./summarize"
+export {
+    createSummaryScheduler,
+    type SummarizeJobsInput,
+    type SummarizeProgressEvent,
+    type SummaryScheduler,
+    type SummarySchedulerOptions,
+} from "./summarize"
 export {
     COMPACTION_PRESETS,
     DEFAULT_CUSTOM_COMPACTION,

@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
-import type { CompactionProfile, Logger } from "@better-compact/core"
+import { createSummaryScheduler, type CompactionProfile, type Logger } from "@better-compact/core"
 import { createAnthropicRoute } from "./anthropic/route"
 import { createOpenAIRoute } from "./openai/route"
 import { errorEnvelope } from "./route"
@@ -31,6 +31,7 @@ export function createProxyServer(options: ProxyServerOptions): Server {
         plans: createPlanStore(options.plansDir, options.logger),
         transcripts: createTranscriptStore(options.transcriptsDir),
         sessions: createSessionTracker(),
+        summaryScheduler: createSummaryScheduler(options.logger),
         logger: options.logger,
         capture: options.capture,
         capturesDir: options.capturesDir,
