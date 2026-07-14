@@ -1,6 +1,6 @@
 import type { SessionState, WithParts } from "./types"
 import type { Logger } from "../logger"
-import { loadManualModeSetting, loadSessionState, saveSessionState } from "./persistence"
+import { loadSessionState, saveSessionState } from "./persistence"
 import {
     isSubAgentSession,
     findLastCompactionTimestamp,
@@ -10,9 +10,7 @@ import {
 export async function refreshSessionState(
     state: SessionState,
     messages: WithParts[],
-    sessionId: string,
     logger: Logger,
-    manualModeDefault: boolean,
 ): Promise<void> {
     const lastCompactionTimestamp = findLastCompactionTimestamp(messages)
     if (lastCompactionTimestamp > state.lastCompaction) {
@@ -30,14 +28,12 @@ export async function refreshSessionState(
     }
 
     state.currentTurn = countTurns(state, messages)
-    await refreshManualMode(state, sessionId, logger, manualModeDefault)
 }
 
 export function createSessionState(sessionId: string | null = null): SessionState {
     return {
         sessionId,
         isSubAgent: false,
-        manualMode: false,
         compressPermission: undefined,
         boundary: {
             job: null,
@@ -55,13 +51,11 @@ export async function initializeSessionState(
     sessionId: string,
     logger: Logger,
     messages: WithParts[],
-    manualModeEnabled: boolean,
 ): Promise<void> {
     if (state.sessionId !== null && state.sessionId !== sessionId) {
         throw new Error(`Session state ${state.sessionId} cannot be initialized as ${sessionId}`)
     }
 
-    state.manualMode = manualModeEnabled ? "active" : false
     state.sessionId = sessionId
 
     const isSubAgent = await isSubAgentSession(client, sessionId)
@@ -75,25 +69,6 @@ export async function initializeSessionState(
         return
     }
 
-    if (typeof persisted.manualMode === "boolean") {
-        state.manualMode = persisted.manualMode ? "active" : false
-    }
-
     state.boundary.activePlan = persisted.boundary?.activePlan ?? null
     state.boundary.job = persisted.boundary?.job ?? null
-}
-
-export async function refreshManualMode(
-    state: SessionState,
-    sessionId: string,
-    logger: Logger,
-    manualModeDefault: boolean,
-): Promise<void> {
-    if (state.manualMode === "compress-pending") {
-        return
-    }
-
-    const persisted = await loadManualModeSetting(sessionId, logger)
-    const enabled = persisted ?? manualModeDefault
-    state.manualMode = enabled ? "active" : false
 }

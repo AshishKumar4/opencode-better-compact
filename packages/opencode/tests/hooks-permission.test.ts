@@ -15,8 +15,6 @@ import { Logger } from "../lib/logger"
 import {
     createRuntimeState,
     createSessionState,
-    refreshManualMode,
-    saveManualModeSetting,
     saveSessionState,
     type RuntimeState,
     type WithParts,
@@ -40,10 +38,6 @@ function buildConfig(permission: "allow" | "ask" | "deny" = "allow"): PluginConf
                 recentToolTokens: 40_000,
                 summarizerConcurrency: 4,
             },
-        },
-        manualMode: {
-            enabled: false,
-            automaticStrategies: true,
         },
         experimental: {
             allowSubAgents: false,
@@ -869,24 +863,6 @@ test("text complete strips hallucinated metadata tags", async () => {
     await handler({ sessionID: "session-1", messageID: "message-1", partID: "part-1" }, output)
 
     assert.equal(output.text, "alpha  omega")
-})
-
-test("manual mode persisted setting refreshes server session state", async () => {
-    const logger = new Logger(false)
-    const sessionId = `manual-mode-${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-    await saveManualModeSetting(sessionId, true, logger)
-
-    const state = createSessionState()
-    state.sessionId = sessionId
-    state.manualMode = false
-
-    await refreshManualMode(state, sessionId, logger, false)
-    assert.equal(state.manualMode, "active")
-
-    await saveManualModeSetting(sessionId, false, logger)
-    await refreshManualMode(state, sessionId, logger, true)
-    assert.equal(state.manualMode, false)
 })
 
 function buildForkFixture(sessionID: string): { messages: WithParts[]; prefix: WithParts[] } {

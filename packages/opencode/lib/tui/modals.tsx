@@ -38,7 +38,7 @@ export function showError(api: TuiApi, title: string, error: unknown) {
 
 export function openContextModal(api: TuiApi, config: PluginConfig) {
     runModal(api, "Context", async () => {
-        const data = await loadSessionData(api, config)
+        const data = await loadSessionData(api)
         if (!data) {
             showStatusDialog(api, "Context", "No session", "Open a session first.")
             return
@@ -56,7 +56,7 @@ export function openContextModal(api: TuiApi, config: PluginConfig) {
 
 export function openStatsModal(api: TuiApi, config: PluginConfig) {
     runModal(api, "Stats", async () => {
-        const data = await loadSessionData(api, config)
+        const data = await loadSessionData(api)
         if (!data) {
             showStatusDialog(api, "Stats", "No session", "Open a session first.")
             return

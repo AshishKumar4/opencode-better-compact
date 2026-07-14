@@ -109,27 +109,6 @@
                 }
             }
         },
-        "manualMode": {
-            "type": "object",
-            "description": "Reserved for legacy internal utilities; Better Compact pruning is runtime-driven.",
-            "additionalProperties": false,
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Boundary pruning is runtime-driven and does not use normal-chat manual mode."
-                },
-                "automaticStrategies": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Keep automatic cleanup strategies running when enabled"
-                }
-            },
-            "default": {
-                "enabled": false,
-                "automaticStrategies": true
-            }
-        },
         "experimental": {
             "type": "object",
             "description": "Experimental settings that may change in future releases",

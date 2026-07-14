@@ -85,7 +85,7 @@ export function createChatMessageTransformHandler(
             return
         }
 
-        const state = await runtime.prepare(sessionId, messages, currentConfig.manualMode.enabled)
+        const state = await runtime.prepare(sessionId, messages)
         const currentParams = getCurrentParams(state, messages, logger)
         if (currentParams.providerId && currentParams.modelId) {
             state.modelContextLimit = await runtime.resolveModelLimit(
@@ -241,7 +241,7 @@ export function createCommandExecuteHandler(
             })
             const messages = filterMessages(messagesResponse.data || messagesResponse)
 
-            const state = await runtime.prepare(input.sessionID, messages, currentConfig.manualMode.enabled)
+            const state = await runtime.prepare(input.sessionID, messages)
 
             syncCompressPermissionState(state, currentConfig, hostPermissions, messages)
 
@@ -361,7 +361,7 @@ export function createChatMessageHandler(
             path: { id: input.sessionID },
         })
         const messages = filterMessages(messagesResponse.data || messagesResponse)
-        const state = await runtime.prepare(input.sessionID, messages, currentConfig.manualMode.enabled)
+        const state = await runtime.prepare(input.sessionID, messages)
         const jobId = validBoundaryJobId(sentinel.metadata?.jobId)
         const jobStartedAt = validBoundaryJobStartedAt(sentinel.metadata?.jobStartedAt)
         const contextLimit = validBoundaryCounter(sentinel.metadata?.contextLimit)

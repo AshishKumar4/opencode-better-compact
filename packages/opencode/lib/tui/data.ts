@@ -144,19 +144,13 @@ export function sessionMessages(api: TuiApi, sessionID: string): WithParts[] {
 export async function buildSessionState(
     sessionID: string,
     messages: WithParts[],
-    config: PluginConfig,
 ): Promise<SessionState> {
     const state = createSessionState()
     state.sessionId = sessionID
-    state.manualMode = config.manualMode.enabled ? "active" : false
     state.lastCompaction = findLastCompactionTimestamp(messages)
 
     const persisted = await loadSessionState(sessionID, logger)
     if (persisted) {
-        if (typeof persisted.manualMode === "boolean") {
-            state.manualMode = persisted.manualMode ? "active" : false
-        }
-
         state.boundary.activePlan = persisted.boundary?.activePlan ?? null
         state.boundary.job = persisted.boundary?.job ?? null
     }
@@ -164,11 +158,11 @@ export async function buildSessionState(
     return state
 }
 
-export async function loadSessionData(api: TuiApi, config: PluginConfig) {
+export async function loadSessionData(api: TuiApi) {
     const sessionID = activeSessionID(api)
     if (!sessionID) return undefined
 
     const messages = sessionMessages(api, sessionID)
-    const state = await buildSessionState(sessionID, messages, config)
+    const state = await buildSessionState(sessionID, messages)
     return { state, messages }
 }

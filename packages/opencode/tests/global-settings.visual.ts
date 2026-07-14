@@ -10,9 +10,11 @@ import { Logger } from "../lib/logger"
 
 const previousConfigHome = process.env.XDG_CONFIG_HOME
 const previousDataHome = process.env.XDG_DATA_HOME
+const originalSetTimeout = globalThis.setTimeout
 const roots: string[] = []
 
 afterEach(() => {
+    globalThis.setTimeout = originalSetTimeout
     if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME
     else process.env.XDG_CONFIG_HOME = previousConfigHome
     if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
@@ -139,6 +141,52 @@ test("runtime config disables automatic compaction when a discovered layer is un
 
     chmodSync(path, 0o600)
     expect(loaded.compaction.automatic).toBe(false)
+})
+
+test("stale manualMode config warns and loads recognized settings", async () => {
+    const root = mkdtempSync(join(tmpdir(), "better-compact-stale-config-"))
+    roots.push(root)
+    process.env.XDG_CONFIG_HOME = root
+    const dir = join(root, "opencode")
+    const toasts: unknown[] = []
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+        join(dir, "better-compact.jsonc"),
+        JSON.stringify({
+            debug: true,
+            manualMode: {
+                enabled: true,
+                automaticStrategies: false,
+            },
+        }),
+    )
+    globalThis.setTimeout = ((callback: () => void) => {
+        callback()
+        return 0
+    }) as typeof setTimeout
+
+    const config = await import(`../lib/config.ts?stale-config=${Date.now()}`)
+    const loaded = config.getConfig({
+        directory: root,
+        worktree: root,
+        client: {
+            tui: {
+                showToast: (toast: unknown) => {
+                    toasts.push(toast)
+                },
+            },
+        },
+    } as never)
+
+    expect(config.getInvalidConfigKeys({ manualMode: { enabled: true } })).toEqual([
+        "manualMode",
+        "manualMode.enabled",
+    ])
+    expect(loaded.enabled).toBe(true)
+    expect(loaded.debug).toBe(true)
+    expect(toasts).toHaveLength(1)
+    expect(JSON.stringify(toasts[0])).toContain("Unknown keys: manualMode")
+    expect(JSON.stringify(toasts[0])).toContain('"variant":"warning"')
 })
 
 test("summary effort uses only variants supported by the active model", () => {

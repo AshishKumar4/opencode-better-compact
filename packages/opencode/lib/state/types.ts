@@ -66,7 +66,6 @@ export interface BoundaryState {
 export interface SessionState {
     sessionId: string | null
     isSubAgent: boolean
-    manualMode: false | "active" | "compress-pending"
     compressPermission: "ask" | "allow" | "deny" | undefined
     boundary: BoundaryState
     lastCompaction: number

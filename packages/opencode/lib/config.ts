@@ -48,11 +48,6 @@ export interface Commands {
     enabled: boolean
 }
 
-export interface ManualModeConfig {
-    enabled: boolean
-    automaticStrategies: boolean
-}
-
 export interface ExperimentalConfig {
     allowSubAgents: boolean
 }
@@ -63,7 +58,6 @@ export interface PluginConfig {
     debug: boolean
     commands: Commands
     compaction: CompactionConfig
-    manualMode: ManualModeConfig
     experimental: ExperimentalConfig
     compress: CompressConfig
 }
@@ -86,9 +80,6 @@ export const VALID_CONFIG_KEYS = new Set([
     "compaction.custom.targetPercent",
     "compaction.custom.recentToolTokens",
     "compaction.custom.summarizerConcurrency",
-    "manualMode",
-    "manualMode.enabled",
-    "manualMode.automaticStrategies",
     "compress",
     "compress.permission",
 ])
@@ -217,32 +208,6 @@ export function validateConfigTypes(config: Record<string, any>): ValidationErro
         }
     }
 
-    const manualMode = config.manualMode
-    if (manualMode !== undefined) {
-        if (typeof manualMode !== "object" || manualMode === null || Array.isArray(manualMode)) {
-            errors.push({ key: "manualMode", expected: "object", actual: typeof manualMode })
-        } else {
-            if (manualMode.enabled !== undefined && typeof manualMode.enabled !== "boolean") {
-                errors.push({
-                    key: "manualMode.enabled",
-                    expected: "boolean",
-                    actual: typeof manualMode.enabled,
-                })
-            }
-
-            if (
-                manualMode.automaticStrategies !== undefined &&
-                typeof manualMode.automaticStrategies !== "boolean"
-            ) {
-                errors.push({
-                    key: "manualMode.automaticStrategies",
-                    expected: "boolean",
-                    actual: typeof manualMode.automaticStrategies,
-                })
-            }
-        }
-    }
-
     const compress = config.compress
     if (compress !== undefined) {
         if (typeof compress !== "object" || compress === null || Array.isArray(compress)) {
@@ -319,10 +284,6 @@ const defaultConfig: PluginConfig = {
         preset: "light",
         summaryEffort: "inherit",
         custom: { ...DEFAULT_CUSTOM_COMPACTION },
-    },
-    manualMode: {
-        enabled: false,
-        automaticStrategies: true,
     },
     experimental: {
         allowSubAgents: false,
@@ -587,18 +548,6 @@ function mergeCompaction(
     }
 }
 
-function mergeManualMode(
-    base: PluginConfig["manualMode"],
-    override?: Partial<PluginConfig["manualMode"]>,
-): PluginConfig["manualMode"] {
-    if (override === undefined) return base
-
-    return {
-        enabled: override.enabled ?? base.enabled,
-        automaticStrategies: override.automaticStrategies ?? base.automaticStrategies,
-    }
-}
-
 function mergeExperimental(
     base: PluginConfig["experimental"],
     override?: Partial<PluginConfig["experimental"]>,
@@ -620,10 +569,6 @@ function deepCloneConfig(config: PluginConfig): PluginConfig {
             summaryEffort: config.compaction.summaryEffort,
             custom: { ...config.compaction.custom },
         },
-        manualMode: {
-            enabled: config.manualMode.enabled,
-            automaticStrategies: config.manualMode.automaticStrategies,
-        },
         experimental: { ...config.experimental },
         compress: { ...config.compress },
     }
@@ -636,7 +581,6 @@ function mergeLayer(config: PluginConfig, data: Record<string, any>): PluginConf
         debug: data.debug ?? config.debug,
         commands: mergeCommands(config.commands, data.commands as any),
         compaction: mergeCompaction(config.compaction, data.compaction as any),
-        manualMode: mergeManualMode(config.manualMode, data.manualMode as any),
         experimental: mergeExperimental(config.experimental, data.experimental as any),
         compress: mergeCompress(config.compress, data.compress as Partial<CompressConfig>),
     }
@@ -696,10 +640,12 @@ export function getConfig(ctx: PluginInput, options?: { warnings?: boolean }): P
         const invalidKeys = getInvalidConfigKeys(result.data)
         const typeErrors = validateConfigTypes(result.data)
         if (invalidKeys.length > 0 || typeErrors.length > 0) {
-            unsafeLayer = true
             if (options?.warnings !== false) {
                 showConfigWarnings(ctx, layer.path, result.data, layer.isProject)
             }
+        }
+        if (typeErrors.length > 0) {
+            unsafeLayer = true
             continue
         }
         config = mergeLayer(config, result.data)

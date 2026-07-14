@@ -44,9 +44,9 @@ test("runtime state coalesces concurrent initialization without crossing session
     const runtime = createRuntimeState(client, new Logger(false))
 
     const [first, same, second] = await Promise.all([
-        runtime.prepare("session-a", [userMessage("session-a")], false),
-        runtime.prepare("session-a", [userMessage("session-a")], false),
-        runtime.prepare("session-b", [userMessage("session-b")], false),
+        runtime.prepare("session-a", [userMessage("session-a")]),
+        runtime.prepare("session-a", [userMessage("session-a")]),
+        runtime.prepare("session-b", [userMessage("session-b")]),
     ])
 
     assert.equal(first, same)

@@ -14,11 +14,7 @@ export interface RuntimeState {
     summaryScheduler: SummaryScheduler
     get(sessionId: string): SessionState
     peek(sessionId: string): SessionState | undefined
-    prepare(
-        sessionId: string,
-        messages: WithParts[],
-        manualModeDefault: boolean,
-    ): Promise<SessionState>
+    prepare(sessionId: string, messages: WithParts[]): Promise<SessionState>
     evict(sessionId: string): void
     setModelLimit(providerId: string, modelId: string, limit: number): void
     getModelLimit(providerId: string, modelId: string): number | undefined
@@ -55,7 +51,7 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
         peek(sessionId) {
             return sessions.get(sessionId)?.state
         },
-        async prepare(sessionId, messages, manualModeDefault) {
+        async prepare(sessionId, messages) {
             const current = entry(sessionId)
             if (!current.initialized) {
                 if (!current.initialization) {
@@ -65,7 +61,6 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
                         sessionId,
                         logger,
                         messages,
-                        manualModeDefault,
                     ).then(() => {
                         current.initialized = true
                     })
@@ -81,9 +76,7 @@ export function createRuntimeState(client: any, logger: Logger): RuntimeState {
                 await refreshSessionState(
                     current.state,
                     messages,
-                    sessionId,
                     logger,
-                    manualModeDefault,
                 )
             }
             return current.state

@@ -14,7 +14,6 @@ import { ensurePrivateDirectory, securePrivateFile, securePrivateTree, writePriv
 
 export interface PersistedSessionState {
     sessionName?: string
-    manualMode?: boolean
     boundary?: {
         activePlan?: SessionState["boundary"]["activePlan"]
         job?: SessionState["boundary"]["job"]
@@ -79,7 +78,6 @@ export async function saveSessionState(
 
     const state: PersistedSessionState = {
         sessionName: sessionName,
-        manualMode: !!sessionState.manualMode,
         boundary: {
             activePlan: sessionState.boundary.activePlan,
             job: sessionState.boundary.job,
@@ -144,35 +142,4 @@ export async function loadPersistedBoundaryPlans(logger: Logger): Promise<Bounda
             .sort((left, right) => right.createdAt - left.createdAt)
     })()
     return boundaryPlanIndex
-}
-
-function emptyPersistedState(manualMode: boolean): PersistedSessionState {
-    return {
-        manualMode,
-        boundary: {
-            activePlan: null,
-            job: null,
-        },
-        lastUpdated: new Date().toISOString(),
-    }
-}
-
-export async function loadManualModeSetting(
-    sessionId: string,
-    logger: Logger,
-): Promise<boolean | undefined> {
-    const state = await loadSessionState(sessionId, logger)
-    return typeof state?.manualMode === "boolean" ? state.manualMode : undefined
-}
-
-export async function saveManualModeSetting(
-    sessionId: string,
-    manualMode: boolean,
-    logger: Logger,
-): Promise<void> {
-    const existing = await loadSessionState(sessionId, logger)
-    const state = existing ?? emptyPersistedState(manualMode)
-    state.manualMode = manualMode
-    state.lastUpdated = new Date().toISOString()
-    await writePersistedSessionState(sessionId, state, logger)
 }
