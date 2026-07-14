@@ -11,6 +11,7 @@ export {
     type BoundarySummaryJob,
     type BoundaryTranscriptArtifact,
     type PlanSnapshot,
+    type RawTailItemBoundary,
 } from "./plan"
 export type { EnginePorts, Logger, PlanStore, Summarizer, TranscriptStore } from "./ports"
 export {
@@ -26,6 +27,7 @@ export {
 export {
     buildPlan,
     createEngine,
+    matchesPlanSnapshot,
     replayPlanSnapshot,
     transformTurns,
     type BuildPlanInputs,

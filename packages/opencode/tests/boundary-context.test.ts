@@ -5,7 +5,11 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { Logger } from "../lib/logger"
 import type { WithParts } from "../lib/state"
-import { buildBoundaryContextPlan, writeBoundaryTranscript } from "../lib/boundary"
+import {
+    buildBoundaryContextPlan,
+    toBoundaryPlanSnapshot,
+    writeBoundaryTranscript,
+} from "../lib/boundary"
 
 const sessionID = "ses_boundary_context"
 
@@ -51,6 +55,49 @@ test("ignored Better Compact messages do not count as protected user turns", () 
 
     assert.ok(plan)
     assert.equal(plan.rawTailStartMessageId, "msg-user-2")
+})
+
+test("split plans omit whole-message fork identity", () => {
+    const assistantId = "msg-assistant-large"
+    const messages = [
+        message("msg-user-old", "user", [textPart("msg-user-old", "old request")], 1),
+        message(
+            assistantId,
+            "assistant",
+            [
+                {
+                    id: `${assistantId}-tool`,
+                    messageID: assistantId,
+                    sessionID,
+                    type: "tool" as const,
+                    callID: `${assistantId}-call`,
+                    tool: "read",
+                    state: {
+                        status: "completed" as const,
+                        input: { filePath: "large.log" },
+                        output: "giant output ".repeat(5_000),
+                        title: "read",
+                        metadata: {},
+                        time: { start: 1, end: 2 },
+                    },
+                } as WithParts["parts"][number],
+                textPart(assistantId, "newest assistant detail stays raw", { id: `${assistantId}-text` }),
+            ],
+            2,
+        ),
+        message("msg-user-new", "user", [textPart("msg-user-new", "latest request")], 3),
+    ]
+    const plan = buildBoundaryContextPlan(messages, { contextLimit: 10_000 })
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, assistantId)
+    assert.deepEqual(plan.rawTailItemBoundary, {
+        itemKey: `${assistantId}-text`,
+        side: "before",
+    })
+    const snapshot = toBoundaryPlanSnapshot(plan, messages)
+    assert.equal(snapshot.prefixFingerprint, undefined)
+    assert.equal(snapshot.compactedMessageCount, undefined)
 })
 
 test("boundary transcript is lossless and private", async () => {

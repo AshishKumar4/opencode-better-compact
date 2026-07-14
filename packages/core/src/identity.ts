@@ -6,7 +6,9 @@ import type { Turn } from "./ir"
 // survive the IR extraction unchanged. Id-less platforms derive `key`
 // via contentHashKey/keyDeduper below and plug in through Turn.key.
 export function rangeHash(turns: Turn[]): string {
-    const seed = turns.map((turn) => `${turn.key}:${turn.stamp}`).join("|")
+    const seed = turns
+        .map((turn) => `${turn.key}:${turn.stamp}${turn.fragmentKey ? `:${turn.fragmentKey}` : ""}`)
+        .join("|")
     return createHash("sha256").update(seed).digest("hex").slice(0, 16)
 }
 
@@ -15,7 +17,9 @@ export function rangeHash(turns: Turn[]): string {
 // its paid-for assistant summaries. Adapted from origin/master 173146f,
 // which additionally hashed provider/model metadata the IR does not carry.
 export function assistantRunKey(turns: Turn[]): string {
-    const seed = turns.map((turn) => `${turn.role}:${turn.stamp}`).join("|")
+    const seed = turns
+        .map((turn) => `${turn.role}:${turn.stamp}${turn.fragmentKey ? `:${turn.fragmentKey}` : ""}`)
+        .join("|")
     return createHash("sha256").update(seed).digest("hex").slice(0, 16)
 }
 

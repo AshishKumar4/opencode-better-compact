@@ -1,7 +1,14 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { Item, Turn } from "@better-compact/core"
-import { piCodec, type PiMessage, type ToolPair } from "../src/codec"
+import {
+    buildPlan,
+    replayPlanSnapshot,
+    toPlanSnapshot,
+    transformTurns,
+    type Item,
+    type Turn,
+} from "@better-compact/core"
+import { piCodec, piSpec, type PiMessage, type ToolPair } from "../src/codec"
 import {
     assistantMessage,
     kitchenSinkConversation,
@@ -36,6 +43,43 @@ test("round-trip preserves string and block user content verbatim", () => {
     assert.deepEqual(decoded, messages)
     assert.equal(decoded[0], messages[0])
     assert.equal(decoded[1], messages[1])
+})
+
+test("an oversized multi-block user turn keeps only its newest block raw", () => {
+    const newest = { type: "text" as const, text: "newest user detail stays raw" }
+    const messages: PiMessage[] = [
+        userMessage([
+            { type: "text", text: "old user detail ".repeat(4_000) },
+            newest,
+        ]),
+    ]
+    const turns = piCodec.encode(messages)
+    const plan = buildPlan(
+        turns,
+        {
+            contextLimit: 10_000,
+            sessionKey: "session-oversized-user",
+            citablePath: (key, hash) => `/tmp/${key}/${hash}.md`,
+        },
+        piSpec,
+    )
+    assert.ok(plan)
+    assert.deepEqual(plan.rawTailItemBoundary, {
+        itemKey: turns[0].items[1].key,
+        side: "before",
+    })
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, piSpec)
+    const decoded = piCodec.decode(transformed, messages)
+    const raw = decoded.at(-1)
+    assert.ok(raw?.role === "user" && Array.isArray(raw.content))
+    assert.deepEqual(raw.content, [newest])
+    assert.equal(raw.content[0], newest)
+    assert.ok(piCodec.estimateTurns(transformed) < piCodec.estimateTurns(turns))
+
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), piSpec)
+    assert.ok(replayed)
+    assert.deepEqual(piCodec.decode(replayed, messages), decoded)
 })
 
 test("round-trip survives injected vendor junk fields", () => {

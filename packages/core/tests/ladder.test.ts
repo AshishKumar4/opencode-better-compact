@@ -1546,3 +1546,208 @@ test("assistant summaries survive a fork that mints new turn keys", () => {
     assert.equal(replay.summaryJobs.length, 0)
     assert.deepEqual(Object.keys(replay.assistantSummaries).sort(), Object.keys(summaries).sort())
 })
+
+test("an oversized turn prunes older items while keeping its newest item raw", () => {
+    const sourceTool = toolItem("msg-assistant-large", "read", "old output ".repeat(4_000))
+    const newest = textItem("msg-assistant-large-newest", "newest assistant detail stays raw")
+    const source = turn("msg-assistant-large", "assistant", [sourceTool, newest], 1)
+    const turns = [
+        source,
+        turn("msg-user-new", "user", [textItem("msg-user-new", "latest request")], 2),
+    ]
+
+    const plan = buildPlan(turns, inputs({ contextLimit: 10_000 }), spec)
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, source.key)
+    assert.deepEqual(plan.rawTailItemBoundary, { itemKey: newest.key, side: "before" })
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const transformedSource = transformed.find((candidate) => candidate.handle === source.handle)
+    assert.ok(transformedSource)
+    assert.equal(transformed.filter((candidate) => candidate.handle === source.handle).length, 1)
+    assert.equal(transformedSource.items.at(-1), newest)
+    assert.ok(
+        transformedSource.items.some(
+            (item) => item.kind === "synthetic" && item.text.startsWith("[tool:read]"),
+        ),
+    )
+
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), spec)
+    assert.ok(replayed)
+    assert.equal(JSON.stringify(replayed), JSON.stringify(transformed))
+
+    const missingBoundary = turns.map((candidate) =>
+        candidate === source
+            ? { ...candidate, items: candidate.items.filter((item) => item !== newest) }
+            : candidate,
+    )
+    assert.equal(replayPlanSnapshot(missingBoundary, toPlanSnapshot(plan), spec), null)
+
+    const editedPrefix = [
+        {
+            ...source,
+            items: [{ ...sourceTool, key: `${sourceTool.key}-edited` }, newest],
+        },
+        turns[1],
+    ]
+    assert.equal(replayPlanSnapshot(editedPrefix, toPlanSnapshot(plan), spec), null)
+})
+
+test("an oversized assistant text prefix is summarized without rewriting its raw suffix", () => {
+    const oldText = textItem("msg-assistant-text-old", "old assistant detail ".repeat(3_000))
+    const newest = textItem("msg-assistant-text-new", "newest assistant conclusion")
+    const source = turn("msg-assistant-text", "assistant", [oldText, newest], 1)
+    const turns = [
+        source,
+        turn("msg-user-new", "user", [textItem("msg-user-new", "latest request")], 2),
+    ]
+
+    const plan = buildPlan(turns, inputs({ contextLimit: 10_000 }), spec)
+
+    assert.ok(plan)
+    assert.deepEqual(plan.rawTailItemBoundary, { itemKey: newest.key, side: "before" })
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const transformedSource = transformed.find((candidate) => candidate.handle === source.handle)
+    assert.ok(transformedSource)
+    assert.equal(transformedSource.items.at(-1), newest)
+    assert.ok(
+        transformedSource.items.some(
+            (item) =>
+                item.kind === "synthetic" && item.text.startsWith("[Assistant turn summary]"),
+        ),
+    )
+    assert.equal(transformedSource.items.some((item) => item === oldText), false)
+})
+
+test("advancing a split boundary does not reuse a partial assistant summary", () => {
+    const oldest = textItem("msg-assistant-oldest", "oldest detail ".repeat(3_000))
+    const middle = textItem("msg-assistant-middle", "middle detail ".repeat(3_000))
+    const newest = textItem("msg-assistant-newest", "newest detail stays raw")
+    const source = turn("msg-assistant-growing", "assistant", [oldest, middle, newest], 1)
+    const turns = [
+        source,
+        turn("msg-user-new", "user", [textItem("msg-user-new", "latest request")], 2),
+    ]
+    const first = buildPlan(
+        turns,
+        inputs({ contextLimit: 40_000, triggerRatio: 0.4, targetRatio: 0.3 }),
+        spec,
+    )
+    assert.ok(first)
+    assert.deepEqual(first.rawTailItemBoundary, { itemKey: middle.key, side: "before" })
+    assert.equal(first.summaryJobs.length, 1)
+    const firstSummaryKey = first.summaryJobs[0].key
+    const prior = toPlanSnapshot(first)
+    prior.assistantSummaries = { [firstSummaryKey]: "accepted partial summary" }
+    prior.assistantSummaryKeys = [firstSummaryKey]
+
+    const replacement = buildPlan(
+        turns,
+        inputs({
+            contextLimit: 40_000,
+            triggerRatio: 0.4,
+            targetRatio: 0.1,
+            priorPlan: prior,
+        }),
+        spec,
+    )
+
+    assert.ok(replacement)
+    assert.deepEqual(replacement.rawTailItemBoundary, {
+        itemKey: newest.key,
+        side: "before",
+    })
+    assert.notEqual(replacement.rangeHash, first.rangeHash)
+    assert.equal(replacement.summaryJobs.length, 1)
+    assert.notEqual(replacement.summaryJobs[0].key, firstSummaryKey)
+})
+
+test("a lone giant tool item is stubbed atomically instead of split", () => {
+    const giantTool = toolItem("msg-assistant-tool", "read", "giant output ".repeat(5_000))
+    const source = turn("msg-assistant-tool", "assistant", [giantTool], 2)
+    const turns = [
+        turn("msg-user-old", "user", [textItem("msg-user-old", "old request")], 1),
+        source,
+        turn("msg-user-new", "user", [textItem("msg-user-new", "latest request")], 3),
+    ]
+
+    const plan = buildPlan(turns, inputs({ contextLimit: 10_000 }), spec)
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, source.key)
+    assert.deepEqual(plan.rawTailItemBoundary, { itemKey: giantTool.key, side: "after" })
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const transformedSource = transformed.find((candidate) => candidate.handle === source.handle)
+    assert.ok(transformedSource)
+    assert.equal(transformed.filter((candidate) => candidate.handle === source.handle).length, 1)
+    assert.equal(transformedSource.items.filter((item) => item.kind === "tool").length, 0)
+    assert.equal(
+        transformedSource.items.filter(
+            (item) => item.kind === "synthetic" && item.text.startsWith("[tool:read]"),
+        ).length,
+        1,
+    )
+
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), spec)
+    assert.ok(replayed)
+    assert.equal(JSON.stringify(replayed), JSON.stringify(transformed))
+
+    const appended = textItem("msg-assistant-tool-new", "new same-turn detail stays raw")
+    const grownSource = { ...source, items: [giantTool, appended] }
+    const grown = [turns[0], grownSource, turns[2]]
+    const replayedGrown = replayPlanSnapshot(grown, toPlanSnapshot(plan), spec)
+    assert.ok(replayedGrown)
+    const replayedGrownSource = replayedGrown.find(
+        (candidate) => candidate.handle === source.handle,
+    )
+    assert.ok(replayedGrownSource)
+    assert.equal(replayedGrownSource.items.at(-1), appended)
+
+    const replacement = buildPlan(
+        grown,
+        inputs({ contextLimit: 10_000, priorPlan: toPlanSnapshot(plan) }),
+        spec,
+    )
+    assert.ok(replacement)
+    assert.deepEqual(replacement.rawTailItemBoundary, {
+        itemKey: appended.key,
+        side: "before",
+    })
+    const replaced = transformTurns(grown, replacement.rawTailStartIndex, replacement, spec)
+    const replacedSource = replaced.find((candidate) => candidate.handle === source.handle)
+    assert.ok(replacedSource)
+    assert.equal(replacedSource.items.at(-1), appended)
+})
+
+test("a protected turn below the trigger stays whole even when it exceeds the target", () => {
+    const turns = [
+        turn("msg-user-old", "user", [textItem("msg-user-old", "old request")], 1),
+        turn(
+            "msg-assistant-old",
+            "assistant",
+            [toolItem("msg-assistant-old", "read", "old output ".repeat(5_000))],
+            2,
+        ),
+        turn("msg-user-middle", "user", [textItem("msg-user-middle", "middle request")], 3),
+        turn(
+            "msg-assistant-tail",
+            "assistant",
+            [
+                textItem("msg-assistant-tail-old", "tail detail ".repeat(1_000)),
+                textItem("msg-assistant-tail-new", "newest tail detail"),
+            ],
+            4,
+        ),
+        turn("msg-user-new", "user", [textItem("msg-user-new", "latest request")], 5),
+    ]
+
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 10_000, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, "msg-user-middle")
+    assert.equal(plan.rawTailItemBoundary, undefined)
+})

@@ -1,4 +1,4 @@
-import { rangeHash, type PlanSnapshot, type PlanStore, type Turn } from "@better-compact/core"
+import { matchesPlanSnapshot, type PlanSnapshot, type PlanStore, type Turn } from "@better-compact/core"
 import type { SessionManager } from "@earendil-works/pi-coding-agent"
 
 export const PLAN_ENTRY_TYPE = "better-compact-plan"
@@ -42,8 +42,7 @@ export function createPlanStore(
             const stored = pending
             pending = undefined
             if (!stored) return
-            const tailIndex = turns.findIndex((turn) => turn.key === stored.rawTailStartMessageId)
-            if (tailIndex <= 0 || rangeHash(turns.slice(0, tailIndex)) !== stored.rangeHash) return
+            if (!matchesPlanSnapshot(turns, stored)) return
             snapshot = { ...stored, sessionId: sessionKey }
         },
     }

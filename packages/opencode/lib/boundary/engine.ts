@@ -65,6 +65,7 @@ export async function processBoundaryTransform(input: {
 }
 
 function stampForkIdentity(snapshot: PlanSnapshot, messages: WithParts[]) {
+    if (snapshot.rawTailItemBoundary !== undefined) return snapshot
     const tailIndex = messages.findIndex((message) => message.info.id === snapshot.rawTailStartMessageId)
     if (tailIndex <= 0) return snapshot
     const prefix = messages.slice(0, tailIndex)

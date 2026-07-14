@@ -29,6 +29,8 @@ export type PiMessage = ContextEvent["messages"][number]
 
 type AssistantMessage = Extract<PiMessage, { role: "assistant" }>
 type AssistantContent = AssistantMessage["content"][number]
+type UserMessage = Extract<PiMessage, { role: "user" }>
+type UserContentBlock = TextContent | ImageContent
 type UserContent = string | (TextContent | ImageContent)[]
 
 // One IR tool item owns the ToolCall block and its paired ToolResultMessage:
@@ -201,7 +203,10 @@ function decodeTurn(turn: Turn): PiMessage[] {
     for (const message of group) {
         if (message.role === "assistant") {
             out.push(rebuildAssistant(message, turn.items))
-        } else if (message.role === "user" || survives(message, turn.items)) {
+        } else if (message.role === "user") {
+            const rebuilt = rebuildUser(message, turn.items)
+            if (rebuilt) out.push(rebuilt)
+        } else if (survives(message, turn.items)) {
             out.push(message)
         }
     }
@@ -237,6 +242,36 @@ function rebuildAssistant(message: AssistantMessage, items: Item[]): AssistantMe
         else if (item.kind === "tool") content.push(pairOf(item).call)
         else if (item.kind === "synthetic") content.push({ type: "text", text: item.text })
         else if (!isWholeMessage(item.handle)) content.push(item.handle as AssistantContent)
+    }
+    return { ...message, content }
+}
+
+function rebuildUser(message: UserMessage, items: Item[]): UserMessage | null {
+    const content: UserContentBlock[] = []
+    for (const item of items) {
+        if (item.kind === "synthetic") {
+            content.push({ type: "text", text: item.text })
+        } else if (item.kind === "text") {
+            content.push(
+                item.handle === message && typeof message.content === "string"
+                    ? { type: "text", text: message.content }
+                    : (item.handle as TextContent),
+            )
+        } else if (item.kind === "opaque" && !isWholeMessage(item.handle)) {
+            content.push(item.handle as ImageContent)
+        }
+    }
+    if (content.length === 0) return null
+    if (typeof message.content === "string") {
+        return content.length === 1 && items[0]?.kind === "text" && items[0].handle === message
+            ? message
+            : { ...message, content }
+    }
+    if (
+        content.length === message.content.length &&
+        content.every((block, index) => block === message.content[index])
+    ) {
+        return message
     }
     return { ...message, content }
 }
@@ -296,7 +331,7 @@ function charsOfTurn(turn: Turn): number {
         if (message.role === "assistant") {
             for (const item of turn.items) chars += charsOfAssistantItem(item)
         } else if (message.role === "user") {
-            chars += charsOfUserContent(message.content)
+            chars += charsOfUserItems(turn.items)
         } else if (opaqueSurvives(message, turn.items)) {
             // Paired tool results are priced inside their tool item; only
             // messages surviving as opaque items count here.
@@ -314,6 +349,20 @@ function charsOfAssistantItem(item: Item): number {
     if (item.kind === "tool") return charsOfToolPair(pairOf(item))
     if (item.kind === "synthetic") return item.text.length
     return isWholeMessage(item.handle) ? 0 : jsonLength(item.handle)
+}
+
+function charsOfUserItems(items: Item[]): number {
+    let chars = 0
+    for (const item of items) {
+        if (item.kind === "synthetic") chars += item.text.length
+        else if (item.kind === "text") chars += textOf(item.handle).length
+        else if (item.kind === "opaque" && !isWholeMessage(item.handle)) {
+            chars += (item.handle as ImageContent).type === "image"
+                ? ESTIMATED_IMAGE_CHARS
+                : jsonLength(item.handle)
+        }
+    }
+    return chars
 }
 
 function charsOfToolPair(pair: ToolPair): number {

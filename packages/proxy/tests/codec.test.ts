@@ -1,6 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildPlan, transformTurns, type Item, type Turn } from "@better-compact/core"
+import {
+    buildPlan,
+    replayPlanSnapshot,
+    toPlanSnapshot,
+    transformTurns,
+    type Item,
+    type Turn,
+} from "@better-compact/core"
 import {
     anthropicCodec,
     anthropicSpec,
@@ -243,6 +250,50 @@ test("estimates price a tool pair as one item and drop when it is stripped", () 
     assert.ok(anthropicCodec.estimateItem(toolItems(turns[1])[0]) >= big.length / 4)
     turns[1].items = turns[1].items.filter((item) => item.kind !== "tool")
     assert.ok(anthropicCodec.estimateTurns(turns) < before / 4)
+})
+
+test("an oversized Anthropic turn stubs a tool pair without duplicating its raw suffix", () => {
+    const rawText = { type: "text", text: "newest assistant detail stays raw" }
+    const messages = [
+        userMessage("old request"),
+        assistantMessage([toolUse("toolu_giant", "Bash", { command: "make" }), rawText]),
+        userMessage([toolResult("toolu_giant", "giant output ".repeat(5_000))]),
+        userMessage("latest request"),
+    ]
+    const turns = anthropicCodec.encode(messages)
+    const source = turns[1]
+    const plan = buildPlan(
+        turns,
+        {
+            contextLimit: 10_000,
+            sessionKey: "ses_oversized_anthropic",
+            citablePath: (key, hash) => `/tmp/${key}/${hash}.md`,
+        },
+        anthropicSpec,
+    )
+    assert.ok(plan)
+    assert.equal(plan.rawTailStartMessageId, source.key)
+    assert.deepEqual(plan.rawTailItemBoundary, {
+        itemKey: source.items[1].key,
+        side: "before",
+    })
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, anthropicSpec)
+    assert.equal(transformed.filter((turn) => turn.handle === source.handle).length, 1)
+    const decoded = anthropicCodec.decode(transformed, messages)
+    const assistant = decoded.find((message) => message.role === "assistant")
+    assert.ok(assistant)
+    assert.equal(blocksOf(assistant).at(-1), rawText)
+    assert.equal(
+        decoded.flatMap((message) =>
+            Array.isArray(message.content) ? message.content : [],
+        ).filter((block) => block.type === "tool_use" || block.type === "tool_result").length,
+        0,
+    )
+
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), anthropicSpec)
+    assert.ok(replayed)
+    assert.deepEqual(anthropicCodec.decode(replayed, messages), decoded)
 })
 
 test("claude code conventions select Skill and TodoWrite tool calls", () => {

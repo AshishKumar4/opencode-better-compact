@@ -37,6 +37,11 @@ export interface BoundaryTranscriptArtifact {
     turns?: Turn[]
 }
 
+export interface RawTailItemBoundary {
+    itemKey: string
+    side: "before" | "after"
+}
+
 export interface BoundaryContextOptions {
     contextLimit?: number
     triggerRatio?: number
@@ -67,6 +72,7 @@ export interface BoundaryContextPlan {
     targetTokens: number
     rawTailStartIndex: number
     rawTailStartMessageId: string
+    rawTailItemBoundary?: RawTailItemBoundary
     requiresCustomCompaction: boolean
     preservedToolCallIds: string[]
     transcript: BoundaryTranscriptArtifact
@@ -84,6 +90,9 @@ export interface PlanSnapshot {
     rangeHash: string
     contextLimit: number
     rawTailStartMessageId: string
+    // Absent for a whole-turn boundary. Partial boundaries record the exact
+    // item before or after which raw context begins.
+    rawTailItemBoundary?: RawTailItemBoundary
     transcriptRelativePath: string
     beforeTokens: number
     afterPruneTokens: number
@@ -115,6 +124,7 @@ export function toPlanSnapshot(plan: BoundaryContextPlan): PlanSnapshot {
         rangeHash: plan.rangeHash,
         contextLimit: plan.contextLimit,
         rawTailStartMessageId: plan.rawTailStartMessageId,
+        rawTailItemBoundary: plan.rawTailItemBoundary,
         transcriptRelativePath: plan.transcript.relativePath,
         beforeTokens: plan.beforeTokens,
         afterPruneTokens: plan.afterPruneTokens,

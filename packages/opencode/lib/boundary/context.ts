@@ -56,6 +56,7 @@ export function applyBoundaryPlanSnapshot(
 // Core snapshots carry the id-based rangeHash; the OpenCode layer adds a
 // content-addressed prefix identity so forked sessions can inherit the plan.
 export function toBoundaryPlanSnapshot(plan: BoundaryContextPlan, messages: WithParts[]): BoundaryPlanSnapshot {
+    if (plan.rawTailItemBoundary !== undefined) return toPlanSnapshot(plan)
     const prefix = messages.slice(0, plan.rawTailStartIndex)
     return {
         ...toPlanSnapshot(plan),
@@ -80,6 +81,7 @@ export async function findMatchingBoundaryPlan(
     const plans = await loadPersistedBoundaryPlans(logger)
     const hashes = new Map<number, string>()
     for (const plan of plans) {
+        if (plan.rawTailItemBoundary !== undefined) continue
         const compactedCount = plan.compactedMessageCount
         if (!plan.prefixFingerprint || !compactedCount || compactedCount >= messages.length) continue
         const hash = hashes.get(compactedCount) ?? boundaryRangeHash(messages.slice(0, compactedCount))

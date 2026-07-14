@@ -8,6 +8,7 @@ import {
     type BoundaryStageReport,
     type BoundarySummaryJob,
     type PlanSnapshot,
+    type RawTailItemBoundary,
 } from "./plan"
 import type { EnginePorts } from "./ports"
 import { formatPrefixSummaryPrompt } from "./summarize"
@@ -30,6 +31,19 @@ const TARGET_RATIO = 0.3
 const MIN_TAIL_MESSAGES = 3
 const MIN_TAIL_USER_TURNS = 2
 const RECENT_TOOL_RESULT_BUDGET_TOKENS = 40_000
+
+interface TailBoundary {
+    turnIndex: number
+    itemIndex: number
+}
+
+interface PartitionedTurns {
+    turns: Turn[]
+    compactedRange: Turn[]
+    rawTailStartIndex: number
+    rawTailKey?: string
+    finalize(turns: Turn[]): Turn[]
+}
 
 // A platform adapter: its codec, its conventions, and its declared ladder
 // stage order. Composition is data; absence from the array is the only
@@ -66,23 +80,36 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     // fresh turns the provider has not priced yet.
     if (!inputs.force && Math.max(beforeTokens, rawEstimateTokens) < triggerTokens) return null
 
-    const rawTailStartIndex = findRawTailStartIndex(
+    const wholeTurnTailStartIndex = findRawTailStartIndex(
         turns,
         Math.max(1, inputs.minTailMessages ?? MIN_TAIL_MESSAGES),
         Math.max(1, inputs.minTailUserTurns ?? MIN_TAIL_USER_TURNS),
     )
-    const compactedRange = turns.slice(0, rawTailStartIndex)
+    const targetTokens = Math.floor(contextLimit * targetRatio)
+    const selectedBoundary = selectTailBoundary(
+        turns,
+        wholeTurnTailStartIndex,
+        triggerTokens,
+        targetTokens,
+        spec.codec,
+    )
+    const prior = inputs.priorPlan
+    const priorBoundary = prior ? resolveTailBoundary(turns, prior) : null
+    const boundary =
+        priorBoundary && compareBoundaries(selectedBoundary, priorBoundary) < 0
+            ? priorBoundary
+            : selectedBoundary
+    const partition = partitionTurns(turns, boundary)
+    const rawTailStartIndex = boundary.turnIndex
+    const compactedRange = partition.compactedRange
     if (compactedRange.length === 0) return null
 
     const compactedRangeHash = rangeHash(compactedRange)
     const transcriptRelativePath = inputs.citablePath(inputs.sessionKey, compactedRangeHash)
-    const working = cloneTurns(turns)
+    const working = partition.turns
     const stages: BoundaryStageReport[] = []
     const summaryJobs: BoundarySummaryJob[] = []
-    const targetTokens = Math.floor(contextLimit * targetRatio)
-    const prior = inputs.priorPlan
-    const priorTailIndex = prior ? turns.findIndex((item) => item.key === prior.rawTailStartMessageId) : -1
-    const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
+    const expandedPrefix = priorBoundary !== null && compareBoundaries(boundary, priorBoundary) > 0
     const priorPrefixSummary = prior?.prefixSummary
         ? stripTranscriptReference(prior.prefixSummary, prior.transcriptRelativePath)
         : undefined
@@ -102,7 +129,11 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
         spec.codec,
         spec.conventions,
     )
-    applyPreservationFloor(turns, preservedToolCallIds, prior, priorTailIndex)
+    applyPreservationFloor(
+        preservedToolCallIds,
+        priorBoundary ? partitionTurns(turns, priorBoundary).compactedRange : [],
+        prior,
+    )
     const priorStages = new Set(
         (prior?.stages ?? [])
             .filter((stage) => stage.status !== "skipped" && stage.status !== "failed")
@@ -112,7 +143,7 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
         codec: spec.codec,
         conventions: spec.conventions,
         estimator,
-        rawTailStartIndex,
+        rawTailStartIndex: partition.rawTailStartIndex,
         transcriptRelativePath,
         preservedToolCallIds,
         latestTodoCallId: findLatestTodoCallId(compactedRange, spec.conventions),
@@ -125,7 +156,7 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     }
     // The applied output always carries a reference message; gates must account
     // for it so a "trigger met" claim holds for the real transformed context.
-    const reference = synthesizeReferenceTurn(turns, compactedRange, ctx)
+    const reference = synthesizeReferenceTurn(turns, compactedRange, ctx, compactedRangeHash)
     ctx.referenceTokens = reference ? spec.codec.estimateTurns([reference]) : 0
     const projectedTokens = () => estimateTurns(working, spec.codec, estimator) + ctx.referenceTokens
 
@@ -142,8 +173,8 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
         ?? rolledPrefixSummary
         ?? (expandedPrefix ? undefined : priorPrefixSummary)
     if (projectedTokens() >= triggerTokens || prior?.requiresCustomCompaction) {
-        const newlyCompactedTurns = expandedPrefix
-            ? turns.slice(priorTailIndex, rawTailStartIndex)
+        const newlyCompactedTurns = expandedPrefix && priorBoundary
+            ? turnsBetweenBoundaries(turns, priorBoundary, boundary)
             : []
         if (
             prefixSummaryJobKey &&
@@ -165,14 +196,16 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
                 ),
             })
         }
-        const tailKey = turns[rawTailStartIndex]?.key
-        const currentTailStartIndex = working.findIndex((turn) => turn.key === tailKey)
+        const currentTailStartIndex = partition.rawTailKey
+            ? working.findIndex((turn) => turn.key === partition.rawTailKey)
+            : working.length
         const beforePrefix = projectedTokens()
         const result = applyPrefixSummary(
             working,
-            currentTailStartIndex > 0 ? currentTailStartIndex : rawTailStartIndex,
+            currentTailStartIndex > 0 ? currentTailStartIndex : partition.rawTailStartIndex,
             transcriptRelativePath,
             prefixSummary,
+            compactedRangeHash,
         )
         const afterPrefix = estimateTurns(working, spec.codec, estimator)
         prefixSummary = result.prefixSummary
@@ -199,7 +232,8 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
         triggerTokens,
         targetTokens,
         rawTailStartIndex,
-        rawTailStartMessageId: turns[rawTailStartIndex]?.key ?? turns.at(-1)?.key ?? "",
+        rawTailStartMessageId: turns[boundary.turnIndex]?.key ?? turns.at(-1)?.key ?? "",
+        rawTailItemBoundary: recordedItemBoundary(turns, boundary),
         requiresCustomCompaction,
         preservedToolCallIds: [...ctx.preservedToolCallIds],
         transcript: {
@@ -224,27 +258,35 @@ export function transformTurns(
     plan: BoundaryContextPlan,
     spec: LadderSpec,
 ): Turn[] {
-    const originalPrefix = turns.slice(0, rawTailStartIndex)
+    const resolvedBoundary = resolveTailBoundary(turns, plan)
+    if (!resolvedBoundary && plan.rawTailItemBoundary !== undefined) return turns
+    const boundary = resolvedBoundary ?? {
+        turnIndex: rawTailStartIndex,
+        itemIndex: 0,
+    }
+    const partition = partitionTurns(turns, boundary)
+    const originalPrefix = partition.compactedRange
     if (plan.requiresCustomCompaction) {
-        return [
+        return partition.finalize([
             synthesizeSummaryTurn(
                 originalPrefix,
                 plan.prefixSummary || formatPrefixSummary(originalPrefix),
                 plan.transcript.relativePath,
+                plan.rangeHash,
             ),
-            ...turns.slice(rawTailStartIndex),
-        ]
+            ...partition.turns.slice(partition.rawTailStartIndex),
+        ])
     }
     // Replay the recorded strip stages exactly as the planner simulated them,
     // then summarize assistant runs over the stripped prefix. This keeps the
     // applied output identical to the simulation used for the plan's numbers.
     const stageNames = new Set<string>(plan.stages.map((stage) => stage.name))
-    const working = cloneTurns(turns)
+    const working = partition.turns
     const ctx: StageContext = {
         codec: spec.codec,
         conventions: spec.conventions,
         estimator: { overheadTokens: plan.overheadTokens },
-        rawTailStartIndex,
+        rawTailStartIndex: partition.rawTailStartIndex,
         transcriptRelativePath: plan.transcript.relativePath,
         preservedToolCallIds: new Set(plan.preservedToolCallIds),
         latestTodoCallId: findLatestTodoCallId(originalPrefix, spec.conventions),
@@ -259,15 +301,15 @@ export function transformTurns(
         if (stage.name === "assistant-runs") continue
         if (stageNames.has(stage.name)) stage.run(working, ctx)
     }
-    let prefix = working.slice(0, rawTailStartIndex)
+    let prefix = working.slice(0, partition.rawTailStartIndex)
     if (stageNames.has("assistant-runs")) {
         prefix = transformCompactedPrefix(prefix, ctx)
     }
     const result = [...prefix]
-    const reference = synthesizeReferenceTurn(turns, originalPrefix, ctx)
+    const reference = synthesizeReferenceTurn(turns, originalPrefix, ctx, plan.rangeHash)
     if (reference) result.push(reference)
-    result.push(...working.slice(rawTailStartIndex))
-    return result
+    result.push(...working.slice(partition.rawTailStartIndex))
+    return partition.finalize(result)
 }
 
 export interface ReplayOptions {
@@ -283,10 +325,9 @@ export function replayPlanSnapshot(
     spec: LadderSpec,
     options: ReplayOptions = {},
 ): Turn[] | null {
-    const rawTailStartIndex = turns.findIndex((turn) => turn.key === snapshot.rawTailStartMessageId)
-    if (rawTailStartIndex <= 0) return null
-    // A stale plan must never apply to an edited prefix.
-    if (rangeHash(turns.slice(0, rawTailStartIndex)) !== snapshot.rangeHash) return null
+    const boundary = resolveTailBoundary(turns, snapshot)
+    if (!boundary || !matchesPlanSnapshot(turns, snapshot)) return null
+    const rawTailStartIndex = boundary.turnIndex
     const overheadTokens = snapshot.overheadTokens ?? 0
     const transformed = transformTurns(
         turns,
@@ -302,6 +343,7 @@ export function replayPlanSnapshot(
             targetTokens: snapshot.targetTokens,
             rawTailStartIndex,
             rawTailStartMessageId: snapshot.rawTailStartMessageId,
+            rawTailItemBoundary: snapshot.rawTailItemBoundary,
             requiresCustomCompaction: snapshot.requiresCustomCompaction,
             preservedToolCallIds: snapshot.preservedToolCallIds ?? [],
             assistantSummaryKeys: snapshot.assistantSummaryKeys ?? Object.keys(snapshot.assistantSummaries ?? {}),
@@ -323,6 +365,14 @@ export function replayPlanSnapshot(
         return null
     }
     return transformed
+}
+
+export function matchesPlanSnapshot(turns: Turn[], snapshot: PlanSnapshot): boolean {
+    const boundary = resolveTailBoundary(turns, snapshot)
+    if (!boundary) return false
+    const compactedRange = partitionTurns(turns, boundary).compactedRange
+    if (compactedRange.length === 0) return false
+    return rangeHash(compactedRange) === snapshot.rangeHash
 }
 
 export type ProcessResult =
@@ -425,6 +475,161 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
     }
 }
 
+function selectTailBoundary(
+    turns: Turn[],
+    wholeTurnStartIndex: number,
+    triggerTokens: number,
+    targetTokens: number,
+    codec: CodecOps,
+): TailBoundary {
+    let selected: TailBoundary = { turnIndex: wholeTurnStartIndex, itemIndex: 0 }
+    for (let turnIndex = wholeTurnStartIndex; turnIndex < turns.length; turnIndex++) {
+        const turn = turns[turnIndex]
+        if (turn.items.length === 0 || codec.estimateTurns([turn]) <= triggerTokens) continue
+        const itemIndex = rawSuffixItemIndex(turn, targetTokens, codec)
+        if (itemIndex > 0) selected = { turnIndex, itemIndex }
+    }
+    return selected
+}
+
+function rawSuffixItemIndex(turn: Turn, targetTokens: number, codec: CodecOps): number {
+    let firstRawIndex = turn.items.length
+    for (let index = turn.items.length - 1; index >= 0; index--) {
+        const candidate = { ...turn, items: turn.items.slice(index) }
+        if (codec.estimateTurns([candidate]) <= targetTokens) {
+            firstRawIndex = index
+            continue
+        }
+        if (firstRawIndex < turn.items.length) break
+        if (turn.items[index].kind === "tool") return turn.items.length
+        return index > 0 ? index : 0
+    }
+    return firstRawIndex > 0 ? firstRawIndex : 0
+}
+
+function resolveTailBoundary(
+    turns: Turn[],
+    recorded: Pick<PlanSnapshot, "rawTailStartMessageId" | "rawTailItemBoundary">,
+): TailBoundary | null {
+    const turnIndex = turns.findIndex((turn) => turn.key === recorded.rawTailStartMessageId)
+    if (turnIndex < 0) return null
+    const itemBoundary = recorded.rawTailItemBoundary
+    if (itemBoundary === undefined) {
+        return turnIndex > 0 ? { turnIndex, itemIndex: 0 } : null
+    }
+    const turn = turns[turnIndex]
+    const itemIndex = turn.items.findIndex((item) => item.key === itemBoundary.itemKey)
+    if (itemIndex < 0) return null
+    const boundaryIndex = itemBoundary.side === "after" ? itemIndex + 1 : itemIndex
+    return boundaryIndex > 0 ? { turnIndex, itemIndex: boundaryIndex } : null
+}
+
+function recordedItemBoundary(
+    turns: Turn[],
+    boundary: TailBoundary,
+): RawTailItemBoundary | undefined {
+    if (boundary.itemIndex === 0) return undefined
+    const turn = turns[boundary.turnIndex]
+    const firstRawItem = turn.items[boundary.itemIndex]
+    if (firstRawItem) return { itemKey: firstRawItem.key, side: "before" }
+    const lastCompactedItem = turn.items[boundary.itemIndex - 1]
+    return lastCompactedItem
+        ? { itemKey: lastCompactedItem.key, side: "after" }
+        : undefined
+}
+
+function partitionTurns(turns: Turn[], boundary: TailBoundary): PartitionedTurns {
+    const source = turns[boundary.turnIndex]
+    if (!source || boundary.itemIndex === 0) {
+        const cloned = cloneTurns(turns)
+        return {
+            turns: cloned,
+            compactedRange: cloneTurns(turns.slice(0, boundary.turnIndex)),
+            rawTailStartIndex: boundary.turnIndex,
+            rawTailKey: cloned[boundary.turnIndex]?.key,
+            finalize: (transformed) => transformed,
+        }
+    }
+
+    const compactedItems = source.items.slice(0, boundary.itemIndex)
+    const rawItems = source.items.slice(boundary.itemIndex)
+    const fragmentKey = JSON.stringify(compactedItems.map((item) => item.key))
+    const compactedFragment: Turn = {
+        ...source,
+        items: compactedItems,
+        fragmentKey,
+    }
+    const before = cloneTurns(turns.slice(0, boundary.turnIndex))
+    const after = cloneTurns(turns.slice(boundary.turnIndex + 1))
+
+    if (rawItems.length === 0) {
+        const partitioned = [...before, compactedFragment, ...after]
+        const rawTailStartIndex = before.length + 1
+        return {
+            turns: partitioned,
+            compactedRange: cloneTurns(partitioned.slice(0, rawTailStartIndex)),
+            rawTailStartIndex,
+            rawTailKey: after[0]?.key,
+            finalize: (transformed) => transformed,
+        }
+    }
+
+    const rawTailKey = `${source.key}:better-compact-raw:${rawItems[0].key}`
+    const rawFragment: Turn = { ...source, key: rawTailKey, items: rawItems }
+    const partitioned = [...before, compactedFragment, rawFragment, ...after]
+    const rawTailStartIndex = before.length + 1
+    return {
+        turns: partitioned,
+        compactedRange: cloneTurns(partitioned.slice(0, rawTailStartIndex)),
+        rawTailStartIndex,
+        rawTailKey,
+        finalize(transformed) {
+            const rawIndex = transformed.findIndex((turn) => turn.key === rawTailKey)
+            if (rawIndex < 0) return cloneTurns(turns)
+            const compactedIndex = transformed.findIndex(
+                (turn, index) => index < rawIndex && turn.key === source.key,
+            )
+            const compactedItems = compactedIndex >= 0 ? transformed[compactedIndex].items : []
+            const result = transformed.filter((_turn, index) => index !== compactedIndex)
+            const adjustedRawIndex = compactedIndex >= 0 ? rawIndex - 1 : rawIndex
+            result[adjustedRawIndex] = {
+                ...source,
+                items: [...compactedItems, ...transformed[rawIndex].items],
+            }
+            return result
+        },
+    }
+}
+
+function compareBoundaries(left: TailBoundary, right: TailBoundary): number {
+    return left.turnIndex === right.turnIndex
+        ? left.itemIndex - right.itemIndex
+        : left.turnIndex - right.turnIndex
+}
+
+function turnsBetweenBoundaries(
+    turns: Turn[],
+    start: TailBoundary,
+    end: TailBoundary,
+): Turn[] {
+    if (compareBoundaries(end, start) <= 0) return []
+    const delta: Turn[] = []
+    for (let turnIndex = start.turnIndex; turnIndex <= end.turnIndex; turnIndex++) {
+        const turn = turns[turnIndex]
+        const startItem = turnIndex === start.turnIndex ? start.itemIndex : 0
+        const endItem = turnIndex === end.turnIndex ? end.itemIndex : turn.items.length
+        if (endItem <= startItem) continue
+        delta.push({
+            ...turn,
+            items: turn.items.slice(startItem, endItem),
+            fragmentKey: JSON.stringify(
+                turn.items.slice(startItem, endItem).map((item) => item.key),
+            ),
+        })
+    }
+    return delta
+}
+
 function runStage(
     stages: BoundaryStageReport[],
     working: Turn[],
@@ -452,15 +657,14 @@ function runStage(
 // in the replacement: drop newly-preserved call ids that live inside the
 // prior plan's compacted prefix unless the prior plan preserved them too.
 function applyPreservationFloor(
-    turns: Turn[],
     preservedToolCallIds: Set<string>,
+    priorCompactedRange: Turn[],
     prior: PlanSnapshot | undefined,
-    priorTailIndex: number,
 ): void {
-    if (!prior || priorTailIndex <= 0) return
+    if (!prior || priorCompactedRange.length === 0) return
     const previouslyPreserved = new Set(prior.preservedToolCallIds ?? [])
-    for (let index = 0; index < priorTailIndex; index++) {
-        for (const item of turns[index].items) {
+    for (const turn of priorCompactedRange) {
+        for (const item of turn.items) {
             if (
                 item.kind === "tool" &&
                 item.callId &&
@@ -484,6 +688,7 @@ function applyPrefixSummary(
     rawTailStartIndex: number,
     transcriptRelativePath: string,
     prefixSummary?: string,
+    compactedRangeHash?: string,
 ): StageMutationResult & { prefixSummary: string } {
     if (rawTailStartIndex <= 0) {
         return { changedTurns: new Set<string>(), changedItems: 0, prefixSummary: prefixSummary ?? "" }
@@ -493,7 +698,12 @@ function applyPrefixSummary(
         prefixSummary?.trim() || formatPrefixSummary(compacted),
         transcriptRelativePath,
     )
-    const summaryTurn = synthesizeSummaryTurn(compacted, summary, transcriptRelativePath)
+    const summaryTurn = synthesizeSummaryTurn(
+        compacted,
+        summary,
+        transcriptRelativePath,
+        compactedRangeHash,
+    )
     const changedTurns = new Set(compacted.map((turn) => turn.key))
     const changedItems = compacted.reduce((sum, turn) => sum + turn.items.length, 0)
     const tail = working.slice(rawTailStartIndex)
@@ -502,10 +712,15 @@ function applyPrefixSummary(
     return { changedTurns, changedItems, prefixSummary: summary }
 }
 
-function synthesizeReferenceTurn(turns: Turn[], compacted: Turn[], ctx: StageContext): Turn | null {
+function synthesizeReferenceTurn(
+    turns: Turn[],
+    compacted: Turn[],
+    ctx: StageContext,
+    compactedRangeHash = rangeHash(compacted),
+): Turn | null {
     if (!turns.some((turn) => turn.role === "user")) return null
 
-    const hash = rangeHash(compacted)
+    const hash = compactedRangeHash
     const first = compacted[0]?.key ?? "unknown"
     const last = compacted.at(-1)?.key ?? "unknown"
     const key = `better_compact_context_${hash}`
@@ -615,8 +830,13 @@ function oneLineReference(value: string): string {
     return value.replace(/\s+/g, " ").trim()
 }
 
-function synthesizeSummaryTurn(compacted: Turn[], summary: string, transcriptRelativePath: string): Turn {
-    const key = `better_compact_summary_${rangeHash(compacted)}`
+function synthesizeSummaryTurn(
+    compacted: Turn[],
+    summary: string,
+    transcriptRelativePath: string,
+    compactedRangeHash = rangeHash(compacted),
+): Turn {
+    const key = `better_compact_summary_${compactedRangeHash}`
     const referenceBlock = `## Reference Files\n- "${transcriptRelativePath}"`
     const normalizedSummary = stripTranscriptReference(summary, transcriptRelativePath)
     return {

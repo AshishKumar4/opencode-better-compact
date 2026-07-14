@@ -24,6 +24,10 @@ export interface Turn {
     // report messages): they carry no user intent, so they neither count as
     // protected user turns for tail selection nor feed prefix summaries.
     ephemeral?: boolean
+    // Core-only identity for a virtual item-boundary fragment. Native codecs
+    // never receive fragmented turns; the marker only scopes replay hashes
+    // and assistant-summary keys while stages operate on the fragment.
+    fragmentKey?: string
     // Original native message; absent on ladder-synthesized turns.
     handle?: unknown
 }
