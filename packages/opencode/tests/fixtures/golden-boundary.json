@@ -279,6 +279,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 80,
+          "afterTokens": 80,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 80,
+          "afterTokens": 80,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 80,
@@ -689,6 +709,26 @@
           "status": "applied"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 4566,
@@ -939,6 +979,26 @@
           "changedMessages": 1,
           "changedParts": 1,
           "status": "applied"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
         },
         {
           "name": "tools-old",
@@ -1348,6 +1408,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 9166,
+          "afterTokens": 9166,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 9166,
+          "afterTokens": 9166,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 9166,
           "afterTokens": 9166,
           "clearedTokens": 0,
@@ -1784,6 +1864,26 @@
           "status": "applied"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 4566,
@@ -2032,6 +2132,26 @@
           "changedMessages": 1,
           "changedParts": 1,
           "status": "applied"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 4566,
+          "afterTokens": 4566,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
         },
         {
           "name": "tools-old",
@@ -2562,6 +2682,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 11702,
@@ -2834,6 +2974,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 11702,
           "afterTokens": 11702,
           "clearedTokens": 0,
@@ -4476,6 +4636,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 11702,
@@ -4744,6 +4924,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 11702,
           "afterTokens": 11702,
           "clearedTokens": 0,
@@ -5301,6 +5501,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 11702,
@@ -5495,6 +5715,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 11702,
           "afterTokens": 11702,
           "clearedTokens": 0,
@@ -5964,6 +6204,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 11702,
@@ -6158,6 +6418,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 11702,
+          "afterTokens": 11702,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 11702,
           "afterTokens": 11702,
           "clearedTokens": 0,
@@ -6628,6 +6908,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 60000,
+          "afterTokens": 60000,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 60000,
+          "afterTokens": 60000,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 60000,
@@ -6907,6 +7207,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 60000,
+          "afterTokens": 60000,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 60000,
+          "afterTokens": 60000,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 60000,
           "afterTokens": 60000,
           "clearedTokens": 0,
@@ -7517,6 +7837,26 @@
           "status": "skipped"
         },
         {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 5107,
+          "afterTokens": 5107,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
+          "beforeTokens": 5107,
+          "afterTokens": 5107,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
           "name": "tools-old",
           "label": "Pruned old tool calls/results",
           "beforeTokens": 5107,
@@ -7846,6 +8186,26 @@
         {
           "name": "skills",
           "label": "Pruned loaded skills",
+          "beforeTokens": 5107,
+          "afterTokens": 5107,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "supersede-reads",
+          "label": "Superseded repeated tool reads",
+          "beforeTokens": 5107,
+          "afterTokens": 5107,
+          "clearedTokens": 0,
+          "changedMessages": 0,
+          "changedParts": 0,
+          "status": "skipped"
+        },
+        {
+          "name": "purge-error-inputs",
+          "label": "Purged stale failed tool inputs",
           "beforeTokens": 5107,
           "afterTokens": 5107,
           "clearedTokens": 0,

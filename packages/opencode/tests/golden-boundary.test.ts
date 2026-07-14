@@ -374,7 +374,7 @@ const scenarios: Scenario[] = [
         expect: (plan) => {
             assert.ok(plan)
             const names = plan.stages.map((stage) => stage.name)
-            assert.deepEqual(names, ["skills", "tools-old"])
+            assert.deepEqual(names, ["skills", "supersede-reads", "purge-error-inputs", "tools-old"])
             assert.equal(plan.stages.at(-1)?.status, "target-met")
             assert.equal(plan.preservedToolCallIds.length, 1)
         },

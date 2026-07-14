@@ -21,7 +21,7 @@ test("boundary job factory creates an immediately useful correlated snapshot", (
     assert.equal(job.id, "bc_test")
     assert.equal(job.sessionId, "session-1")
     assert.equal(job.startedAt, 123)
-    assert.equal(job.stages.length, 11)
+    assert.equal(job.stages.length, 13)
     assert.equal(
         job.stages.every((stage) => stage.status === "pending"),
         true,

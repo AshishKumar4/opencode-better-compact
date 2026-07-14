@@ -2,7 +2,9 @@ import {
     assistantRunsStage,
     contentHashKey,
     keyDeduper,
+    purgeErrorInputsStage,
     reasoningStage,
+    supersedeReadsStage,
     toolsOldStage,
     toolsRemainingStage,
     truncate,
@@ -86,7 +88,14 @@ export const piSpec: LadderSpec = {
             }
         },
     },
-    stages: [toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
+    stages: [
+        supersedeReadsStage,
+        purgeErrorInputsStage,
+        toolsOldStage,
+        reasoningStage,
+        toolsRemainingStage,
+        assistantRunsStage,
+    ],
 }
 
 // A Turn is one user message, or one assistant message plus the non-user

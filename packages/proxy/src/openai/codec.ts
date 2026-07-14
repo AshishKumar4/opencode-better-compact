@@ -2,7 +2,9 @@ import {
     assistantRunsStage,
     contentHashKey,
     keyDeduper,
+    purgeErrorInputsStage,
     reasoningStage,
+    supersedeReadsStage,
     toolsOldStage,
     toolsRemainingStage,
     truncate,
@@ -99,7 +101,14 @@ export const codexConventions: Conventions = {
 export const openaiSpec: LadderSpec = {
     codec: openaiCodec,
     conventions: codexConventions,
-    stages: [toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
+    stages: [
+        supersedeReadsStage,
+        purgeErrorInputsStage,
+        toolsOldStage,
+        reasoningStage,
+        toolsRemainingStage,
+        assistantRunsStage,
+    ],
 }
 
 // A Turn is a role-run over the flat item array: consecutive user `message`

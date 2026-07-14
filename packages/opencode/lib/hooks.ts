@@ -582,7 +582,7 @@ async function runBetterCompact(input: {
             await saveProgress()
         }
 
-        for (const skippedStage of ["skills", "tools-old", "reasoning", "tools-remaining", "assistant-runs", "prefix-summary"]) {
+        for (const skippedStage of ["skills", "supersede-reads", "purge-error-inputs", "tools-old", "reasoning", "tools-remaining", "assistant-runs", "prefix-summary"]) {
             if (appliedStageIds.has(skippedStage)) continue
             setBoundaryStage(input.state, skippedStage, "skipped", "Not needed")
         }

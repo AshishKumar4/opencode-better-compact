@@ -3,6 +3,8 @@ import type { Turn } from "./ir"
 export type BoundaryStageName =
     | "reasoning"
     | "skills"
+    | "supersede-reads"
+    | "purge-error-inputs"
     | "tools-old"
     | "tools-remaining"
     | "assistant-runs"

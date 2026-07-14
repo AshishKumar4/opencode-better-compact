@@ -11,6 +11,8 @@ export const BOUNDARY_PROGRESS_STAGES: Array<Pick<BoundaryJobStage, "id" | "labe
     { id: "scan", label: "Scanned context and token budget" },
     { id: "transcript", label: "Wrote raw transcript reference" },
     { id: "skills", label: "Pruned loaded skills" },
+    { id: "supersede-reads", label: "Superseded repeated tool reads" },
+    { id: "purge-error-inputs", label: "Purged stale failed tool inputs" },
     { id: "tools-old", label: "Pruned old tool calls/results" },
     { id: "reasoning", label: "Pruned thinking tokens" },
     { id: "tools-remaining", label: "Pruned remaining tool calls/results" },

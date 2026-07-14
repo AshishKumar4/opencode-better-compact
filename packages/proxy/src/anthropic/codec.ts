@@ -2,8 +2,10 @@ import {
     assistantRunsStage,
     contentHashKey,
     keyDeduper,
+    purgeErrorInputsStage,
     reasoningStage,
     skillsStage,
+    supersedeReadsStage,
     toolsOldStage,
     toolsRemainingStage,
     truncate,
@@ -112,7 +114,15 @@ export const claudeCodeConventions: Conventions = {
 export const anthropicSpec: LadderSpec = {
     codec: anthropicCodec,
     conventions: claudeCodeConventions,
-    stages: [skillsStage, toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
+    stages: [
+        skillsStage,
+        supersedeReadsStage,
+        purgeErrorInputsStage,
+        toolsOldStage,
+        reasoningStage,
+        toolsRemainingStage,
+        assistantRunsStage,
+    ],
 }
 
 // A Turn is one plain user message, or one assistant message plus the user

@@ -1,7 +1,9 @@
 import {
     assistantRunsStage,
+    purgeErrorInputsStage,
     reasoningStage,
     skillsStage,
+    supersedeReadsStage,
     toolsOldStage,
     toolsRemainingStage,
     truncate,
@@ -108,7 +110,15 @@ export const openCodeConventions: Conventions = {
 export const openCodeSpec: LadderSpec = {
     codec: openCodeCodec,
     conventions: openCodeConventions,
-    stages: [skillsStage, toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
+    stages: [
+        skillsStage,
+        supersedeReadsStage,
+        purgeErrorInputsStage,
+        toolsOldStage,
+        reasoningStage,
+        toolsRemainingStage,
+        assistantRunsStage,
+    ],
 }
 
 export function sessionKeyOf(messages: WithParts[]): string {

@@ -47,6 +47,20 @@ export const skillsStage: Stage = {
         stubToolItems(working, ctx, (item) => ctx.conventions.isSkillItem?.(item) ?? false),
 }
 
+export const supersedeReadsStage: Stage = {
+    name: "supersede-reads",
+    label: "Superseded repeated tool reads",
+    always: true,
+    run: (working, ctx) => supersedeToolReads(working, ctx),
+}
+
+export const purgeErrorInputsStage: Stage = {
+    name: "purge-error-inputs",
+    label: "Purged stale failed tool inputs",
+    always: true,
+    run: (working, ctx) => purgeErrorInputs(working, ctx),
+}
+
 export const toolsOldStage: Stage = {
     name: "tools-old",
     label: "Pruned old tool calls/results",
@@ -216,6 +230,7 @@ function stubToolItems(
     working: Turn[],
     ctx: StageContext,
     matches: (item: Extract<Item, { kind: "tool" }>) => boolean,
+    outcome?: (item: Extract<Item, { kind: "tool" }>) => string | undefined,
 ): StageMutationResult {
     const changedTurns = new Set<string>()
     let changedItems = 0
@@ -227,11 +242,64 @@ function stubToolItems(
             if (item.kind !== "tool" || !matches(item)) return item
             changed = true
             changedItems++
-            return toolStub(item, ctx.conventions)
+            return toolStub(item, ctx.conventions, outcome?.(item))
         })
         if (changed) changedTurns.add(turn.key)
     }
     return { changedTurns, changedItems }
+}
+
+function supersedeToolReads(working: Turn[], ctx: StageContext): StageMutationResult {
+    const newestByTarget = new Map<string, { name: string; target: string; itemKey: string }>()
+    for (let turnIndex = ctx.rawTailStartIndex - 1; turnIndex >= 0; turnIndex--) {
+        const turn = working[turnIndex]
+        if (!turn || turn.role !== "assistant") continue
+        for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex--) {
+            const item = turn.items[itemIndex]
+            if (item.kind !== "tool") continue
+            const details = ctx.conventions.tool?.(item)
+            const target = primaryToolTarget(details?.input)
+            if (!details || !target) continue
+            const name = oneLine(details.name).trim()
+            const identity = JSON.stringify([name, target.normalized])
+            if (!newestByTarget.has(identity)) {
+                newestByTarget.set(identity, { name, target: target.normalized, itemKey: item.key })
+            }
+        }
+    }
+
+    return stubToolItems(
+        working,
+        ctx,
+        (item) => {
+            const details = ctx.conventions.tool?.(item)
+            const target = primaryToolTarget(details?.input)
+            if (!details || !target) return false
+            const name = oneLine(details.name).trim()
+            const newest = newestByTarget.get(JSON.stringify([name, target.normalized]))
+            return newest !== undefined && newest.itemKey !== item.key
+        },
+        (item) => {
+            const details = ctx.conventions.tool?.(item)
+            const target = primaryToolTarget(details?.input)
+            if (!details || !target) return undefined
+            const name = oneLine(details.name).trim()
+            const newest = newestByTarget.get(JSON.stringify([name, target.normalized]))
+            if (!newest || newest.itemKey === item.key) return undefined
+            const error = details.error === undefined ? "" : `; error: ${firstLine(details.error)}`
+            return `superseded by later ${newest.name} on ${newest.target}${error}`
+        },
+    )
+}
+
+function purgeErrorInputs(working: Turn[], ctx: StageContext): StageMutationResult {
+    return stubToolItems(
+        working,
+        ctx,
+        (item) =>
+            !ctx.preservedToolCallIds.has(item.callId) &&
+            ctx.conventions.tool?.(item).error !== undefined,
+    )
 }
 
 function stripToolItems(
@@ -281,31 +349,33 @@ function stripToolItems(
     return { changedTurns, changedItems }
 }
 
-function toolStub(item: Extract<Item, { kind: "tool" }>, conventions: Conventions): Item {
+function toolStub(
+    item: Extract<Item, { kind: "tool" }>,
+    conventions: Conventions,
+    outcomeOverride?: string,
+): Item {
     const details = conventions.tool?.(item)
     const name = oneLine(details?.name || "tool")
-    const target = primaryToolTarget(details?.input) ?? `callId=${oneLine(item.callId)}`
-    const outcome = details?.error === undefined ? "ok" : `error: ${firstLine(details.error)}`
+    const target = primaryToolTarget(details?.input)?.display ?? `callId=${oneLine(item.callId)}`
+    const outcome =
+        outcomeOverride ??
+        (details?.error === undefined ? "ok" : `error: ${firstLine(details.error)}`)
     const text = `[tool:${name}] ${target} — ${outcome}`
     return { kind: "synthetic", key: syntheticTextKey(item.key, text), text }
 }
 
-function primaryToolTarget(input: unknown): string | null {
+function primaryToolTarget(input: unknown): { display: string; normalized: string } | null {
     const parsed = parseToolInput(input)
     if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
-        const target = oneLine(String(parsed)).trim()
-        return target || null
+        const display = oneLine(String(parsed)).trim()
+        return display ? { display, normalized: display } : null
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
 
     const record = parsed as Record<string, unknown>
+    const pathKeys = ["filePath", "file_path", "path", "filename", "directory", "dir"]
     const keys = [
-        "filePath",
-        "file_path",
-        "path",
-        "filename",
-        "directory",
-        "dir",
+        ...pathKeys,
         "command",
         "cmd",
         "key",
@@ -320,10 +390,29 @@ function primaryToolTarget(input: unknown): string | null {
         const value = record[key]
         if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")
             continue
-        const target = oneLine(String(value)).trim()
-        if (target) return target
+        const display = oneLine(String(value)).trim()
+        if (display) {
+            const normalized = pathKeys.includes(key) ? normalizePath(display) : display
+            return { display, normalized }
+        }
     }
     return null
+}
+
+function normalizePath(value: string): string {
+    const path = value.replace(/\\/g, "/")
+    const absolute = path.startsWith("/")
+    const segments: string[] = []
+    for (const segment of path.split("/")) {
+        if (!segment || segment === ".") continue
+        if (segment === ".." && segments.length > 0 && segments.at(-1) !== "..") {
+            segments.pop()
+        } else if (segment !== ".." || !absolute) {
+            segments.push(segment)
+        }
+    }
+    const normalized = `${absolute ? "/" : ""}${segments.join("/")}`
+    return normalized || (absolute ? "/" : ".")
 }
 
 function parseToolInput(input: unknown): unknown {

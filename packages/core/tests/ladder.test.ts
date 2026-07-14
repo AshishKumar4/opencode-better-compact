@@ -7,7 +7,9 @@ import {
     createEngine,
     reasoningStage,
     replayPlanSnapshot,
+    purgeErrorInputsStage,
     skillsStage,
+    supersedeReadsStage,
     toolsOldStage,
     toolsRemainingStage,
     toPlanSnapshot,
@@ -116,7 +118,15 @@ const conventions: Conventions = {
 const spec: LadderSpec = {
     codec,
     conventions,
-    stages: [skillsStage, toolsOldStage, reasoningStage, toolsRemainingStage, assistantRunsStage],
+    stages: [
+        skillsStage,
+        supersedeReadsStage,
+        purgeErrorInputsStage,
+        toolsOldStage,
+        reasoningStage,
+        toolsRemainingStage,
+        assistantRunsStage,
+    ],
 }
 
 const sessionKey = "ses_boundary_context"
@@ -870,6 +880,148 @@ test("tool stubs replay byte-stably", () => {
     assert.ok(replayed)
     assert.equal(JSON.stringify(replayed), JSON.stringify(first))
     assert.match(JSON.stringify(replayed), /\[tool:read\] src\/secret\.ts — error: EACCES: denied/)
+})
+
+test("duplicate tool reads keep only the newest result and stub older failures", () => {
+    const turns = [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [
+                errorToolItem("msg-assistant-1", "read", "EACCES: denied\nstack", {
+                    filePath: "src/./app.ts",
+                }),
+            ],
+            2,
+        ),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "next turn")], 3),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [toolItem("msg-assistant-2", "read", "newest contents", { filePath: "src/app.ts" })],
+            4,
+        ),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "middle user")], 5),
+        turn("msg-assistant-3", "assistant", [textItem("msg-assistant-3", "middle assistant")], 6),
+        turn("msg-user-4", "user", [textItem("msg-user-4", "latest user")], 7),
+    ]
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 100_000 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const liveTools = transformed
+        .flatMap((item) => item.items)
+        .filter((item) => item.kind === "tool")
+    const older = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-1"))
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), spec, { allowRegrown: true })
+
+    assert.equal(liveTools.length, 1)
+    assert.match(String((liveTools[0].handle as TestToolPart).output), /newest contents/)
+    assert.equal(
+        older,
+        "[tool:read] src/./app.ts — superseded by later read on src/app.ts; error: EACCES: denied",
+    )
+    assert.deepEqual(
+        plan.stages.slice(0, 4).map((stage) => stage.name),
+        ["skills", "supersede-reads", "purge-error-inputs", "tools-old"],
+    )
+    assert.ok(
+        plan.stages.some((stage) => stage.name === "supersede-reads" && stage.status === "applied"),
+    )
+    assert.ok(replayed)
+    assert.equal(JSON.stringify(replayed), JSON.stringify(transformed))
+})
+
+test("stale failed tools keep the error but lose their input payload", () => {
+    const turns = [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [
+                errorToolItem("msg-assistant-1", "bash", "ENOENT: missing config\nstack", {
+                    command: "npm run test",
+                    secret: "must-not-survive",
+                }),
+            ],
+            2,
+        ),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "middle user")], 3),
+        turn("msg-assistant-2", "assistant", [textItem("msg-assistant-2", "middle assistant")], 4),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "latest user")], 5),
+    ]
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const text = syntheticTextOf(transformed.find((item) => item.key === "msg-assistant-1"))
+
+    assert.equal(text, "[tool:bash] npm run test — error: ENOENT: missing config")
+    assert.doesNotMatch(JSON.stringify(transformed), /must-not-survive/)
+    assert.ok(
+        plan.stages.some(
+            (stage) => stage.name === "purge-error-inputs" && stage.status === "applied",
+        ),
+    )
+})
+
+test("purging stale failures preserves the newest failed tool inside the recent window", () => {
+    const turns = [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [
+                errorToolItem("msg-assistant-1", "read", "ENOENT: old missing", {
+                    filePath: "src/old.ts",
+                    secret: "old-secret",
+                }),
+            ],
+            2,
+        ),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "next turn")], 3),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [
+                errorToolItem("msg-assistant-2", "read", "EACCES: newest denied", {
+                    filePath: "src/new.ts",
+                    secret: "new-secret",
+                }),
+            ],
+            4,
+        ),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "middle user")], 5),
+        turn("msg-assistant-3", "assistant", [textItem("msg-assistant-3", "middle assistant")], 6),
+        turn("msg-user-4", "user", [textItem("msg-user-4", "latest user")], 7),
+    ]
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 1 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const liveTools = transformed
+        .flatMap((item) => item.items)
+        .filter((item) => item.kind === "tool")
+    const serialized = JSON.stringify(transformed)
+
+    assert.deepEqual(plan.preservedToolCallIds, ["msg-assistant-2-read-call"])
+    assert.equal(liveTools.length, 1)
+    assert.match(serialized, /new-secret/)
+    assert.doesNotMatch(serialized, /old-secret/)
+    assert.match(serialized, /\[tool:read\] src\/old\.ts — error: ENOENT: old missing/)
 })
 
 test("engine prunes on provider-reported usage the raw estimate alone misses", async () => {
