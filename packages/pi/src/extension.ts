@@ -73,6 +73,12 @@ export default function betterCompact(pi: ExtensionAPI) {
 
     pi.on("session_start", async (_event, ctx) => {
         plans.restore(ctx.sessionManager)
+        const messages = ctx.sessionManager
+            .buildContextEntries()
+            .flatMap(sessionEntryToContextMessages)
+        if (messages.length > 0) {
+            plans.adopt(ctx.sessionManager.getSessionId(), piCodec.encode(messages))
+        }
         config = await loadCompactionConfig(ctx)
         profile = resolveCompactionProfile({ compaction: config })
     })
@@ -95,6 +101,7 @@ export default function betterCompact(pi: ExtensionAPI) {
             if (!contextLimit || contextLimit <= 0) return
             const sessionKey = ctx.sessionManager.getSessionId()
             const turns = piCodec.encode(event.messages)
+            plans.adopt(sessionKey, turns)
             const result = await createEngine(piSpec, enginePorts(ctx)).process({
                 sessionKey,
                 turns,
@@ -136,6 +143,7 @@ export default function betterCompact(pi: ExtensionAPI) {
             }
 
             const turns = piCodec.encode(messages)
+            plans.adopt(sessionKey, turns)
             const transcripts = createTranscriptStore(ctx.sessionManager.getSessionDir())
             const priorPlan = await plans.load(sessionKey)
             const inputs = {

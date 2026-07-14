@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { createEngine, toPlanSnapshot, type PlanSnapshot } from "@better-compact/core"
+import {
+    createEngine,
+    rangeHash,
+    toPlanSnapshot,
+    type PlanSnapshot,
+    type Turn,
+} from "@better-compact/core"
 import type { SessionManager } from "@earendil-works/pi-coding-agent"
 import { piCodec, piSpec } from "../src/codec"
 import { createPlanStore, PLAN_ENTRY_TYPE } from "../src/plan-store"
@@ -25,10 +31,27 @@ function fakeSession(sessionId: string) {
     }
 }
 
+function turns(prefixKey = "prefix-key"): Turn[] {
+    return [
+        {
+            key: prefixKey,
+            stamp: 0,
+            role: "user",
+            items: [{ kind: "text", key: `${prefixKey}-text`, text: "prefix", handle: null }],
+        },
+        {
+            key: "turn-key",
+            stamp: 0,
+            role: "user",
+            items: [{ kind: "text", key: "tail-text", text: "tail", handle: null }],
+        },
+    ]
+}
+
 function snapshotOf(sessionId: string): PlanSnapshot {
     return {
         sessionId,
-        rangeHash: "abc123",
+        rangeHash: rangeHash(turns().slice(0, 1)),
         contextLimit: 6_000,
         rawTailStartMessageId: "turn-key",
         transcriptRelativePath: "/sessions/x/better-compact/abc123.md",
@@ -50,6 +73,7 @@ test("plans persist through appendEntry and restore from the branch", () => {
 
     const restored = createPlanStore(appendEntry)
     restored.restore(session)
+    restored.adopt("session-1", turns())
     assert.deepEqual(restored.load("session-1"), snapshotOf("session-1"))
 })
 
@@ -61,6 +85,7 @@ test("the last plan entry on the branch wins and null clears", () => {
 
     const restored = createPlanStore(appendEntry)
     restored.restore(session)
+    restored.adopt("session-1", turns())
     assert.equal(restored.load("session-1"), null)
 })
 
@@ -73,7 +98,20 @@ test("a fork rebases the restored plan onto the live session id", () => {
     fork.entries.push(...origin.entries)
     const store = createPlanStore(fork.appendEntry)
     store.restore(fork.session)
+    store.adopt("session-fork", turns())
     assert.equal((store.load("session-fork") as PlanSnapshot).sessionId, "session-fork")
+})
+
+test("a fork refuses a persisted plan whose compacted prefix diverged", () => {
+    const origin = fakeSession("session-origin")
+    createPlanStore(origin.appendEntry).save("session-origin", snapshotOf("session-origin"))
+
+    const fork = fakeSession("session-fork")
+    fork.entries.push(...origin.entries)
+    const store = createPlanStore(fork.appendEntry)
+    store.restore(fork.session)
+    store.adopt("session-fork", turns("edited-prefix"))
+    assert.equal(store.load("session-fork"), null)
 })
 
 test("a persisted plan survives restart and replays identically through the engine", async () => {
@@ -92,6 +130,7 @@ test("a persisted plan survives restart and replays identically through the engi
     // Restart: a fresh store reconstructs from the persisted entries.
     const restartedStore = createPlanStore(appendEntry)
     restartedStore.restore(session)
+    restartedStore.adopt("session-1", piCodec.encode(messages))
     assert.deepEqual(
         { ...(restartedStore.load("session-1") as PlanSnapshot), createdAt: 0 },
         { ...toPlanSnapshot(first.plan), createdAt: 0 },

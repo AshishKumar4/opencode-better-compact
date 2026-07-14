@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import type { PlanSnapshot } from "@better-compact/core"
 import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import betterCompact from "../src/extension"
 import type { PiMessage } from "../src/codec"
@@ -139,6 +140,52 @@ test("the context event prunes over-trigger sessions and persists the plan as a 
     for (const handler of sessionHandlers) await handler({ reason: "resume" }, ctx)
     const replayed = await contextHandler({ type: "context", messages }, ctx)
     assert.deepEqual(replayed?.messages, result!.messages)
+})
+
+test("a fork adopts a persisted plan only after its live prefix validates", async () => {
+    const { contextHandler, sessionHandlers, entries, ctx } = await harness()
+    const messages = overTriggerConversation()
+    const original = await contextHandler({ type: "context", messages }, ctx)
+    const entryCount = entries.length
+    const forkCtx = {
+        ...(ctx as unknown as Record<string, unknown>),
+        sessionManager: {
+            ...(ctx.sessionManager as unknown as Record<string, unknown>),
+            getSessionId: () => "session-fork",
+            buildContextEntries: () => [],
+        },
+    } as unknown as ExtensionContext
+
+    for (const handler of sessionHandlers) await handler({ reason: "fork" }, forkCtx)
+    const inherited = await contextHandler({ type: "context", messages }, forkCtx)
+
+    assert.deepEqual(inherited?.messages, original?.messages)
+    assert.equal(entries.length, entryCount, "a validated inherited plan must replay without rebuild")
+})
+
+test("a fork does not adopt a persisted plan after its live prefix diverges", async () => {
+    const { contextHandler, sessionHandlers, entries, ctx } = await harness()
+    const messages = overTriggerConversation()
+    await contextHandler({ type: "context", messages }, ctx)
+    const entryCount = entries.length
+    const forkCtx = {
+        ...(ctx as unknown as Record<string, unknown>),
+        sessionManager: {
+            ...(ctx.sessionManager as unknown as Record<string, unknown>),
+            getSessionId: () => "session-diverged",
+            buildContextEntries: () => [],
+        },
+    } as unknown as ExtensionContext
+    const diverged = structuredClone(messages)
+    const first = diverged[0]
+    if (first?.role === "user") first.content = "edited fork prefix"
+
+    for (const handler of sessionHandlers) await handler({ reason: "fork" }, forkCtx)
+    await contextHandler({ type: "context", messages: diverged }, forkCtx)
+
+    assert.equal(entries.length, entryCount + 1, "a diverged fork must build its own plan")
+    const latest = entries.at(-1)?.data as { snapshot?: PlanSnapshot }
+    assert.equal(latest.snapshot?.sessionId, "session-diverged")
 })
 
 test("under-trigger sessions pass through untouched", async () => {
