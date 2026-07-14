@@ -365,7 +365,7 @@ function toolStub(
     return { kind: "synthetic", key: syntheticTextKey(item.key, text), text }
 }
 
-function primaryToolTarget(input: unknown): { display: string; normalized: string } | null {
+export function primaryToolTarget(input: unknown): { display: string; normalized: string } | null {
     const parsed = parseToolInput(input)
     if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
         const display = oneLine(String(parsed)).trim()
@@ -496,7 +496,7 @@ function selectAssistantRunsToSummarize(
     return selected
 }
 
-function assistantGroups(turns: Turn[]): Array<{ key: string; turns: Turn[]; endIndex: number }> {
+export function assistantGroups(turns: Turn[]): Array<{ key: string; turns: Turn[]; endIndex: number }> {
     const groups: Array<{ key: string; turns: Turn[]; endIndex: number }> = []
     let current: Turn[] = []
     const flush = (endIndex: number) => {

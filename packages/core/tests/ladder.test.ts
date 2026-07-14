@@ -284,6 +284,55 @@ function buildMultiRunConversation(): Turn[] {
     ]
 }
 
+function buildReferenceIndexConversation(): Turn[] {
+    const longTodo = "follow-up ".repeat(70).trim()
+    return [
+        turn("msg-user-1", "user", [textItem("msg-user-1", "Implement the parser change.")], 1),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [
+                textItem(
+                    "msg-assistant-1",
+                    "Implemented the parser change. Follow-up narration.\nExtra details.",
+                ),
+                toolItem("msg-assistant-1", "read", "source", { filePath: "src/./parser.ts" }),
+            ],
+            2,
+        ),
+        turn(
+            "msg-assistant-1b",
+            "assistant",
+            [toolItem("msg-assistant-1b", "bash", "passing", { command: "pnpm test" })],
+            3,
+        ),
+        turn("msg-user-2", "user", [textItem("msg-user-2", "Verify the edge case.")], 4),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [
+                textItem("msg-assistant-2", "Verified the edge case."),
+                toolItem("msg-assistant-2", "grep", "match", { pattern: "needle" }),
+                toolItem("msg-assistant-2", "todowrite", "saved", {
+                    todos: [
+                        { content: "current task", status: "in_progress", priority: "high" },
+                        { content: longTodo, status: "pending", priority: "medium" },
+                    ],
+                }),
+            ],
+            5,
+        ),
+        turn("msg-user-3", "user", [textItem("msg-user-3", "Keep this raw.")], 6),
+        turn(
+            "msg-assistant-tail",
+            "assistant",
+            [textItem("msg-assistant-tail", "Raw assistant tail.")],
+            7,
+        ),
+        turn("msg-user-4", "user", [textItem("msg-user-4", "Latest user turn.")], 8),
+    ]
+}
+
 test("planner does nothing before 85 percent usage", () => {
     const plan = buildPlan(
         [turn("msg-user-small", "user", [textItem("msg-user-small", "small")], 1)],
@@ -340,6 +389,50 @@ test("planner compactifies old assistant/tool context and preserves raw tail", (
         referenceText,
         new RegExp(plan.transcript.relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     )
+})
+
+test("reference turn indexes every compacted assistant run and surfaces the latest todo", () => {
+    const turns = buildReferenceIndexConversation()
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const referenceIndex = transformed.findIndex((item) =>
+        item.key.startsWith("better_compact_context_"),
+    )
+    assert.ok(referenceIndex >= 0)
+    assert.equal(transformed[referenceIndex + 1]?.key, "msg-user-3")
+
+    const referenceText = syntheticTextOf(transformed[referenceIndex])
+    const runLines = referenceText.split("\n").filter((line) => line.startsWith("- msg-assistant"))
+    assert.deepEqual(runLines, [
+        "- msg-assistant-1 through msg-assistant-1b — read src/parser.ts, bash pnpm test — Implemented the parser change.",
+        "- msg-assistant-2 — grep needle, todowrite — Verified the edge case.",
+    ])
+    assert.equal(
+        referenceText.split("\n").at(-1),
+        `Latest todo state preserved: 1. [in_progress/high] current task; 2. [pending/medium] ${"follow-up ".repeat(70).trim()}`,
+    )
+})
+
+test("reference index replays byte-stably", () => {
+    const turns = buildReferenceIndexConversation()
+    const plan = buildPlan(
+        turns,
+        inputs({ contextLimit: 1_000_000, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const replayed = replayPlanSnapshot(turns, toPlanSnapshot(plan), spec, { allowRegrown: true })
+
+    assert.ok(replayed)
+    assert.equal(JSON.stringify(replayed), JSON.stringify(transformed))
 })
 
 test("applied output matches the simulated plan when assistant runs are summarized", () => {

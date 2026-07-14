@@ -11,10 +11,12 @@ import {
 } from "./plan"
 import type { EnginePorts } from "./ports"
 import {
+    assistantGroups,
     findLatestTodoCallId,
     findRawTailStartIndex,
     findRecentToolCallTail,
     formatPrefixSummary,
+    primaryToolTarget,
     transformCompactedPrefix,
     type Stage,
     type StageContext,
@@ -111,7 +113,7 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     }
     // The applied output always carries a reference message; gates must account
     // for it so a "trigger met" claim holds for the real transformed context.
-    const reference = synthesizeReferenceTurn(turns, compactedRange, transcriptRelativePath)
+    const reference = synthesizeReferenceTurn(turns, compactedRange, ctx)
     ctx.referenceTokens = reference ? spec.codec.estimateTurns([reference]) : 0
     const projectedTokens = () => estimateTurns(working, spec.codec, estimator) + ctx.referenceTokens
 
@@ -229,7 +231,7 @@ export function transformTurns(
         prefix = transformCompactedPrefix(prefix, ctx)
     }
     const result = [...prefix]
-    const reference = synthesizeReferenceTurn(turns, originalPrefix, plan.transcript.relativePath)
+    const reference = synthesizeReferenceTurn(turns, originalPrefix, ctx)
     if (reference) result.push(reference)
     result.push(...working.slice(rawTailStartIndex))
     return result
@@ -449,13 +451,15 @@ function applyPrefixSummary(
     return { changedTurns, changedItems, prefixSummary: summary }
 }
 
-function synthesizeReferenceTurn(turns: Turn[], compacted: Turn[], transcriptRelativePath: string): Turn | null {
+function synthesizeReferenceTurn(turns: Turn[], compacted: Turn[], ctx: StageContext): Turn | null {
     if (!turns.some((turn) => turn.role === "user")) return null
 
     const hash = rangeHash(compacted)
     const first = compacted[0]?.key ?? "unknown"
     const last = compacted.at(-1)?.key ?? "unknown"
     const key = `better_compact_context_${hash}`
+    const runIndex = assistantGroups(compacted).map((group) => formatReferenceRun(group.turns, ctx))
+    const latestTodoState = formatLatestTodoState(compacted, ctx)
     return {
         key,
         stamp: 0,
@@ -468,14 +472,96 @@ function synthesizeReferenceTurn(turns: Turn[], compacted: Turn[], transcriptRel
                     "[Better Compact context pruning applied]",
                     `Older assistant/tool-heavy context was compactified for this request. Raw messages ${first} through ${last} are preserved in the reference transcript below.`,
                     "",
+                    "## Compacted Assistant Runs",
+                    ...(runIndex.length > 0 ? runIndex : ["- (none)"]),
+                    "",
                     "## Reference Files",
-                    `- "${transcriptRelativePath}"`,
+                    `- "${ctx.transcriptRelativePath}"`,
                     "",
                     "If exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing.",
+                    ...(latestTodoState ? ["", latestTodoState] : []),
                 ].join("\n"),
             },
         ],
     }
+}
+
+function formatReferenceRun(group: Turn[], ctx: StageContext): string {
+    const first = group[0]?.key ?? "unknown"
+    const last = group.at(-1)?.key ?? first
+    const idRange = first === last ? first : `${first} through ${last}`
+    const touched = new Set<string>()
+    for (const item of group.flatMap((turn) => turn.items)) {
+        if (item.kind === "tool") {
+            const details = ctx.conventions.tool?.(item)
+            const name = referencePhrase(details?.name || "tool", 80)
+            const target = primaryToolTarget(details?.input)?.normalized
+            touched.add(target ? `${name} ${referencePhrase(target, 160)}` : name)
+        }
+        const note = ctx.conventions.itemNote?.(item)
+        if (note) touched.add(referencePhrase(note, 240))
+    }
+    const topicItem = group
+        .flatMap((turn) => turn.items)
+        .find((item) => (item.kind === "text" || item.kind === "synthetic") && item.text.trim())
+    const topic = topicItem && (topicItem.kind === "text" || topicItem.kind === "synthetic")
+        ? referenceTopic(topicItem.text)
+        : "(no assistant text)"
+    const touchedText = formatTouchedReferences([...touched])
+    return `- ${idRange} — ${touchedText} — ${topic}`
+}
+
+function formatLatestTodoState(compacted: Turn[], ctx: StageContext): string | null {
+    if (!ctx.latestTodoCallId || !ctx.conventions.todo) return null
+    for (const item of compacted.flatMap((turn) => turn.items)) {
+        if (
+            item.kind === "tool" &&
+            item.callId === ctx.latestTodoCallId &&
+            ctx.conventions.todo.isTodoItem(item)
+        ) {
+            return `Latest todo state preserved: ${oneLineReference(ctx.conventions.todo.format(item))}`
+        }
+    }
+    return null
+}
+
+function referenceTopic(value: string): string {
+    const firstLine = value
+        .split(/\r\n|\n|\r/)
+        .map((line) => line.trim())
+        .find(Boolean)
+    if (!firstLine) return "(no assistant text)"
+    const firstSentence = firstLine.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? firstLine
+    return referencePhrase(firstSentence, 160)
+}
+
+function formatTouchedReferences(values: string[]): string {
+    if (values.length === 0) return "(no files/tools)"
+    const selected: string[] = []
+    let length = 0
+    for (const value of values) {
+        const separatorLength = selected.length > 0 ? 2 : 0
+        if (selected.length > 0 && length + separatorLength + value.length > 240) {
+            selected.push("…")
+            break
+        }
+        const entry = referencePhrase(value, 240)
+        selected.push(entry)
+        length += separatorLength + entry.length
+    }
+    return selected.join(", ")
+}
+
+function referencePhrase(value: string, maxChars: number): string {
+    const normalized = oneLineReference(value)
+    if (normalized.length <= maxChars) return normalized
+    const prefix = normalized.slice(0, Math.max(0, maxChars - 1))
+    const wordBoundary = prefix.lastIndexOf(" ")
+    return `${(wordBoundary > maxChars / 2 ? prefix.slice(0, wordBoundary) : prefix).trimEnd()}…`
+}
+
+function oneLineReference(value: string): string {
+    return value.replace(/\s+/g, " ").trim()
 }
 
 function synthesizeSummaryTurn(compacted: Turn[], summary: string, transcriptRelativePath: string): Turn {

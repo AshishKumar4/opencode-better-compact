@@ -251,7 +251,7 @@
       "rangeHash": "edbfd9416855e99b",
       "contextLimit": 100000,
       "beforeTokens": 80,
-      "afterPruneTokens": 205,
+      "afterPruneTokens": 226,
       "overheadTokens": 0,
       "triggerTokens": 85000,
       "targetTokens": 30000,
@@ -381,7 +381,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — (no files/tools) — Small answer.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -456,7 +456,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before      80 / 100K    [░░░░░░░░░░░░░░░░░░]   0%\n  Now        205 / 100K    [░░░░░░░░░░░░░░░░░░]   0% projected\n\n  Reduced 0 (0%)\n\n  Actions\n  ✓ Pruned old tool calls/results          not needed\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead."
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before      80 / 100K    [░░░░░░░░░░░░░░░░░░]   0%\n  Now        226 / 100K    [░░░░░░░░░░░░░░░░░░]   0% projected\n\n  Reduced 0 (0%)\n\n  Actions\n  ✓ Pruned old tool calls/results          not needed\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead."
   },
   "tools-old-only": {
     "input": [
@@ -679,7 +679,7 @@
       "rangeHash": "edbfd9416855e99b",
       "contextLimit": 5000,
       "beforeTokens": 6511,
-      "afterPruneTokens": 1070,
+      "afterPruneTokens": 1109,
       "overheadTokens": 0,
       "triggerTokens": 4250,
       "targetTokens": 1500,
@@ -855,7 +855,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — read src/app.ts, skill root-cause-debug, bash npm run test — Investigated the compaction path end to end.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -951,7 +951,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    6.5K / 5K      [██████████████████] 130%\n  Now       1.1K / 5K      [████░░░░░░░░░░░░░░]  21% projected\n\n  Reduced 5.4K (84%)\n\n  Actions\n  ✓ Pruned loaded skills                   -1.9K\n  ✓ Pruned old tool calls/results          -3.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    6.5K / 5K      [██████████████████] 130%\n  Now       1.1K / 5K      [████░░░░░░░░░░░░░░]  22% projected\n\n  Reduced 5.4K (83%)\n\n  Actions\n  ✓ Pruned loaded skills                   -1.9K\n  ✓ Pruned old tool calls/results          -3.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "edbfd9416855e99b",
@@ -959,7 +959,7 @@
       "rawTailStartMessageId": "msg-user-2",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md",
       "beforeTokens": 6511,
-      "afterPruneTokens": 1070,
+      "afterPruneTokens": 1109,
       "overheadTokens": 0,
       "triggerTokens": 4250,
       "targetTokens": 1500,
@@ -1130,7 +1130,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — read src/app.ts, skill root-cause-debug, bash npm run test — Investigated the compaction path end to end.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
               }
             ]
           },
@@ -1388,7 +1388,7 @@
       "rangeHash": "edbfd9416855e99b",
       "contextLimit": 6200,
       "beforeTokens": 9166,
-      "afterPruneTokens": 2778,
+      "afterPruneTokens": 2834,
       "overheadTokens": 0,
       "triggerTokens": 5270,
       "targetTokens": 1860,
@@ -1535,7 +1535,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — read src/app.ts — assistant-detail assistant-detail assistant-detail assistant-detail assistant-detail assistant-detail assistant-detail assistant-detail assistant-detail…\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -1610,7 +1610,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    9.2K / 6.2K    [██████████████████] 148%\n  Now       2.8K / 6.2K    [████████░░░░░░░░░░]  45% projected\n\n  Reduced 6.4K (70%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.3K\n  ✓ Pruned thinking tokens                 -5.3K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead."
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    9.2K / 6.2K    [██████████████████] 148%\n  Now       2.8K / 6.2K    [████████░░░░░░░░░░]  46% projected\n\n  Reduced 6.3K (69%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.3K\n  ✓ Pruned thinking tokens                 -5.3K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead."
   },
   "through-tools-remaining": {
     "input": [
@@ -1833,7 +1833,7 @@
       "rangeHash": "edbfd9416855e99b",
       "contextLimit": 3000,
       "beforeTokens": 6511,
-      "afterPruneTokens": 892,
+      "afterPruneTokens": 932,
       "overheadTokens": 0,
       "triggerTokens": 2550,
       "targetTokens": 900,
@@ -2007,7 +2007,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — read src/app.ts, skill root-cause-debug, bash npm run test — Investigated the compaction path end to end.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -2103,7 +2103,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    6.5K / 3K      [██████████████████] 217%\n  Now        892 / 3K      [█████░░░░░░░░░░░░░]  30% projected\n\n  Reduced 5.6K (86%)\n\n  Actions\n  ✓ Pruned loaded skills                   -1.9K\n  ✓ Pruned thinking tokens                 -157\n  ✓ Pruned remaining tool calls/results    -3.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    6.5K / 3K      [██████████████████] 217%\n  Now        932 / 3K      [██████░░░░░░░░░░░░]  31% projected\n\n  Reduced 5.6K (86%)\n\n  Actions\n  ✓ Pruned loaded skills                   -1.9K\n  ✓ Pruned thinking tokens                 -157\n  ✓ Pruned remaining tool calls/results    -3.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\n  2 archived messages; raw tail starts at msg-user-2\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "edbfd9416855e99b",
@@ -2111,7 +2111,7 @@
       "rawTailStartMessageId": "msg-user-2",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md",
       "beforeTokens": 6511,
-      "afterPruneTokens": 892,
+      "afterPruneTokens": 932,
       "overheadTokens": 0,
       "triggerTokens": 2550,
       "targetTokens": 900,
@@ -2280,7 +2280,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-1 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — read src/app.ts, skill root-cause-debug, bash npm run test — Investigated the compaction path end to end.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/edbfd9416855e99b.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
               }
             ]
           },
@@ -2651,7 +2651,7 @@
       "rangeHash": "7e93129c2ddaba39",
       "contextLimit": 9000,
       "beforeTokens": 11702,
-      "afterPruneTokens": 591,
+      "afterPruneTokens": 672,
       "overheadTokens": 0,
       "triggerTokens": 7650,
       "targetTokens": 2700,
@@ -2877,7 +2877,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -2952,7 +2952,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 9K      [██████████████████] 130%\n  Now        591 / 9K      [█░░░░░░░░░░░░░░░░░]   7% projected\n\n  Reduced 11.1K (95%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 9K      [██████████████████] 130%\n  Now        672 / 9K      [█░░░░░░░░░░░░░░░░░]   7% projected\n\n  Reduced 11K (94%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "7e93129c2ddaba39",
@@ -2960,7 +2960,7 @@
       "rawTailStartMessageId": "msg-user-3",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md",
       "beforeTokens": 11702,
-      "afterPruneTokens": 591,
+      "afterPruneTokens": 672,
       "overheadTokens": 0,
       "triggerTokens": 7650,
       "targetTokens": 2700,
@@ -3170,7 +3170,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
               }
             ]
           },
@@ -4605,7 +4605,7 @@
       "rangeHash": "7e93129c2ddaba39",
       "contextLimit": 9000,
       "beforeTokens": 11702,
-      "afterPruneTokens": 307,
+      "afterPruneTokens": 388,
       "overheadTokens": 0,
       "triggerTokens": 7650,
       "targetTokens": 2700,
@@ -4825,7 +4825,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -4900,7 +4900,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 9K      [██████████████████] 130%\n  Now        307 / 9K      [█░░░░░░░░░░░░░░░░░]   3% projected\n\n  Reduced 11.4K (97%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.9K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n  1 assistant summaries accepted\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 9K      [██████████████████] 130%\n  Now        388 / 9K      [█░░░░░░░░░░░░░░░░░]   4% projected\n\n  Reduced 11.3K (97%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.9K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n  1 assistant summaries accepted\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "7e93129c2ddaba39",
@@ -4908,7 +4908,7 @@
       "rawTailStartMessageId": "msg-user-3",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md",
       "beforeTokens": 11702,
-      "afterPruneTokens": 307,
+      "afterPruneTokens": 388,
       "overheadTokens": 0,
       "triggerTokens": 7650,
       "targetTokens": 2700,
@@ -5120,7 +5120,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
               }
             ]
           },
@@ -5563,9 +5563,9 @@
         {
           "name": "prefix-summary",
           "label": "Last-resort prefix summary",
-          "beforeTokens": 615,
+          "beforeTokens": 696,
           "afterTokens": 360,
-          "clearedTokens": 255,
+          "clearedTokens": 336,
           "changedMessages": 4,
           "changedParts": 4,
           "status": "failed"
@@ -5691,7 +5691,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 500     [██████████████████] 2340%\n  Now        360 / 500     [█████████████░░░░░]  72% projected\n\n  Reduced 11.3K (97%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n  ✓ Last-resort prefix summary             -255\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 500     [██████████████████] 2340%\n  Now        360 / 500     [█████████████░░░░░]  72% projected\n\n  Reduced 11.3K (97%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n  ✓ Last-resort prefix summary             -336\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "7e93129c2ddaba39",
@@ -5785,9 +5785,9 @@
         {
           "name": "prefix-summary",
           "label": "Last-resort prefix summary",
-          "beforeTokens": 615,
+          "beforeTokens": 696,
           "afterTokens": 360,
-          "clearedTokens": 255,
+          "clearedTokens": 336,
           "changedMessages": 4,
           "changedParts": 4,
           "status": "failed"
@@ -6266,9 +6266,9 @@
         {
           "name": "prefix-summary",
           "label": "Last-resort prefix summary",
-          "beforeTokens": 615,
+          "beforeTokens": 696,
           "afterTokens": 114,
-          "clearedTokens": 501,
+          "clearedTokens": 582,
           "changedMessages": 4,
           "changedParts": 4,
           "status": "applied"
@@ -6394,7 +6394,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 500     [██████████████████] 2340%\n  Now        114 / 500     [████░░░░░░░░░░░░░░]  23% projected\n\n  Reduced 11.6K (99%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n  ✓ Last-resort prefix summary             -501\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before   11.7K / 500     [██████████████████] 2340%\n  Now        114 / 500     [████░░░░░░░░░░░░░░]  23% projected\n\n  Reduced 11.6K (99%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -1.6K\n  ✓ Pruned thinking tokens                 -1K\n  ✓ Summarized assistant turns             -8.6K\n  ✓ Last-resort prefix summary             -582\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\n  5 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "7e93129c2ddaba39",
@@ -6488,9 +6488,9 @@
         {
           "name": "prefix-summary",
           "label": "Last-resort prefix summary",
-          "beforeTokens": 615,
+          "beforeTokens": 696,
           "afterTokens": 114,
-          "clearedTokens": 501,
+          "clearedTokens": 582,
           "changedMessages": 4,
           "changedParts": 4,
           "status": "applied"
@@ -6877,7 +6877,7 @@
       "rangeHash": "7e93129c2ddaba39",
       "contextLimit": 120000,
       "beforeTokens": 60000,
-      "afterPruneTokens": 58556,
+      "afterPruneTokens": 58637,
       "overheadTokens": 48298,
       "triggerTokens": 102000,
       "targetTokens": 36000,
@@ -7112,7 +7112,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
           }
         ]
       },
@@ -7195,7 +7195,7 @@
       "rawTailStartMessageId": "msg-user-3",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md",
       "beforeTokens": 60000,
-      "afterPruneTokens": 58556,
+      "afterPruneTokens": 58637,
       "overheadTokens": 48298,
       "triggerTokens": 102000,
       "targetTokens": 36000,
@@ -7422,7 +7422,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-small are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-big through msg-assistant-big-2 — read src/app.ts, bash npm test — big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail big-assistant-detail…\n- msg-assistant-small — grep needle — small assistant detail\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/7e93129c2ddaba39.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
               }
             ]
           },
@@ -7807,7 +7807,7 @@
       "rangeHash": "9dbf72ae381489f5",
       "contextLimit": 4000,
       "beforeTokens": 5107,
-      "afterPruneTokens": 899,
+      "afterPruneTokens": 1025,
       "overheadTokens": 0,
       "triggerTokens": 3400,
       "targetTokens": 1200,
@@ -8089,7 +8089,7 @@
             "sessionID": "ses_golden_boundary",
             "type": "text",
             "synthetic": true,
-            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-2 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+            "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-2 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — todowrite, read /tmp/big.log — assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress…\n- msg-assistant-2 — Patch recorded: src/app.ts, src/util.ts — later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail…\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing.\n\nLatest todo state preserved: 1. [in_progress/high] current task"
           }
         ]
       },
@@ -8164,7 +8164,7 @@
         ]
       }
     ],
-    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    5.1K / 4K      [██████████████████] 128%\n  Now        899 / 4K      [████░░░░░░░░░░░░░░]  22% projected\n\n  Reduced 4.2K (82%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -70\n  - Pruned thinking tokens                 not needed\n  ✓ Summarized assistant turns             -4.3K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\n  4 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
+    "report": "╭─────────────────────────────────────────────────────────────────────────╮\n│                       Better Compact Complete                          │\n╰─────────────────────────────────────────────────────────────────────────╯\n\n  Context window\n  Before    5.1K / 4K      [██████████████████] 128%\n  Now         1K / 4K      [█████░░░░░░░░░░░░░]  26% projected\n\n  Reduced 4.1K (80%)\n\n  Actions\n  ✓ Pruned old tool calls/results          -70\n  - Pruned thinking tokens                 not needed\n  ✓ Summarized assistant turns             -4.3K\n\n  Reference\n  .opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\n  4 archived messages; raw tail starts at msg-user-3\n\n  Note: Now is Better Compact's projected active-history size. OpenCode's footer\n  updates after the next provider response and also includes system/tool schemas,\n  cache accounting, output, reasoning, and provider overhead.",
     "snapshot": {
       "sessionId": "ses_golden_boundary",
       "rangeHash": "9dbf72ae381489f5",
@@ -8172,7 +8172,7 @@
       "rawTailStartMessageId": "msg-user-3",
       "transcriptRelativePath": ".opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md",
       "beforeTokens": 5107,
-      "afterPruneTokens": 899,
+      "afterPruneTokens": 1025,
       "overheadTokens": 0,
       "triggerTokens": 3400,
       "targetTokens": 1200,
@@ -8439,7 +8439,7 @@
                 "sessionID": "ses_golden_boundary",
                 "type": "text",
                 "synthetic": true,
-                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-2 are preserved in the reference transcript below.\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing."
+                "text": "[Better Compact context pruning applied]\nOlder assistant/tool-heavy context was compactified for this request. Raw messages msg-user-1 through msg-assistant-2 are preserved in the reference transcript below.\n\n## Compacted Assistant Runs\n- msg-assistant-1 — todowrite, read /tmp/big.log — assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress assistant-progress…\n- msg-assistant-2 — Patch recorded: src/app.ts, src/util.ts — later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail later-assistant-detail…\n\n## Reference Files\n- \".opencode/better-compact/sessions/ses_golden_boundary/9dbf72ae381489f5.md\"\n\nIf exact prior wording, raw tool output, or omitted implementation detail is needed, inspect the reference file instead of guessing.\n\nLatest todo state preserved: 1. [in_progress/high] current task"
               }
             ]
           },
