@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
-import { mkdtemp } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -22,10 +21,33 @@ interface Harness {
     commands: Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>
     notifications: string[]
     ctx: ExtensionContext
+    agentDir: string
 }
 
-async function harness(): Promise<Harness> {
+interface HarnessOptions {
+    contextWindow?: number
+    globalConfig?: unknown
+    projectConfig?: unknown
+}
+
+async function harness(options: HarnessOptions = {}): Promise<Harness> {
     const sessionDir = await mkdtemp(join(tmpdir(), "better-compact-pi-"))
+    const agentDir = await mkdtemp(join(tmpdir(), "better-compact-pi-agent-"))
+    const projectDir = await mkdtemp(join(tmpdir(), "better-compact-pi-project-"))
+    process.env.PI_CODING_AGENT_DIR = agentDir
+    if (options.globalConfig !== undefined) {
+        await writeFile(
+            join(agentDir, "better-compact.json"),
+            `${JSON.stringify(options.globalConfig)}\n`,
+        )
+    }
+    if (options.projectConfig !== undefined) {
+        await mkdir(join(projectDir, ".pi"), { recursive: true })
+        await writeFile(
+            join(projectDir, ".pi", "better-compact.json"),
+            `${JSON.stringify(options.projectConfig)}\n`,
+        )
+    }
     const entries: Harness["entries"] = []
     const commands: Harness["commands"] = new Map()
     const notifications: string[] = []
@@ -50,11 +72,17 @@ async function harness(): Promise<Harness> {
     } as unknown as ExtensionAPI
 
     const ctx = {
-        model: { contextWindow: 6_000 },
+        cwd: projectDir,
+        isProjectTrusted: () => true,
+        model: { contextWindow: options.contextWindow ?? 6_000 },
         modelRegistry: {
             getApiKeyAndHeaders: async () => ({ ok: false, error: "no credentials in test" }),
         },
-        getContextUsage: () => ({ tokens: null, contextWindow: 6_000, percent: null }),
+        getContextUsage: () => ({
+            tokens: null,
+            contextWindow: options.contextWindow ?? 6_000,
+            percent: null,
+        }),
         sessionManager: {
             getSessionId: () => "session-ext",
             getSessionDir: () => sessionDir,
@@ -76,6 +104,7 @@ async function harness(): Promise<Harness> {
         commands,
         notifications,
         ctx,
+        agentDir,
     }
 }
 
@@ -120,6 +149,58 @@ test("under-trigger sessions pass through untouched", async () => {
     )
     assert.equal(result, undefined)
     assert.equal(entries.length, 0)
+})
+
+test("missing config uses the light preset", async () => {
+    const { contextHandler, sessionHandlers, entries, ctx } = await harness({
+        contextWindow: 12_000,
+    })
+    for (const handler of sessionHandlers) await handler({ reason: "startup" }, ctx)
+
+    const result = await contextHandler({ type: "context", messages: overTriggerConversation() }, ctx)
+    assert.equal(result, undefined)
+    assert.equal(entries.length, 0)
+})
+
+test("global config selects the compaction preset", async () => {
+    const { contextHandler, sessionHandlers, ctx } = await harness({
+        contextWindow: 12_000,
+        globalConfig: { preset: "moderate" },
+    })
+    for (const handler of sessionHandlers) await handler({ reason: "startup" }, ctx)
+
+    const result = await contextHandler({ type: "context", messages: overTriggerConversation() }, ctx)
+    assert.ok(result?.messages, "moderate must trigger where light stays below threshold")
+})
+
+test("project config overrides the global preset", async () => {
+    const { contextHandler, sessionHandlers, ctx } = await harness({
+        contextWindow: 12_000,
+        globalConfig: { preset: "light" },
+        projectConfig: { preset: "moderate" },
+    })
+    for (const handler of sessionHandlers) await handler({ reason: "startup" }, ctx)
+
+    const result = await contextHandler({ type: "context", messages: overTriggerConversation() }, ctx)
+    assert.ok(result?.messages, "moderate must trigger where light stays below threshold")
+})
+
+test("the preset command writes the agent-level config", async () => {
+    const { commands, notifications, ctx, agentDir } = await harness({
+        globalConfig: { automatic: false, preset: "light", extra: "preserve" },
+    })
+    const command = commands.get("better-compact-preset")
+    assert.ok(command, "extension must register the better-compact-preset command")
+
+    await command!.handler("max", ctx)
+
+    const config = JSON.parse(
+        await readFile(join(agentDir, "better-compact.json"), "utf-8"),
+    ) as Record<string, unknown>
+    assert.equal(config.preset, "max")
+    assert.equal(config.automatic, false)
+    assert.equal(config.extra, "preserve")
+    assert.match(notifications.at(-1) ?? "", /preset set to max/i)
 })
 
 test("the better-compact command force-builds a plan and reports numbers", async () => {

@@ -55,9 +55,24 @@ compaction fires while it is installed, it warns once per session.
 `/better-compact` — force a prune of the current session right now (below the trigger too), with
 before/after token numbers. The plan applies from the next request.
 
+`/better-compact-preset <light|moderate|max>` — select a preset and write it to
+`<pi-agent-dir>/better-compact.json`.
+
+## Configuration
+
+The extension reads `<pi-agent-dir>/better-compact.json` at session start. A trusted project can
+override it with `./.pi/better-compact.json`. Both files use the core compaction shape; for example:
+
+```json
+{
+    "preset": "moderate"
+}
+```
+
+The project file wins field by field. With neither file present, the light preset remains the
+default.
+
 ## Limitations
 
-- The compaction profile is fixed to the light preset (trigger 85%, target 35%, 40K recent-tool
-  budget). pi currently has no settings surface for extensions, so there is nothing to configure.
 - Token counts are a chars/4 estimate over pi's own model serialization, not provider-reported
   usage.
