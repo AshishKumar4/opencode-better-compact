@@ -7,6 +7,15 @@ const DEFAULT_CONCURRENCY = 4
 const MIN_SUMMARY_CHARS = 80
 const MAX_SUMMARY_CHARS = 4_000
 
+export const SUMMARY_SECTION_HEADERS = [
+    "## Decisions",
+    "## Files & Symbols",
+    "## Errors (verbatim)",
+    "## What failed and why",
+    "## Constraints",
+    "## Next step",
+] as const
+
 export interface SummarizeProgressEvent {
     total: number
     done: number
@@ -65,19 +74,42 @@ export async function summarizeJobs(input: SummarizeJobsInput): Promise<Record<s
     return summaries
 }
 
-export function formatAssistantSummaryPrompt(turns: Turn[], transcriptRelativePath: string, codec: CodecOps): string {
+export function formatAssistantSummaryPrompt(
+    turns: Turn[],
+    transcriptRelativePath: string,
+    codec: CodecOps,
+): string {
     const first = turns[0]?.key ?? "unknown"
     const last = turns.at(-1)?.key ?? first
     return [
         "Summarize this historical assistant turn for future context replay.",
-        "Preserve concrete conclusions, files, symbols, decisions, errors, fixes, and next-step state.",
+        "Return only the fixed Markdown schema below, with itemized entries under every heading.",
+        "Use '- (none)' when the transcript contains no evidence for a section.",
+        "Preserve exact paths, symbols, error strings, and IDs verbatim, including tool/call, message, session, and request IDs.",
+        "Preserve concrete conclusions, decisions, failures, constraints, and next-step state without inventing facts.",
         "Do not include raw tool JSON, command output dumps, or filler narration.",
         "Do not rewrite or invent user intent. User messages stay raw elsewhere.",
+        `Keep the completed summary within ${MAX_SUMMARY_CHARS} characters.`,
         `Raw transcript reference: ${transcriptRelativePath}`,
         `Range: ${first} through ${last}`,
         "",
+        formatSummarySections(
+            SUMMARY_SECTION_HEADERS.map(() => ["(fill from transcript or use (none))"]),
+        ),
+        "",
+        "Source transcript:",
+        "",
         formatTranscript(turns, codec),
     ].join("\n")
+}
+
+export function formatSummarySections(sections: readonly (readonly string[])[]): string {
+    return SUMMARY_SECTION_HEADERS.flatMap((header, index) => {
+        const items = sections[index] ?? []
+        return [header, ...(items.length > 0 ? items.map((item) => `- ${item}`) : ["- (none)"]), ""]
+    })
+        .slice(0, -1)
+        .join("\n")
 }
 
 function dedupeJobs(jobs: BoundarySummaryJob[]): BoundarySummaryJob[] {
@@ -90,15 +122,21 @@ function dedupeJobs(jobs: BoundarySummaryJob[]): BoundarySummaryJob[] {
 }
 
 function validateSummary(text: string, job: BoundarySummaryJob, logger: Logger): string | null {
-    const summary = text.trim()
-    if (summary.length < MIN_SUMMARY_CHARS) {
+    const summary = text.trim().slice(0, MAX_SUMMARY_CHARS).trimEnd()
+    const lines = summary.split(/\r\n|\n|\r/).map((line) => line.trim())
+    let headerIndex = -1
+    const hasRequiredSections = SUMMARY_SECTION_HEADERS.every((header) => {
+        headerIndex = lines.indexOf(header, headerIndex + 1)
+        return headerIndex >= 0
+    })
+    if (summary.length < MIN_SUMMARY_CHARS || !hasRequiredSections) {
         logger.warn("Discarded invalid Better Compact scratch summary", {
             rangeStartMessageId: job.rangeStartMessageId,
             rangeEndMessageId: job.rangeEndMessageId,
             length: summary.length,
+            hasRequiredSections,
         })
         return null
     }
-    if (summary.length > MAX_SUMMARY_CHARS) return summary.slice(0, MAX_SUMMARY_CHARS).trimEnd()
     return summary
 }

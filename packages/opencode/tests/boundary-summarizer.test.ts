@@ -14,7 +14,12 @@ test("scratch summaries use the resolved summary effort variant", async () => {
                 prompts.push(input)
                 return {
                     data: {
-                        parts: [{ type: "text", text: "Detailed summary content. ".repeat(8) }],
+                        parts: [
+                            {
+                                type: "text",
+                                text: "## Decisions\n- Keep the implementation.\n\n## Files & Symbols\n- src/index.ts\n\n## Errors (verbatim)\n- (none)\n\n## What failed and why\n- (none)\n\n## Constraints\n- Preserve behavior.\n\n## Next step\n- Run tests.",
+                            },
+                        ],
                     },
                 }
             },

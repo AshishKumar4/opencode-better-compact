@@ -79,8 +79,7 @@ function defaultResponder(req: Captured): {
         }
     }
     const summary =
-        "Summary: investigated the modules, ran the builds, and confirmed the outputs matched expectations. " +
-        "Key decisions and file paths are preserved for replay."
+        "## Decisions\n- Keep the implementation.\n\n## Files & Symbols\n- src/index.ts\n\n## Errors (verbatim)\n- (none)\n\n## What failed and why\n- (none)\n\n## Constraints\n- Preserve behavior.\n\n## Next step\n- Run tests."
     return {
         status: 200,
         headers: { "content-type": "application/json" },

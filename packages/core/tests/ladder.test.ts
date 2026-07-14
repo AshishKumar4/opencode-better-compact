@@ -399,9 +399,14 @@ test("prefix summary fires when pruning cannot get the applied output below trig
     assert.ok(plan.stages.some((stage) => stage.name === "prefix-summary"))
 
     const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+    const summary = syntheticTextOf(transformed[0])
 
     assert.equal(plan.afterPruneTokens, codec.estimateTurns(transformed))
     assert.ok(transformed[0]?.key.startsWith("better_compact_summary_"))
+    assert.match(
+        summary,
+        /## Decisions[\s\S]*## Files & Symbols[\s\S]*## Errors \(verbatim\)[\s\S]*## What failed and why[\s\S]*## Constraints[\s\S]*## Next step/,
+    )
     assert.equal(transformed.at(-1)?.key, "msg-user-4")
 })
 

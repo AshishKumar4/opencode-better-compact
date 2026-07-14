@@ -2,7 +2,7 @@ import { countTokens, estimateTurns, truncate, type Estimator } from "./estimate
 import { assistantRunKey, syntheticTextKey } from "./identity"
 import type { CodecOps, Conventions, Item, Turn } from "./ir"
 import type { BoundaryStageName, BoundarySummaryJob } from "./plan"
-import { formatAssistantSummaryPrompt } from "./summarize"
+import { formatAssistantSummaryPrompt, formatSummarySections } from "./summarize"
 
 const ASSISTANT_TEXT_PREVIEW_CHARS = 1_200
 
@@ -190,19 +190,20 @@ export function formatPrefixSummary(turns: Turn[]): string {
         .map((turn) => turnText(turn).trim())
         .filter(Boolean)
 
-    return [
-        "Older context was compacted as a last resort. Exact raw history is available in the reference transcript.",
-        "",
-        "## Preserved User Messages From Prefix",
-        ...(userMessages.length > 0
-            ? userMessages.map((text) => `- ${truncate(text, 600)}`)
-            : ["- (none)"]),
-        "",
-        "## Assistant Progress From Prefix",
-        ...(assistantFacts.length > 0
-            ? assistantFacts.map((text) => `- ${truncate(text, 600)}`)
-            : ["- (none)"]),
-    ].join("\n")
+    return formatSummarySections([
+        [],
+        [],
+        [],
+        [],
+        userMessages.map(formatSummaryItem),
+        assistantFacts.map(
+            (text) => `Resume from prior assistant progress: ${formatSummaryItem(text)}`,
+        ),
+    ])
+}
+
+function formatSummaryItem(text: string): string {
+    return truncate(oneLine(text).trim(), 600).replace("\n[...omitted]", " [...omitted]")
 }
 
 function stripAssistantItems(
