@@ -276,7 +276,7 @@ test("manual sentinel forces a plan and is stripped from the latest user message
     const harness = await startHarness()
     const messages: WireMessage[] = [
         userMessage("old request"),
-        assistantMessage("old reply"),
+        assistantMessage(`old reply ${"detail ".repeat(5_000)}`),
         userMessage("second-to-last request"),
         assistantMessage("recent reply"),
         userMessage([
@@ -507,6 +507,148 @@ test("dumps the rewritten body when upstream rejects it with a 4xx", async () =>
         messages: WireMessage[]
     }
     assert.ok(dumped.messages.length < bigConversation().length)
+})
+
+test("an overflow forces one fresh compaction and retries through the normal forward path", async () => {
+    const harness = await startHarness()
+    const overflow = JSON.stringify({
+        type: "error",
+        error: { type: "invalid_request_error", message: "prompt is too long" },
+    })
+    harness.upstream.respond = (req) =>
+        harness.upstream.requests.length === 1
+            ? {
+                  status: 400,
+                  headers: { "content-type": "application/json", "x-overflow": "original" },
+                  chunks: [Buffer.from(overflow)],
+              }
+            : defaultResponder(req)
+    const messages: WireMessage[] = [
+        userMessage("old request"),
+        assistantMessage(`old reply ${"detail ".repeat(5_000)}`),
+        userMessage("second request"),
+        assistantMessage("recent reply"),
+        userMessage("latest request"),
+    ]
+    const body = Buffer.from(JSON.stringify(messagesBody(messages)))
+
+    const response = await post(harness.proxyPort, "/anthropic/v1/messages", body, {
+        ...CLIENT_HEADERS,
+        "x-session": "s-overflow-retry",
+    })
+
+    assert.equal(response.status, 200)
+    assert.equal(harness.upstream.requests.length, 2)
+    assert.deepEqual(harness.upstream.requests[0].body, body)
+    assert.equal(harness.upstream.requests[1].headers.authorization, CLIENT_HEADERS.authorization)
+    assert.equal(harness.upstream.requests[1].headers.accept, CLIENT_HEADERS.accept)
+    const retried = JSON.parse(harness.upstream.requests[1].body.toString("utf-8")) as {
+        messages: WireMessage[]
+    }
+    assert.notDeepEqual(retried.messages, messages)
+    assert.ok(harness.upstream.requests[1].body.length < body.length)
+    const retriedText = JSON.stringify(retried)
+    assert.ok(retriedText.split("detail ").length - 1 < 5_000)
+    assert.ok(retriedText.includes("latest request"))
+})
+
+test("a second overflow forwards the original provider response unchanged", async () => {
+    const harness = await startHarness()
+    const firstError = Buffer.from(
+        JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "Prompt is too long" },
+            request_id: "req_original",
+        }),
+    )
+    const secondError = Buffer.from(
+        JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "Input is too large" },
+            request_id: "req_retry",
+        }),
+    )
+    harness.upstream.respond = () => ({
+        status: 400,
+        headers: {
+            "content-type": "application/json",
+            "x-error-source": harness.upstream.requests.length === 1 ? "original" : "retry",
+        },
+        chunks: [harness.upstream.requests.length === 1 ? firstError : secondError],
+    })
+    const messages: WireMessage[] = [
+        userMessage("old request"),
+        assistantMessage(`old reply ${"detail ".repeat(5_000)}`),
+        userMessage("second request"),
+        assistantMessage("recent reply"),
+        userMessage("latest request"),
+    ]
+
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody(messages))),
+        { ...CLIENT_HEADERS, "x-session": "s-overflow-twice" },
+    )
+
+    assert.equal(harness.upstream.requests.length, 2)
+    assert.equal(response.status, 400)
+    assert.equal(response.headers["x-error-source"], "original")
+    assert.deepEqual(response.body, firstError)
+})
+
+test("a non-overflow 400 passes through without retry", async () => {
+    const harness = await startHarness()
+    const error = Buffer.from(
+        JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "The model field is required." },
+        }),
+    )
+    harness.upstream.respond = () => ({
+        status: 400,
+        headers: { "content-type": "application/json", "x-error-source": "upstream" },
+        chunks: [error],
+    })
+
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody([userMessage("hi")]))),
+        { ...CLIENT_HEADERS, "x-session": "s-non-overflow" },
+    )
+
+    assert.equal(harness.upstream.requests.length, 1)
+    assert.equal(response.status, 400)
+    assert.equal(response.headers["x-error-source"], "upstream")
+    assert.deepEqual(response.body, error)
+})
+
+test("an overflow is returned without retry when no prefix can be pruned", async () => {
+    const harness = await startHarness()
+    const error = Buffer.from(
+        JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "Prompt is too long" },
+        }),
+    )
+    harness.upstream.respond = () => ({
+        status: 400,
+        headers: { "content-type": "application/json", "x-error-source": "original" },
+        chunks: [error],
+    })
+
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody([userMessage("only request")]))),
+        { ...CLIENT_HEADERS, "x-session": "s-overflow-no-prefix" },
+    )
+
+    assert.equal(harness.upstream.requests.length, 1)
+    assert.equal(response.status, 400)
+    assert.equal(response.headers["x-error-source"], "original")
+    assert.deepEqual(response.body, error)
 })
 
 test("feeds relayed usage into the next request's trigger accounting", async () => {

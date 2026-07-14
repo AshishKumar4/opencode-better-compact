@@ -10,6 +10,7 @@ import { brotliDecompress, gunzip, inflate, zstdDecompress } from "node:zlib"
 import {
     buildPlan,
     createEngine,
+    isContextOverflowError,
     summarizeJobs,
     toPlanSnapshot,
     type BoundaryContextPlan,
@@ -77,6 +78,14 @@ interface Rewrite {
     sessionKey: string | null
     model: string | null
     contextLimit: number | null
+    estimatedTokens: number | null
+}
+
+interface BufferedResponse {
+    status: number
+    headers: IncomingHttpHeaders
+    rawHeaders: string[]
+    body: Buffer
 }
 
 const MANUAL_TRIGGER = "[[better-compact:run]]"
@@ -127,54 +136,141 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
 
         let upstream: IncomingMessage
         try {
-            upstream = await requestUpstream(options.upstream, {
-                method: "POST",
-                path,
-                // When we rewrote the body it is fresh plaintext, so any
-                // client content-encoding no longer applies; content-length is
-                // re-derived from the Buffer. Bodies we neither compact nor
-                // strip a manual trigger from forward verbatim.
-                headers: forwardableHeaders(
-                    req.rawHeaders,
-                    rewrite.rewritten ? ["content-encoding"] : undefined,
-                ),
-                body: rewrite.body,
-            })
+            upstream = await forwardRewrite(req, path, rewrite, options)
         } catch (error) {
             respondGatewayError(res, error, options.logger, dialect)
             return
         }
 
-        const status = upstream.statusCode ?? 502
-        options.logger.info(`${dialect.name} ${dialect.rewritePath}`, {
-            sessionKey: rewrite.sessionKey,
-            pruned: rewrite.pruned,
-            status,
-            originalBytes: raw.length,
-            sentBytes: rewrite.body.length,
-        })
-        if (rewrite.pruned && status >= 400 && status < 500) {
-            void dumpRewrittenBody(rewrite, status, options).catch(() => {})
+        observeUpstream(upstream.statusCode ?? 502, raw, rewrite, options, dialect)
+        if ((upstream.statusCode ?? 502) === 400) {
+            let original: BufferedResponse
+            try {
+                original = await bufferResponse(upstream)
+            } catch (error) {
+                respondGatewayError(res, error, options.logger, dialect)
+                return
+            }
+            if (await isOverflowResponse(original, options.logger)) {
+                const forced = await rewriteBody(raw, req, options, dialect, ports, {
+                    force: true,
+                    scheduleSummaries: false,
+                })
+                if (
+                    forced.pruned &&
+                    forced.estimatedTokens !== null &&
+                    rewrite.estimatedTokens !== null &&
+                    forced.estimatedTokens < rewrite.estimatedTokens
+                ) {
+                    let retry: IncomingMessage
+                    try {
+                        retry = await forwardRewrite(req, path, forced, options)
+                    } catch (error) {
+                        options.logger.warn("Overflow retry failed; forwarding original response", {
+                            sessionKey: rewrite.sessionKey,
+                            error: String(error),
+                        })
+                        relayBuffered(original, res)
+                        return
+                    }
+                    observeUpstream(retry.statusCode ?? 502, raw, forced, options, dialect)
+                    if ((retry.statusCode ?? 502) === 400) {
+                        let bufferedRetry: BufferedResponse
+                        try {
+                            bufferedRetry = await bufferResponse(retry)
+                        } catch (error) {
+                            options.logger.warn(
+                                "Overflow retry response failed; forwarding original response",
+                                { sessionKey: rewrite.sessionKey, error: String(error) },
+                            )
+                            relayBuffered(original, res)
+                            return
+                        }
+                        if (await isOverflowResponse(bufferedRetry, options.logger)) {
+                            relayBuffered(original, res)
+                        } else {
+                            relayBuffered(bufferedRetry, res)
+                        }
+                        return
+                    }
+                    relayWithUsage(retry, res, forced, options, dialect)
+                    return
+                }
+                options.logger.warn("Overflow retry skipped; no further pruning was possible", {
+                    sessionKey: rewrite.sessionKey,
+                })
+            }
+            relayBuffered(original, res)
+            return
         }
 
-        const usage = dialect.createUsageReader(upstream.headers)
-        relay(upstream, res, {
-            onChunk: (chunk) => usage.feed(chunk),
-            onEnd: async () => {
-                const tokens = await usage.finish()
-                if (tokens !== null && rewrite.sessionKey && status < 300) {
-                    options.sessions.recordUsage(
-                        rewrite.sessionKey,
-                        tokens,
-                        rewrite.pruned,
-                        dialect.calibrateContextLimit && rewrite.model && rewrite.contextLimit
-                            ? { model: rewrite.model, assumedLimit: rewrite.contextLimit }
-                            : undefined,
-                    )
-                }
-            },
-        })
+        relayWithUsage(upstream, res, rewrite, options, dialect)
     }
+}
+
+function forwardRewrite(
+    req: IncomingMessage,
+    path: string,
+    rewrite: Rewrite,
+    options: SharedRouteOptions,
+): Promise<IncomingMessage> {
+    return requestUpstream(options.upstream, {
+        method: "POST",
+        path,
+        // When we rewrote the body it is fresh plaintext, so any client
+        // content-encoding no longer applies; content-length is re-derived.
+        headers: forwardableHeaders(
+            req.rawHeaders,
+            rewrite.rewritten ? ["content-encoding"] : undefined,
+        ),
+        body: rewrite.body,
+    })
+}
+
+function observeUpstream<Body>(
+    status: number,
+    raw: Buffer,
+    rewrite: Rewrite,
+    options: SharedRouteOptions,
+    dialect: Dialect<Body>,
+): void {
+    options.logger.info(`${dialect.name} ${dialect.rewritePath}`, {
+        sessionKey: rewrite.sessionKey,
+        pruned: rewrite.pruned,
+        status,
+        originalBytes: raw.length,
+        sentBytes: rewrite.body.length,
+    })
+    if (rewrite.pruned && status >= 400 && status < 500) {
+        void dumpRewrittenBody(rewrite, status, options).catch(() => {})
+    }
+}
+
+function relayWithUsage<Body>(
+    upstream: IncomingMessage,
+    res: ServerResponse,
+    rewrite: Rewrite,
+    options: SharedRouteOptions,
+    dialect: Dialect<Body>,
+): void {
+    const status = upstream.statusCode ?? 502
+    const usage = dialect.createUsageReader(upstream.headers)
+    relay(upstream, res, {
+        onChunk: (chunk) => usage.feed(chunk),
+        onEnd: async () => {
+            const tokens = await usage.finish()
+            if (tokens !== null && rewrite.sessionKey && status < 300) {
+                options.sessions.recordUsage(
+                    rewrite.sessionKey,
+                    tokens,
+                    rewrite.pruned,
+                    dialect.calibrateContextLimit && rewrite.model && rewrite.contextLimit
+                        ? { model: rewrite.model, assumedLimit: rewrite.contextLimit }
+                        : undefined,
+                )
+            }
+        },
+    })
 }
 
 function headerContains(header: string | string[] | undefined, value: string): boolean {
@@ -192,6 +288,7 @@ async function rewriteBody<Body>(
     options: SharedRouteOptions,
     dialect: Dialect<Body>,
     ports: EnginePorts,
+    behavior: { force?: boolean; scheduleSummaries?: boolean } = {},
 ): Promise<Rewrite> {
     let sessionKey: string | null = null
     let fallbackBody = raw
@@ -209,6 +306,7 @@ async function rewriteBody<Body>(
             runtime.calibratedContextLimits.get(model) ?? 0,
         )
         const turns = dialect.encode(body)
+        const estimatedTokens = dialect.spec.codec.estimateTurns(turns)
         const planInputs: BuildPlanInputs = {
             contextLimit,
             triggerRatio: options.profile.triggerPercent / 100,
@@ -224,8 +322,10 @@ async function rewriteBody<Body>(
             triggerRatio: planInputs.triggerRatio,
             targetRatio: planInputs.targetRatio,
             recentToolResultBudgetTokens: planInputs.recentToolResultBudgetTokens,
-            providerReportedTokens: runtime.reportedTokens,
-            force: manualTrigger,
+            providerReportedTokens: behavior.force
+                ? Math.max(runtime.reportedTokens ?? 0, contextLimit)
+                : runtime.reportedTokens,
+            force: behavior.force || manualTrigger,
         })
         if (result.outcome === "unchanged") {
             return {
@@ -235,6 +335,7 @@ async function rewriteBody<Body>(
                 sessionKey,
                 model,
                 contextLimit,
+                estimatedTokens,
             }
         }
 
@@ -242,10 +343,19 @@ async function rewriteBody<Body>(
         if (
             result.outcome === "planned" &&
             result.plan.summaryJobs.length > 0 &&
+            behavior.scheduleSummaries !== false &&
             !runtime.summarizing
         ) {
             runtime.summarizing = true
-            void upgradePlanWithSummaries(result.plan, turns, planInputs, model, req, options, dialect)
+            void upgradePlanWithSummaries(
+                result.plan,
+                turns,
+                planInputs,
+                model,
+                req,
+                options,
+                dialect,
+            )
                 .catch((error) =>
                     options.logger.warn("Plan summary upgrade failed", { error: String(error) }),
                 )
@@ -260,6 +370,7 @@ async function rewriteBody<Body>(
             sessionKey,
             model,
             contextLimit,
+            estimatedTokens: dialect.spec.codec.estimateTurns(result.turns),
         }
     } catch (error) {
         options.logger.error("Rewrite failed; forwarding original request", {
@@ -273,6 +384,7 @@ async function rewriteBody<Body>(
             sessionKey,
             model: null,
             contextLimit: null,
+            estimatedTokens: null,
         }
     }
 }
@@ -390,6 +502,37 @@ function relay(
     })
 }
 
+function bufferResponse(upstream: IncomingMessage): Promise<BufferedResponse> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = []
+        upstream.on("data", (chunk: Buffer) => chunks.push(chunk))
+        upstream.on("end", () =>
+            resolve({
+                status: upstream.statusCode ?? 502,
+                headers: upstream.headers,
+                rawHeaders: upstream.rawHeaders,
+                body: Buffer.concat(chunks),
+            }),
+        )
+        upstream.on("error", reject)
+    })
+}
+
+async function isOverflowResponse(response: BufferedResponse, logger: Logger): Promise<boolean> {
+    try {
+        const decoded = await decodeRequestBody(response.body, response.headers["content-encoding"])
+        return isContextOverflowError(response.status, decoded.toString("utf-8"))
+    } catch (error) {
+        logger.warn("Could not inspect upstream 400 response", { error: String(error) })
+        return false
+    }
+}
+
+function relayBuffered(upstream: BufferedResponse, res: ServerResponse): void {
+    res.writeHead(upstream.status, filterResponseHeaders(upstream.rawHeaders))
+    res.end(upstream.body)
+}
+
 function filterResponseHeaders(rawHeaders: string[]): string[] {
     const filtered: string[] = []
     for (let index = 0; index < rawHeaders.length; index += 2) {
@@ -447,5 +590,9 @@ function respondGatewayError<Body>(
     if (!res.headersSent) {
         res.writeHead(502, { "content-type": "application/json" })
     }
-    res.end(JSON.stringify(dialect.errorBody("api_error", "better-compact-proxy: upstream unreachable")))
+    res.end(
+        JSON.stringify(
+            dialect.errorBody("api_error", "better-compact-proxy: upstream unreachable"),
+        ),
+    )
 }

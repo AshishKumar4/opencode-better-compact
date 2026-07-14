@@ -25,6 +25,10 @@ modified — pruning happens per request, on the messages pi is about to send.
   session's current model, through pi's own credential resolution); the better summaries apply
   from the next request.
 
+pi does not expose provider error bodies or retry control to in-process extensions, so Better
+Compact cannot reactively retry an overflow here. Proactive threshold triggering is the primary
+protection; the standalone proxy adds one forced-compaction retry as a backstop.
+
 ## Install
 
 As a pi package:
