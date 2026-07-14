@@ -590,7 +590,17 @@ async function runBetterCompact(input: {
 
         let finalPlan = plan
         if (plan.summaryJobs.length > 0) {
-            setBoundaryStage(input.state, "assistant-runs", "running", `${plan.summaryJobs.length} assistant turn summaries queued`)
+            const summaryStage = plan.summaryJobs.some(
+                (job) => !job.key.startsWith("prefix-summary:"),
+            )
+                ? "assistant-runs"
+                : "prefix-summary"
+            setBoundaryStage(
+                input.state,
+                summaryStage,
+                "running",
+                `${plan.summaryJobs.length} summary jobs queued`,
+            )
             updateBoundaryCounters(input.state, {
                 summaryJobsTotal: plan.summaryJobs.length,
                 summaryJobsDone: 0,
@@ -598,7 +608,7 @@ async function runBetterCompact(input: {
                 summaryJobsFailed: 0,
                 stageClearedTokens: 0,
             })
-            appendBoundaryLog(input.state, `Running ${plan.summaryJobs.length} assistant-turn summarizers in parallel.`)
+            appendBoundaryLog(input.state, `Running ${plan.summaryJobs.length} summary jobs in parallel.`)
             await saveProgress()
             const assistantSummaries = await summarizeBoundaryJobs({
                 client: input.client,
@@ -642,7 +652,7 @@ async function runBetterCompact(input: {
             }
             setBoundaryStage(
                 input.state,
-                "assistant-runs",
+                summaryStage,
                 "completed",
                 `${Object.keys(assistantSummaries).length}/${plan.summaryJobs.length} summaries accepted`,
             )

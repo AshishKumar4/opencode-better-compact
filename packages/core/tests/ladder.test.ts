@@ -19,6 +19,7 @@ import {
     type Conventions,
     type Item,
     type LadderSpec,
+    type PlanSnapshot,
     type Turn,
 } from "@better-compact/core"
 
@@ -1273,19 +1274,148 @@ test("expanded prefix summaries include newly compacted user context", () => {
         turn("u5", "user", [textItem("u5", "latest user")], 9),
     ]
 
+    const prior = toPlanSnapshot(first)
+    prior.prefixSummary = "PRIOR CHECKPOINT ONLY"
     const replacement = buildPlan(
         grown,
         inputs({
             contextLimit: 100,
             force: true,
             recentToolResultBudgetTokens: 0,
-            priorPlan: toPlanSnapshot(first),
+            priorPlan: prior,
         }),
         spec,
     )
 
     assert.ok(replacement?.requiresCustomCompaction)
     assert.match(replacement.prefixSummary ?? "", /newly crossed requirement/)
+    assert.doesNotMatch(replacement.prefixSummary ?? "", /PRIOR CHECKPOINT ONLY/)
+
+    const repeated = buildPlan(
+        grown,
+        inputs({
+            contextLimit: 100,
+            force: true,
+            recentToolResultBudgetTokens: 0,
+            priorPlan: prior,
+        }),
+        spec,
+    )
+    assert.ok(repeated)
+    assert.equal(repeated.prefixSummary, replacement.prefixSummary)
+    assert.equal(
+        JSON.stringify(transformTurns(grown, repeated.rawTailStartIndex, repeated, spec)),
+        JSON.stringify(transformTurns(grown, replacement.rawTailStartIndex, replacement, spec)),
+    )
+})
+
+test("available summarizer rolls a prior prefix summary over only the newly compacted delta", async () => {
+    const firstTurns = [
+        turn("u1", "user", [textItem("u1", "old user")], 1),
+        turn("a1", "assistant", [textItem("a1", "old detail ".repeat(2_000))], 2),
+        turn("u2", "user", [textItem("u2", "middle user")], 3),
+        turn("a2", "assistant", [textItem("a2", "middle detail ".repeat(2_000))], 4),
+        turn("u3", "user", [textItem("u3", "newly crossed requirement")], 5),
+    ]
+    const first = buildPlan(
+        firstTurns,
+        inputs({ contextLimit: 100, force: true, recentToolResultBudgetTokens: 0 }),
+        spec,
+    )
+    assert.ok(first?.requiresCustomCompaction)
+
+    const priorSummary = [
+        "## Decisions",
+        "- PRIOR CHECKPOINT DECISION",
+        "",
+        "## Files & Symbols",
+        "- src/prior.ts",
+        "",
+        "## Errors (verbatim)",
+        "- (none)",
+        "",
+        "## What failed and why",
+        "- (none)",
+        "",
+        "## Constraints",
+        "- Preserve the prior checkpoint.",
+        "",
+        "## Next step",
+        "- Continue from the delta.",
+    ].join("\n")
+    const rolledSummary = priorSummary.replace(
+        "- PRIOR CHECKPOINT DECISION",
+        "- ROLLED CHECKPOINT WITH NEW DELTA",
+    )
+    let stored: PlanSnapshot = { ...toPlanSnapshot(first), prefixSummary: priorSummary }
+    const capturedJobs: Array<{
+        key: string
+        prompt: string
+        rangeStartMessageId: string
+        rangeEndMessageId: string
+    }> = []
+    const engine = createEngine(spec, {
+        transcripts: {
+            citablePath: (key, hash) => `transcripts/${key}/${hash}.md`,
+            write: async () => ({}),
+        },
+        plans: {
+            load: () => stored,
+            save: (_key, snapshot) => {
+                if (snapshot) stored = snapshot
+            },
+        },
+        logger: { info() {}, debug() {}, warn() {}, error() {} },
+    })
+    const grown = [
+        ...firstTurns,
+        turn("a3", "assistant", [textItem("a3", "later detail ".repeat(2_000))], 6),
+        turn("u4", "user", [textItem("u4", "still raw later user")], 7),
+        turn("a4", "assistant", [textItem("a4", "still raw latest assistant")], 8),
+        turn("u5", "user", [textItem("u5", "still raw latest user")], 9),
+    ]
+
+    const result = await engine.process({
+        sessionKey,
+        turns: grown,
+        contextLimit: 100,
+        recentToolResultBudgetTokens: 0,
+        summarize: async (jobs) => {
+            capturedJobs.push(...jobs)
+            return Object.fromEntries(
+                jobs.map((job) => [
+                    job.key,
+                    job.key.startsWith("prefix-summary:") ? rolledSummary : priorSummary,
+                ]),
+            )
+        },
+    })
+
+    assert.equal(result.outcome, "planned")
+    if (result.outcome !== "planned") return
+    const rollingJobs = capturedJobs.filter((job) => job.key.startsWith("prefix-summary:"))
+    assert.equal(rollingJobs.length, 1)
+    assert.equal(rollingJobs[0].rangeStartMessageId, "u2")
+    assert.equal(rollingJobs[0].rangeEndMessageId, "a3")
+    assert.match(rollingJobs[0].prompt, /PRIOR CHECKPOINT DECISION/)
+    assert.match(rollingJobs[0].prompt, /newly crossed requirement/)
+    for (const header of [
+        "## Decisions",
+        "## Files & Symbols",
+        "## Errors (verbatim)",
+        "## What failed and why",
+        "## Constraints",
+        "## Next step",
+    ]) {
+        assert.match(rollingJobs[0].prompt, new RegExp(header.replace(/[()]/g, "\\$&")))
+    }
+    assert.match(rollingJobs[0].prompt, /Preserve exact paths, symbols, error strings, and IDs verbatim/)
+    assert.doesNotMatch(rollingJobs[0].prompt, /still raw later user/)
+    assert.doesNotMatch(rollingJobs[0].prompt, /still raw latest user/)
+    assert.equal(result.plan.prefixSummary, rolledSummary)
+    assert.equal(result.plan.requiresCustomCompaction, true)
+    assert.equal(result.plan.summaryJobs.length, 0)
+    assert.equal(Object.hasOwn(result.plan.assistantSummaries, rollingJobs[0].key), false)
 })
 
 test("custom compaction stays sticky for replacement plans", () => {

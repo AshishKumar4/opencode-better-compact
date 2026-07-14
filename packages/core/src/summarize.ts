@@ -83,10 +83,7 @@ export function formatAssistantSummaryPrompt(
     const last = turns.at(-1)?.key ?? first
     return [
         "Summarize this historical assistant turn for future context replay.",
-        "Return only the fixed Markdown schema below, with itemized entries under every heading.",
-        "Use '- (none)' when the transcript contains no evidence for a section.",
-        "Preserve exact paths, symbols, error strings, and IDs verbatim, including tool/call, message, session, and request IDs.",
-        "Preserve concrete conclusions, decisions, failures, constraints, and next-step state without inventing facts.",
+        ...summarySchemaInstructions(),
         "Do not include raw tool JSON, command output dumps, or filler narration.",
         "Do not rewrite or invent user intent. User messages stay raw elsewhere.",
         `Keep the completed summary within ${MAX_SUMMARY_CHARS} characters.`,
@@ -103,6 +100,37 @@ export function formatAssistantSummaryPrompt(
     ].join("\n")
 }
 
+export function formatPrefixSummaryPrompt(
+    previousSummary: string,
+    deltaTurns: Turn[],
+    transcriptRelativePath: string,
+    codec: CodecOps,
+): string {
+    const first = deltaTurns[0]?.key ?? "unknown"
+    const last = deltaTurns.at(-1)?.key ?? first
+    return [
+        "Roll this prior prefix summary forward for future context replay.",
+        ...summarySchemaInstructions(),
+        "Keep every still-valid fact from the prior checkpoint and incorporate only the newly compacted delta.",
+        "Do not include raw tool JSON, command output dumps, or filler narration.",
+        `Keep the completed summary within ${MAX_SUMMARY_CHARS} characters.`,
+        `Raw transcript reference: ${transcriptRelativePath}`,
+        `New delta range: ${first} through ${last}`,
+        "",
+        formatSummarySections(
+            SUMMARY_SECTION_HEADERS.map(() => ["(merge prior checkpoint with delta, or use (none))"]),
+        ),
+        "",
+        "Prior prefix summary:",
+        "",
+        previousSummary,
+        "",
+        "Newly compacted delta transcript:",
+        "",
+        formatTranscript(deltaTurns, codec),
+    ].join("\n")
+}
+
 export function formatSummarySections(sections: readonly (readonly string[])[]): string {
     return SUMMARY_SECTION_HEADERS.flatMap((header, index) => {
         const items = sections[index] ?? []
@@ -110,6 +138,15 @@ export function formatSummarySections(sections: readonly (readonly string[])[]):
     })
         .slice(0, -1)
         .join("\n")
+}
+
+function summarySchemaInstructions(): string[] {
+    return [
+        "Return only the fixed Markdown schema below, with itemized entries under every heading.",
+        "Use '- (none)' when the transcript contains no evidence for a section.",
+        "Preserve exact paths, symbols, error strings, and IDs verbatim, including tool/call, message, session, and request IDs.",
+        "Preserve concrete conclusions, decisions, failures, constraints, and next-step state without inventing facts.",
+    ]
 }
 
 function dedupeJobs(jobs: BoundarySummaryJob[]): BoundarySummaryJob[] {

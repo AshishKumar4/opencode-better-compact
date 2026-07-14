@@ -10,6 +10,7 @@ import {
     type PlanSnapshot,
 } from "./plan"
 import type { EnginePorts } from "./ports"
+import { formatPrefixSummaryPrompt } from "./summarize"
 import {
     assistantGroups,
     findLatestTodoCallId,
@@ -81,6 +82,20 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     const targetTokens = Math.floor(contextLimit * targetRatio)
     const prior = inputs.priorPlan
     const priorTailIndex = prior ? turns.findIndex((item) => item.key === prior.rawTailStartMessageId) : -1
+    const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
+    const priorPrefixSummary = prior?.prefixSummary
+        ? stripTranscriptReference(prior.prefixSummary, prior.transcriptRelativePath)
+        : undefined
+    const prefixSummaryResultKey = `prefix-summary:${compactedRangeHash}`
+    const prefixSummaryJobKey = expandedPrefix && priorPrefixSummary
+        ? prefixSummaryResultKey
+        : undefined
+    const assistantSummaries = {
+        ...(prior?.assistantSummaries ?? {}),
+        ...(inputs.assistantSummaries ?? {}),
+    }
+    const rolledPrefixSummary = assistantSummaries[prefixSummaryResultKey]
+    delete assistantSummaries[prefixSummaryResultKey]
     const preservedToolCallIds = findRecentToolCallTail(
         compactedRange,
         inputs.recentToolResultBudgetTokens ?? RECENT_TOOL_RESULT_BUDGET_TOKENS,
@@ -101,10 +116,7 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
         transcriptRelativePath,
         preservedToolCallIds,
         latestTodoCallId: findLatestTodoCallId(compactedRange, spec.conventions),
-        assistantSummaries: {
-            ...(prior?.assistantSummaries ?? {}),
-            ...(inputs.assistantSummaries ?? {}),
-        },
+        assistantSummaries,
         assistantSummaryKeys: new Set<string>(prior?.assistantSummaryKeys ?? []),
         summaryJobs,
         selectRuns: true,
@@ -126,12 +138,33 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     }
 
     let requiresCustomCompaction = false
-    const expandedPrefix = priorTailIndex >= 0 && rawTailStartIndex > priorTailIndex
-    const priorPrefixSummary = prior?.prefixSummary
-        ? stripTranscriptReference(prior.prefixSummary, prior.transcriptRelativePath)
-        : undefined
-    let prefixSummary = inputs.prefixSummary ?? (expandedPrefix ? undefined : priorPrefixSummary)
+    let prefixSummary = inputs.prefixSummary
+        ?? rolledPrefixSummary
+        ?? (expandedPrefix ? undefined : priorPrefixSummary)
     if (projectedTokens() >= triggerTokens || prior?.requiresCustomCompaction) {
+        const newlyCompactedTurns = expandedPrefix
+            ? turns.slice(priorTailIndex, rawTailStartIndex)
+            : []
+        if (
+            prefixSummaryJobKey &&
+            priorPrefixSummary &&
+            inputs.prefixSummary === undefined &&
+            rolledPrefixSummary === undefined &&
+            newlyCompactedTurns.length > 0
+        ) {
+            summaryJobs.push({
+                key: prefixSummaryJobKey,
+                rangeStartMessageId: newlyCompactedTurns[0].key,
+                rangeEndMessageId: newlyCompactedTurns.at(-1)?.key ?? newlyCompactedTurns[0].key,
+                transcriptRelativePath,
+                prompt: formatPrefixSummaryPrompt(
+                    priorPrefixSummary,
+                    newlyCompactedTurns,
+                    transcriptRelativePath,
+                    spec.codec,
+                ),
+            })
+        }
         const tailKey = turns[rawTailStartIndex]?.key
         const currentTailStartIndex = working.findIndex((turn) => turn.key === tailKey)
         const beforePrefix = projectedTokens()
@@ -306,7 +339,7 @@ export interface Engine {
         targetRatio?: number
         recentToolResultBudgetTokens?: number
         providerReportedTokens?: number
-        // Side-model assistant-run summaries for the automatic path. When a
+        // Side-model summary results for the automatic path. When a
         // fresh plan queues summary jobs, the engine runs them and rebuilds
         // the plan with the accepted summaries before persisting it.
         summarize?: (jobs: BoundarySummaryJob[]) => Promise<Record<string, string>>
@@ -355,7 +388,15 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
             if (summarize && plan.summaryJobs.length > 0) {
                 const assistantSummaries = await summarize(plan.summaryJobs)
                 if (Object.keys(assistantSummaries).length > 0) {
-                    plan = buildPlan(turns, { ...inputs, assistantSummaries }, spec) ?? plan
+                    plan = buildPlan(
+                        turns,
+                        {
+                            ...inputs,
+                            priorPlan: toPlanSnapshot(plan),
+                            assistantSummaries,
+                        },
+                        spec,
+                    ) ?? plan
                 }
             }
 

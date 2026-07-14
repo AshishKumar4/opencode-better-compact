@@ -258,7 +258,7 @@ function decoderFor(encoding: string): Decoder {
     throw new Error(`Unsupported content-encoding: ${encoding}`)
 }
 
-// Assistant-run summaries never block a request: they run in the background
+// Summary jobs never block a request: they run in the background
 // against the session's own model and credentials, and the upgraded plan
 // applies from the next request.
 async function upgradePlanWithSummaries<Body>(
@@ -288,6 +288,7 @@ async function upgradePlanWithSummaries<Body>(
         {
             ...planInputs,
             force: true,
+            priorPlan: toPlanSnapshot(plan),
             assistantSummaries: { ...plan.assistantSummaries, ...summaries },
         },
         dialect.spec,

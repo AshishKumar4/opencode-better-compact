@@ -114,7 +114,12 @@ export default function betterCompact(pi: ExtensionAPI) {
 
             const turns = piCodec.encode(messages)
             const transcripts = createTranscriptStore(ctx.sessionManager.getSessionDir())
-            const inputs = { ...planInputs(ctx, contextLimit), force: true }
+            const priorPlan = await plans.load(sessionKey)
+            const inputs = {
+                ...planInputs(ctx, contextLimit),
+                force: true,
+                priorPlan: priorPlan ?? undefined,
+            }
             ctx.ui.setStatus("better-compact", "Better Compact: planning…")
             try {
                 const plan = buildPlan(turns, inputs, piSpec)
@@ -129,7 +134,7 @@ export default function betterCompact(pi: ExtensionAPI) {
                     try {
                         ctx.ui.setStatus(
                             "better-compact",
-                            `Better Compact: summarizing ${plan.summaryJobs.length} assistant runs…`,
+                            `Better Compact: running ${plan.summaryJobs.length} summary jobs…`,
                         )
                         const summaries = await summarizeJobs({
                             jobs: plan.summaryJobs,
@@ -141,7 +146,11 @@ export default function betterCompact(pi: ExtensionAPI) {
                             finalPlan =
                                 buildPlan(
                                     turns,
-                                    { ...inputs, assistantSummaries: summaries },
+                                    {
+                                        ...inputs,
+                                        priorPlan: toPlanSnapshot(plan),
+                                        assistantSummaries: summaries,
+                                    },
                                     piSpec,
                                 ) ?? plan
                         }
@@ -160,7 +169,7 @@ export default function betterCompact(pi: ExtensionAPI) {
         },
     })
 
-    // Assistant-run summaries never block a request: they land in the plan in
+    // Summary jobs never block a request: they land in the plan in
     // the background and upgrade the replayed prefix from the next request.
     async function upgradePlanWithSummaries(
         ctx: ExtensionContext,
@@ -187,6 +196,7 @@ export default function betterCompact(pi: ExtensionAPI) {
                 {
                     ...planInputs(ctx, contextLimit),
                     force: true,
+                    priorPlan: toPlanSnapshot(plan),
                     assistantSummaries: { ...plan.assistantSummaries, ...summaries },
                 },
                 piSpec,
