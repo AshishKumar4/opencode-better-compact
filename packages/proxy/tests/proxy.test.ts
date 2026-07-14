@@ -272,6 +272,49 @@ test("relays SSE byte-for-byte and forwards request headers verbatim", async () 
     assert.equal(seen.headers.host, `127.0.0.1:${harness.upstream.port}`)
 })
 
+test("manual sentinel forces a plan and is stripped from the latest user message", async () => {
+    const harness = await startHarness()
+    const messages: WireMessage[] = [
+        userMessage("old request"),
+        assistantMessage("old reply"),
+        userMessage("second-to-last request"),
+        assistantMessage("recent reply"),
+        userMessage([
+            { type: "text", text: "keep this block" },
+            { type: "text", text: "before [[better-compact:run]] after" },
+        ]),
+    ]
+
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody(messages))),
+        { ...CLIENT_HEADERS, "x-session": "s-manual" },
+    )
+
+    assert.equal(response.status, 200)
+    const seen = JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8")) as {
+        messages: WireMessage[]
+    }
+    assert.ok(
+        seen.messages.some(
+            (message) =>
+                Array.isArray(message.content) &&
+                message.content.some((block) =>
+                    String(block.text ?? "").includes("Better Compact context pruning applied"),
+                ),
+        ),
+        "manual trigger must force a plan below the automatic threshold",
+    )
+    assert.ok(!JSON.stringify(seen).includes("[[better-compact:run]]"))
+    assert.ok(JSON.stringify(seen).includes("keep this block"))
+    assert.ok(JSON.stringify(seen).includes("before  after"))
+    const plan = JSON.parse(
+        await readFile(join(harness.home, "plans", "s-manual.json"), "utf-8"),
+    ) as PlanSnapshot
+    assert.equal(plan.sessionId, "s-manual")
+})
+
 test("drops content-encoding when the body is rewritten, keeps it verbatim otherwise", async () => {
     const harness = await startHarness()
 

@@ -262,6 +262,54 @@ test("relays Responses SSE byte-for-byte and forwards headers verbatim", async (
     assert.equal(seen.headers.host, `127.0.0.1:${harness.upstream.port}`)
 })
 
+test("manual sentinel forces a plan and is stripped from the latest user item", async () => {
+    const harness = await startHarness()
+    const input: ResponseItemWire[] = [
+        userMessage("old request"),
+        assistantMessage("old reply"),
+        userMessage("second-to-last request"),
+        assistantMessage("recent reply"),
+        {
+            type: "message",
+            role: "user",
+            content: [
+                { type: "input_text", text: "keep this part" },
+                { type: "input_text", text: "before [[better-compact:run]] after" },
+            ],
+        },
+    ]
+
+    const response = await post(
+        harness.proxyPort,
+        "/openai/responses",
+        Buffer.from(JSON.stringify(responsesBody(input))),
+        { ...CLIENT_HEADERS, "thread-id": "t-manual" },
+    )
+
+    assert.equal(response.status, 200)
+    const seen = JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8")) as {
+        input: ResponseItemWire[]
+    }
+    assert.ok(
+        seen.input.some(
+            (item) =>
+                item.type === "message" &&
+                Array.isArray(item.content) &&
+                (item.content as Array<{ text?: string }>).some((part) =>
+                    String(part.text ?? "").includes("Better Compact context pruning applied"),
+                ),
+        ),
+        "manual trigger must force a plan below the automatic threshold",
+    )
+    assert.ok(!JSON.stringify(seen).includes("[[better-compact:run]]"))
+    assert.ok(JSON.stringify(seen).includes("keep this part"))
+    assert.ok(JSON.stringify(seen).includes("before  after"))
+    const plan = JSON.parse(
+        await readFile(join(harness.home, "plans", "t-manual.json"), "utf-8"),
+    ) as PlanSnapshot
+    assert.equal(plan.sessionId, "t-manual")
+})
+
 test("decodes a compressed Responses body before pruning it", async () => {
     const harness = await startHarness()
     const input = bigConversation()

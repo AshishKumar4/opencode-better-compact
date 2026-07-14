@@ -29,6 +29,9 @@ as a plugin marketplace or copying this directory into your plugin setup. The pr
 the plugin — the hook and command are conveniences; the `env` settings from the installer are what
 routes requests through the proxy.
 
+To compact immediately, send `[[better-compact:run]]` in the latest prompt (for example from a
+Claude Code command or skill). The proxy strips the marker before the request reaches the model.
+
 ## Honest notes
 
 - **API-key logins** work through the proxy directly — headers pass through verbatim.

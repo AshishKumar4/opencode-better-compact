@@ -53,6 +53,7 @@ export interface Dialect<Body> {
     // Parses and validates the request body; throws on anything the codec
     // cannot handle so the caller forwards the original bytes untouched.
     readBody(raw: Buffer): { body: Body; model: string }
+    stripManualTrigger(body: Body, marker: string): boolean
     sessionKeyOf(req: IncomingMessage, body: Body): string
     contextLimit(req: IncomingMessage): number
     encode(body: Body): Turn[]
@@ -69,9 +70,12 @@ export interface Dialect<Body> {
 
 interface Rewrite {
     body: Buffer
+    rewritten: boolean
     pruned: boolean
     sessionKey: string | null
 }
+
+const MANUAL_TRIGGER = "[[better-compact:run]]"
 
 // The Anthropic error envelope wraps the error object under a `type: "error"`
 // discriminator; the OpenAI envelope is just the bare `{ error }` object.
@@ -124,10 +128,11 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
                 path,
                 // When we rewrote the body it is fresh plaintext, so any
                 // client content-encoding no longer applies; content-length is
-                // re-derived from the Buffer. Unpruned bodies forward verbatim.
+                // re-derived from the Buffer. Bodies we neither compact nor
+                // strip a manual trigger from forward verbatim.
                 headers: forwardableHeaders(
                     req.rawHeaders,
-                    rewrite.pruned ? ["content-encoding"] : undefined,
+                    rewrite.rewritten ? ["content-encoding"] : undefined,
                 ),
                 body: rewrite.body,
             })
@@ -168,9 +173,8 @@ function headerContains(header: string | string[] | undefined, value: string): b
 }
 
 // Failure posture: ANY internal error in the rewrite pipeline logs and
-// forwards the original bytes unmodified — the session must never break
-// because of us. There is no retry-with-original; a rewrite either applies
-// cleanly or does not happen.
+// forwards the original bytes unmodified, except that an already-recognized
+// manual trigger remains stripped. The session must never break because of us.
 async function rewriteBody<Body>(
     raw: Buffer,
     req: IncomingMessage,
@@ -179,9 +183,13 @@ async function rewriteBody<Body>(
     ports: EnginePorts,
 ): Promise<Rewrite> {
     let sessionKey: string | null = null
+    let fallbackBody = raw
+    let manualTrigger = false
     try {
         const decoded = await decodeRequestBody(raw, req.headers["content-encoding"])
         const { body, model } = dialect.readBody(decoded)
+        manualTrigger = dialect.stripManualTrigger(body, MANUAL_TRIGGER)
+        if (manualTrigger) fallbackBody = Buffer.from(JSON.stringify(body))
         sessionKey = dialect.sessionKeyOf(req, body)
         const runtime = options.sessions.runtime(sessionKey)
         const contextLimit = dialect.contextLimit(req)
@@ -202,8 +210,16 @@ async function rewriteBody<Body>(
             targetRatio: planInputs.targetRatio,
             recentToolResultBudgetTokens: planInputs.recentToolResultBudgetTokens,
             providerReportedTokens: runtime.reportedTokens,
+            force: manualTrigger,
         })
-        if (result.outcome === "unchanged") return { body: raw, pruned: false, sessionKey }
+        if (result.outcome === "unchanged") {
+            return {
+                body: fallbackBody,
+                rewritten: manualTrigger,
+                pruned: false,
+                sessionKey,
+            }
+        }
 
         const rewritten = dialect.rewrite(body, result.turns)
         if (
@@ -220,13 +236,18 @@ async function rewriteBody<Body>(
                     runtime.summarizing = false
                 })
         }
-        return { body: rewritten, pruned: true, sessionKey }
+        return { body: rewritten, rewritten: true, pruned: true, sessionKey }
     } catch (error) {
         options.logger.error("Rewrite failed; forwarding original request", {
             sessionKey,
             error: error instanceof Error ? (error.stack ?? error.message) : String(error),
         })
-        return { body: raw, pruned: false, sessionKey }
+        return {
+            body: fallbackBody,
+            rewritten: manualTrigger,
+            pruned: false,
+            sessionKey,
+        }
     }
 }
 

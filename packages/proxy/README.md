@@ -24,6 +24,9 @@ Anthropic Messages for Claude Code, and OpenAI Responses for Codex.
 - Assistant-run summaries run in the background as non-streaming calls (`/v1/messages` or
   `/responses`) that reuse the exact credentials and headers of the request being served — no
   separate credential path.
+- Put `[[better-compact:run]]` in the latest user prompt to compact immediately. The proxy removes
+  the marker before forwarding the request. Claude Code can emit it from a command or skill
+  prompt; Codex can emit it from a prompt file.
 
 ## Wire guarantees
 
@@ -35,8 +38,9 @@ These are pinned by the test suite, not aspirations:
   reference/summary injection is always a user-role message.
 - The response is relayed byte-for-byte and unbuffered. Usage fields are read from the relayed
   stream (to feed the next request's trigger accounting) without modifying it.
-- Failure posture: any internal error logs and forwards the original bytes unmodified. Upstream
-  errors pass through unchanged; a 4xx after a rewrite dumps the rewritten body to
+- Failure posture: any internal error logs and forwards the original bytes unmodified, except that
+  a recognized manual-trigger marker is still removed. Upstream errors pass through unchanged; a
+  4xx after a rewrite dumps the rewritten body to
   `~/.better-compact/debug/` for fixturing. There is no retry-with-original.
 - `cache_control` markers on pruned blocks migrate to the nearest surviving earlier block (or the
   synthetic replacement), and markers are excluded from message identity so a moved breakpoint

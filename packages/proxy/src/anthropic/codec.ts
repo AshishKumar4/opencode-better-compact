@@ -125,6 +125,22 @@ export const anthropicSpec: LadderSpec = {
     ],
 }
 
+export function stripAnthropicManualTrigger(messages: WireMessage[], marker: string): boolean {
+    const message = messages.findLast((candidate) => candidate.role === "user")
+    if (!message) return false
+    if (typeof message.content === "string") {
+        if (!message.content.includes(marker)) return false
+        message.content = message.content.replaceAll(marker, "")
+        return true
+    }
+    const block = message.content.findLast(
+        (candidate) => candidate.type === "text" && typeof candidate.text === "string",
+    )
+    if (!block || typeof block.text !== "string" || !block.text.includes(marker)) return false
+    block.text = block.text.replaceAll(marker, "")
+    return true
+}
+
 // A Turn is one plain user message, or one assistant message plus the user
 // message that carries its tool_result blocks. A user message folds into the
 // open assistant run only when a result actually answers one of the run's

@@ -339,6 +339,7 @@ export interface Engine {
         targetRatio?: number
         recentToolResultBudgetTokens?: number
         providerReportedTokens?: number
+        force?: boolean
         // Side-model summary results for the automatic path. When a
         // fresh plan queues summary jobs, the engine runs them and rebuilds
         // the plan with the accepted summaries before persisting it.
@@ -358,13 +359,14 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
             targetRatio,
             recentToolResultBudgetTokens,
             providerReportedTokens,
+            force,
             summarize,
         }) {
             let staleSnapshotCleared = false
             let priorPlan: PlanSnapshot | undefined
             const cached = await ports.plans.load(sessionKey)
             if (cached && cached.sessionId === sessionKey) {
-                const replayed = replayPlanSnapshot(turns, cached, spec)
+                const replayed = force ? null : replayPlanSnapshot(turns, cached, spec)
                 if (replayed) return { outcome: "replayed", turns: replayed }
                 staleSnapshotCleared = true
                 priorPlan = cached
@@ -376,6 +378,7 @@ export function createEngine(spec: LadderSpec, ports: EnginePorts): Engine {
                 targetRatio,
                 recentToolResultBudgetTokens,
                 providerReportedTokens,
+                force,
                 priorPlan,
                 sessionKey,
                 citablePath: ports.transcripts.citablePath,

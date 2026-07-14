@@ -111,6 +111,23 @@ export const openaiSpec: LadderSpec = {
     ],
 }
 
+export function stripOpenAIManualTrigger(input: ResponseItemWire[], marker: string): boolean {
+    const message = input.findLast(isUserMessage)
+    if (!message) return false
+    if (typeof message.content === "string") {
+        if (!message.content.includes(marker)) return false
+        message.content = message.content.replaceAll(marker, "")
+        return true
+    }
+    if (!Array.isArray(message.content)) return false
+    const part = message.content.findLast(
+        (candidate) => candidate?.type === "input_text" && typeof candidate.text === "string",
+    )
+    if (!part || !part.text.includes(marker)) return false
+    part.text = part.text.replaceAll(marker, "")
+    return true
+}
+
 // A Turn is a role-run over the flat item array: consecutive user `message`
 // items form a user turn; everything else (reasoning, function calls and their
 // outputs, assistant/developer messages, unknown items) forms an assistant
@@ -401,7 +418,7 @@ function isMessage(item: ResponseItemWire): item is MessageItem {
     return item.type === "message"
 }
 
-function isUserMessage(item: ResponseItemWire): boolean {
+function isUserMessage(item: ResponseItemWire): item is MessageItem {
     return isMessage(item) && (item as MessageItem).role === "user"
 }
 

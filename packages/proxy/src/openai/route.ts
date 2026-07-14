@@ -8,7 +8,12 @@ import {
     type Dialect,
     type SharedRouteOptions,
 } from "../route"
-import { openaiCodec, openaiSpec, type ResponseItemWire } from "./codec"
+import {
+    openaiCodec,
+    openaiSpec,
+    stripOpenAIManualTrigger,
+    type ResponseItemWire,
+} from "./codec"
 
 // Codex's gpt-5-codex family reports a 272k window; other models can be larger,
 // but there is no per-request signal for it, so we default conservatively —
@@ -32,6 +37,9 @@ const openaiDialect: Dialect<ResponsesBody> = {
             throw new Error("Body has no input array")
         }
         return { body, model: body.model }
+    },
+    stripManualTrigger(body, marker) {
+        return stripOpenAIManualTrigger(body.input, marker)
     },
     sessionKeyOf,
     contextLimit() {

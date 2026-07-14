@@ -8,7 +8,12 @@ import {
     type Dialect,
     type SharedRouteOptions,
 } from "../route"
-import { anthropicCodec, anthropicSpec, type WireMessage } from "./codec"
+import {
+    anthropicCodec,
+    anthropicSpec,
+    stripAnthropicManualTrigger,
+    type WireMessage,
+} from "./codec"
 
 const DEFAULT_CONTEXT_LIMIT = 200_000
 const CONTEXT_1M_LIMIT = 1_000_000
@@ -29,6 +34,9 @@ const anthropicDialect: Dialect<MessagesBody> = {
             throw new Error("Body has no messages array")
         }
         return { body, model: body.model }
+    },
+    stripManualTrigger(body, marker) {
+        return stripAnthropicManualTrigger(body.messages, marker)
     },
     sessionKeyOf(req, body) {
         return sessionKeyOf(req, body.messages)
