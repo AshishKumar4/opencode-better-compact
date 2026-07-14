@@ -3,10 +3,23 @@ import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { proxyPaths } from "../src/config"
+import { loadConfig, proxyPaths } from "../src/config"
 import { CODEX_PROXY_BASE_URL, editCodexConfig, installCodex } from "../src/install"
 
 const PROXY = "http://127.0.0.1:42817/openai"
+
+test("loads a positive OpenAI context-limit override", async () => {
+    const home = await mkdtemp(join(tmpdir(), "proxy-config-"))
+    try {
+        const paths = proxyPaths(home)
+        await writeFile(paths.configFile, '{"openaiContextLimit":640000}\n')
+        assert.equal(loadConfig(paths).openaiContextLimit, 640_000)
+        await writeFile(paths.configFile, '{"openaiContextLimit":0}\n')
+        assert.equal(loadConfig(paths).openaiContextLimit, undefined)
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
 
 test("appends openai_base_url to a root table when absent", () => {
     const edit = editCodexConfig('model = "gpt-5-codex"\napproval_policy = "on-request"\n', PROXY)

@@ -42,6 +42,7 @@ export interface ProxyConfig {
     // Upstream for /openai/*. The installer preserves a pre-existing
     // openai_base_url here so existing custom-gateway Codex users keep working.
     openaiUpstream: string
+    openaiContextLimit?: number
     profile: CompactionProfile
 }
 
@@ -57,9 +58,16 @@ export function loadConfig(paths: ProxyPaths): ProxyConfig {
     const openai =
         typeof raw.openaiUpstream === "string" ? raw.openaiUpstream : DEFAULT_OPENAI_UPSTREAM
     const preset = normalizePreset(raw.preset)
+    const openaiContextLimit =
+        typeof raw.openaiContextLimit === "number" &&
+        Number.isSafeInteger(raw.openaiContextLimit) &&
+        raw.openaiContextLimit > 0
+            ? raw.openaiContextLimit
+            : undefined
     return {
         anthropicUpstream: anthropic.replace(/\/+$/, ""),
         openaiUpstream: openai.replace(/\/+$/, ""),
+        openaiContextLimit,
         profile: COMPACTION_PRESETS[preset === "custom" ? "light" : preset],
     }
 }

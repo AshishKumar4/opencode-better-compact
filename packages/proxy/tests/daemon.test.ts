@@ -8,6 +8,7 @@ const lock: LockInfo = { port: 42817, pid: 4242 }
 const config: ProxyConfig = {
     anthropicUpstream: "https://api.anthropic.com",
     openaiUpstream: "https://chatgpt.com/backend-api/codex",
+    openaiContextLimit: 400_000,
     profile: COMPACTION_PRESETS.moderate,
 }
 
@@ -17,6 +18,7 @@ test("daemon restart follows configured upstream changes", () => {
         pid: 99,
         upstream: config.anthropicUpstream,
         openaiUpstream: config.openaiUpstream,
+        openaiContextLimit: config.openaiContextLimit,
         capture: false,
     }
     assert.equal(daemonNeedsRestart(current, config), false)
@@ -24,6 +26,7 @@ test("daemon restart follows configured upstream changes", () => {
         daemonNeedsRestart(current, { ...config, openaiUpstream: "https://api.openai.com/v1" }),
         true,
     )
+    assert.equal(daemonNeedsRestart(current, { ...config, openaiContextLimit: 200_000 }), true)
     assert.equal(daemonNeedsRestart(current, config, true), true)
     assert.equal(daemonNeedsRestart({ ...current, capture: true }, config, true), false)
     assert.equal(daemonNeedsRestart({ kind: "down" }, config), false)

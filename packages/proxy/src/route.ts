@@ -38,6 +38,7 @@ export interface SharedRouteOptions {
     capture: boolean
     capturesDir: string
     debugDir: string
+    openaiContextLimit?: number
 }
 
 // The only things that differ between wire dialects: which POST path is the
@@ -55,7 +56,8 @@ export interface Dialect<Body> {
     readBody(raw: Buffer): { body: Body; model: string }
     stripManualTrigger(body: Body, marker: string): boolean
     sessionKeyOf(req: IncomingMessage, body: Body): string
-    contextLimit(req: IncomingMessage): number
+    contextLimit(req: IncomingMessage, body: Body): number
+    calibrateContextLimit?: boolean
     encode(body: Body): Turn[]
     rewrite(body: Body, turns: Turn[]): Buffer
     createUsageReader(headers: IncomingHttpHeaders): UsageReader
@@ -73,6 +75,8 @@ interface Rewrite {
     rewritten: boolean
     pruned: boolean
     sessionKey: string | null
+    model: string | null
+    contextLimit: number | null
 }
 
 const MANUAL_TRIGGER = "[[better-compact:run]]"
@@ -159,7 +163,14 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
             onEnd: async () => {
                 const tokens = await usage.finish()
                 if (tokens !== null && rewrite.sessionKey && status < 300) {
-                    options.sessions.recordUsage(rewrite.sessionKey, tokens, rewrite.pruned)
+                    options.sessions.recordUsage(
+                        rewrite.sessionKey,
+                        tokens,
+                        rewrite.pruned,
+                        dialect.calibrateContextLimit && rewrite.model && rewrite.contextLimit
+                            ? { model: rewrite.model, assumedLimit: rewrite.contextLimit }
+                            : undefined,
+                    )
                 }
             },
         })
@@ -192,7 +203,11 @@ async function rewriteBody<Body>(
         if (manualTrigger) fallbackBody = Buffer.from(JSON.stringify(body))
         sessionKey = dialect.sessionKeyOf(req, body)
         const runtime = options.sessions.runtime(sessionKey)
-        const contextLimit = dialect.contextLimit(req)
+        const configuredContextLimit = dialect.contextLimit(req, body)
+        const contextLimit = Math.max(
+            configuredContextLimit,
+            runtime.calibratedContextLimits.get(model) ?? 0,
+        )
         const turns = dialect.encode(body)
         const planInputs: BuildPlanInputs = {
             contextLimit,
@@ -218,6 +233,8 @@ async function rewriteBody<Body>(
                 rewritten: manualTrigger,
                 pruned: false,
                 sessionKey,
+                model,
+                contextLimit,
             }
         }
 
@@ -236,7 +253,14 @@ async function rewriteBody<Body>(
                     runtime.summarizing = false
                 })
         }
-        return { body: rewritten, rewritten: true, pruned: true, sessionKey }
+        return {
+            body: rewritten,
+            rewritten: true,
+            pruned: true,
+            sessionKey,
+            model,
+            contextLimit,
+        }
     } catch (error) {
         options.logger.error("Rewrite failed; forwarding original request", {
             sessionKey,
@@ -247,6 +271,8 @@ async function rewriteBody<Body>(
             rewritten: manualTrigger,
             pruned: false,
             sessionKey,
+            model: null,
+            contextLimit: null,
         }
     }
 }

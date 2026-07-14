@@ -72,8 +72,8 @@ export function kitchenSinkInput(): ResponseItemWire[] {
 }
 
 // Big enough that the char/4 estimate crosses the light profile's 85% trigger
-// of the 272k Codex window.
-export function bigConversation(exchanges = 40, outputChars = 30_000): ResponseItemWire[] {
+// of the 400k gpt-5-codex window.
+export function bigConversation(exchanges = 40, outputChars = 36_000): ResponseItemWire[] {
     const input: ResponseItemWire[] = []
     for (let index = 0; index < exchanges; index++) {
         input.push(userMessage(`task ${index}: inspect module ${index}`))

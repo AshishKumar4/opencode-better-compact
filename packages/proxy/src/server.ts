@@ -11,6 +11,7 @@ export const SERVICE_NAME = "better-compact-proxy"
 export interface ProxyServerOptions {
     upstream: string
     openaiUpstream: string
+    openaiContextLimit?: number
     profile: CompactionProfile
     plansDir: string
     transcriptsDir: string
@@ -36,7 +37,11 @@ export function createProxyServer(options: ProxyServerOptions): Server {
         debugDir: options.debugDir,
     }
     const anthropic = createAnthropicRoute({ ...shared, upstream: new URL(options.upstream) })
-    const openai = createOpenAIRoute({ ...shared, upstream: new URL(options.openaiUpstream) })
+    const openai = createOpenAIRoute({
+        ...shared,
+        upstream: new URL(options.openaiUpstream),
+        openaiContextLimit: options.openaiContextLimit,
+    })
 
     return createServer((req, res) => {
         const url = req.url ?? "/"
@@ -48,6 +53,7 @@ export function createProxyServer(options: ProxyServerOptions): Server {
                     pid: process.pid,
                     upstream: options.upstream,
                     openaiUpstream: options.openaiUpstream,
+                    openaiContextLimit: options.openaiContextLimit,
                     capture: options.capture,
                 }),
             )

@@ -15,10 +15,28 @@ import {
     type ResponseItemWire,
 } from "./codec"
 
-// Codex's gpt-5-codex family reports a 272k window; other models can be larger,
-// but there is no per-request signal for it, so we default conservatively —
-// under-estimating the window only prunes sooner, never breaks a request.
-const DEFAULT_CONTEXT_LIMIT = 272_000
+const SMALLEST_PLAUSIBLE_CONTEXT_LIMIT = 128_000
+
+// Official model pages document 1.05M for GPT-5.4/5.5/5.6, 400k for the
+// coding/base/mini/nano families, and 128k for chat aliases. Keep longer,
+// more-specific prefixes first so unknown future families fall through to the
+// conservative minimum instead of inheriting a larger broad-family value.
+const CONTEXT_LIMITS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
+    ["gpt-5.6", 1_050_000],
+    ["gpt-5.5", 1_050_000],
+    ["gpt-5.4-mini", 400_000],
+    ["gpt-5.4-nano", 400_000],
+    ["gpt-5.4", 1_050_000],
+    ["gpt-5.3-codex", 400_000],
+    ["gpt-5.2-chat", 128_000],
+    ["gpt-5.2", 400_000],
+    ["gpt-5.1-chat", 128_000],
+    ["gpt-5.1", 400_000],
+    ["gpt-5-chat", 128_000],
+    ["gpt-5-codex", 400_000],
+    ["gpt-5-mini", 400_000],
+    ["gpt-5-nano", 400_000],
+]
 
 interface ResponsesBody {
     model: string
@@ -27,40 +45,53 @@ interface ResponsesBody {
     [key: string]: unknown
 }
 
-const openaiDialect: Dialect<ResponsesBody> = {
-    name: "openai",
-    rewritePath: "/responses",
-    spec: openaiSpec,
-    readBody(raw) {
-        const body = JSON.parse(raw.toString("utf-8")) as ResponsesBody
-        if (!body || typeof body !== "object" || !Array.isArray(body.input)) {
-            throw new Error("Body has no input array")
-        }
-        return { body, model: body.model }
-    },
-    stripManualTrigger(body, marker) {
-        return stripOpenAIManualTrigger(body.input, marker)
-    },
-    sessionKeyOf,
-    contextLimit() {
-        return DEFAULT_CONTEXT_LIMIT
-    },
-    encode(body) {
-        return openaiCodec.encode(body.input)
-    },
-    rewrite(body, turns) {
-        const decoded = openaiCodec.decode(turns, body.input)
-        return Buffer.from(JSON.stringify({ ...body, input: decoded }))
-    },
-    createUsageReader: createResponsesUsageReader,
-    createSummarizer: createResponsesSummarizer,
-    errorBody(type, message) {
-        return errorEnvelope("openai", type, message)
-    },
+function createOpenAIDialect(contextLimitOverride?: number): Dialect<ResponsesBody> {
+    return {
+        name: "openai",
+        rewritePath: "/responses",
+        spec: openaiSpec,
+        calibrateContextLimit: true,
+        readBody(raw) {
+            const body = JSON.parse(raw.toString("utf-8")) as ResponsesBody
+            if (!body || typeof body !== "object" || !Array.isArray(body.input)) {
+                throw new Error("Body has no input array")
+            }
+            return { body, model: body.model }
+        },
+        stripManualTrigger(body, marker) {
+            return stripOpenAIManualTrigger(body.input, marker)
+        },
+        sessionKeyOf,
+        contextLimit(_req, body) {
+            return resolveOpenAIContextLimit(body.model, contextLimitOverride)
+        },
+        encode(body) {
+            return openaiCodec.encode(body.input)
+        },
+        rewrite(body, turns) {
+            const decoded = openaiCodec.decode(turns, body.input)
+            return Buffer.from(JSON.stringify({ ...body, input: decoded }))
+        },
+        createUsageReader: createResponsesUsageReader,
+        createSummarizer: createResponsesSummarizer,
+        errorBody(type, message) {
+            return errorEnvelope("openai", type, message)
+        },
+    }
 }
 
 export function createOpenAIRoute(options: SharedRouteOptions) {
-    return createDialectRoute(options, openaiDialect)
+    return createDialectRoute(options, createOpenAIDialect(options.openaiContextLimit))
+}
+
+export function resolveOpenAIContextLimit(model: unknown, override?: number): number {
+    if (override !== undefined) return override
+    if (typeof model !== "string") return SMALLEST_PLAUSIBLE_CONTEXT_LIMIT
+    for (const [prefix, limit] of CONTEXT_LIMITS) {
+        if (model === prefix || model.startsWith(`${prefix}-`)) return limit
+    }
+    if (model === "gpt-5" || /^gpt-5-\d{4}-\d{2}-\d{2}$/.test(model)) return 400_000
+    return SMALLEST_PLAUSIBLE_CONTEXT_LIMIT
 }
 
 // Correlation precedence (verified against codex-api headers + request build):

@@ -145,12 +145,13 @@ interface Harness {
 
 const harnesses: Harness[] = []
 
-async function startHarness(): Promise<Harness> {
+async function startHarness(options: { openaiContextLimit?: number } = {}): Promise<Harness> {
     const upstream = await startFakeUpstream()
     const home = await mkdtemp(join(tmpdir(), "better-compact-openai-"))
     const server = createProxyServer({
         upstream: `http://127.0.0.1:${upstream.port}`,
         openaiUpstream: `http://127.0.0.1:${upstream.port}/v1`,
+        openaiContextLimit: options.openaiContextLimit,
         profile: COMPACTION_PRESETS.light,
         plansDir: join(home, "plans"),
         transcriptsDir: join(home, "transcripts"),
@@ -491,7 +492,7 @@ test("feeds relayed response.completed usage into the next request's trigger", a
             ? {
                   status: 200,
                   headers: {},
-                  chunks: sseBytes(260_000),
+                  chunks: sseBytes(350_000),
               }
             : defaultResponder(req)
 
@@ -514,7 +515,7 @@ test("feeds relayed response.completed usage into the next request's trigger", a
         small,
     )
 
-    // The provider said 260k tokens; the raw estimate alone would never trigger.
+    // The provider said 350k tokens; the raw estimate alone would never trigger.
     const grown = [...small, assistantMessage("reply three"), userMessage("fourth")]
     const second = await post(
         harness.proxyPort,
@@ -529,6 +530,45 @@ test("feeds relayed response.completed usage into the next request's trigger", a
     assert.notDeepEqual(secondSeen.input, grown, "provider-reported usage must drive a prune")
 })
 
+test("raises a session's model window when reported usage exceeds the assumption", async () => {
+    const harness = await startHarness()
+    harness.upstream.respond = (req) =>
+        isStreaming(req)
+            ? {
+                  status: 200,
+                  headers: {},
+                  chunks: sseBytes(450_000),
+              }
+            : defaultResponder(req)
+
+    await post(
+        harness.proxyPort,
+        "/openai/responses",
+        Buffer.from(JSON.stringify(responsesBody([userMessage("calibrate")]))),
+        { ...CLIENT_HEADERS, "thread-id": "t-calibrate" },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 25))
+
+    const forced = [
+        userMessage("old request"),
+        assistantMessage("old response"),
+        userMessage("another request"),
+        assistantMessage("another response"),
+        userMessage("[[better-compact:run]] compact now"),
+    ]
+    await post(
+        harness.proxyPort,
+        "/openai/responses",
+        Buffer.from(JSON.stringify(responsesBody(forced))),
+        { ...CLIENT_HEADERS, "thread-id": "t-calibrate" },
+    )
+
+    const plan = JSON.parse(
+        await readFile(join(harness.home, "plans", "t-calibrate.json"), "utf-8"),
+    ) as PlanSnapshot
+    assert.equal(plan.contextLimit, 450_000)
+})
+
 test("summary side-calls reuse the request credentials and upgrade the plan", async () => {
     const harness = await startHarness()
     // Assistant-text-heavy history with no tools: only run summarization can
@@ -536,7 +576,7 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     const input: ResponseItemWire[] = []
     for (let index = 0; index < 12; index++) {
         input.push(userMessage(`chapter ${index}`))
-        input.push(assistantMessage(`analysis ${index} `.repeat(9_000)))
+        input.push(assistantMessage(`analysis ${index} `.repeat(11_000)))
     }
     input.push(userMessage("penultimate prompt"))
     input.push(assistantMessage("tail reply"))

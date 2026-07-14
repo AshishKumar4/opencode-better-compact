@@ -54,6 +54,7 @@ These are pinned by the test suite, not aspirations:
 {
     "anthropicUpstream": "https://api.anthropic.com",
     "openaiUpstream": "https://api.openai.com/v1",
+    "openaiContextLimit": 400000,
     "preset": "light"
 }
 ```
@@ -61,6 +62,8 @@ These are pinned by the test suite, not aspirations:
 All optional. If you already pointed an agent at a gateway (`ANTHROPIC_BASE_URL` for Claude Code, a
 custom `openai_base_url` for Codex), the installers record that URL here as the upstream, so the
 gateway keeps working behind the proxy. `preset` is `light` (default), `moderate`, or `max`.
+`openaiContextLimit` is an optional override for custom deployments or gateways whose model name
+does not identify its window.
 
 `better-compact-proxy start --capture` additionally writes incoming request bodies (bodies only —
 headers, and with them credentials, are never written) to `~/.better-compact/captures/` for
@@ -91,9 +94,13 @@ user-customizable `compact_prompt` can be pointed at our transcript paths as a s
 ## Honest limitations
 
 - Anthropic context windows are inferred from the `anthropic-beta` header (`context-1m` → 1M,
-  otherwise 200k). The OpenAI route uses a fixed 272k window (gpt-5-codex); larger-window models are
-  pruned somewhat sooner than strictly necessary, never later — there is no per-request window
-  signal and no per-model table.
+  otherwise 200k). The OpenAI route resolves documented GPT-5 family windows from the request
+  model ([models](https://developers.openai.com/api/docs/models),
+  [GPT-5.4](https://developers.openai.com/api/docs/models/gpt-5.4),
+  [GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini), and
+  [GPT-5 chat](https://developers.openai.com/api/docs/models/gpt-5-chat-latest)). Unknown models
+  start at the smallest plausible 128k window, while observed usage can raise that assumption for
+  the session. Custom deployments can set `openaiContextLimit` explicitly.
 - Session keys derived from the first user message/item assume that message is stable for the
   session — true for both agents, and a mismatch only costs a plan rebuild, never correctness.
 - The Codex path is validated by the fake-upstream test suite and shape-verified against the Codex
