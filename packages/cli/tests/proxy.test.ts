@@ -460,6 +460,60 @@ test("prunes past the trigger, reuses the plan across requests, and never touche
     assert.equal(planAfterSecond.createdAt, planAfterFirst.createdAt)
 })
 
+test("count_tokens is pruned with the same plan so the client's context meter reflects reality", async () => {
+    const harness = await startHarness()
+    harness.upstream.respond = (req) =>
+        req.url.startsWith("/v1/messages/count_tokens")
+            ? {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                  chunks: [Buffer.from(JSON.stringify({ input_tokens: 4242 }))],
+              }
+            : defaultResponder(req)
+
+    const messages = bigConversation()
+    const res = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages/count_tokens?beta=true",
+        Buffer.from(JSON.stringify(messagesBody(messages))),
+        { ...CLIENT_HEADERS, "x-session": "s-count" },
+    )
+    assert.equal(res.status, 200)
+    // The provider's count of the pruned body relays back verbatim.
+    assert.deepEqual(JSON.parse(res.body.toString("utf-8")), { input_tokens: 4242 })
+    const seen = harness.upstream.requests.find((req) =>
+        req.url.startsWith("/v1/messages/count_tokens"),
+    )
+    assert.ok(seen, "count_tokens reached upstream")
+    const forwarded = JSON.parse(seen.body.toString("utf-8")) as {
+        messages: WireMessage[]
+        system: unknown
+    }
+    assert.ok(
+        forwarded.messages.length < messages.length,
+        "over the trigger, count_tokens must forward a pruned body",
+    )
+    assert.equal(JSON.stringify(forwarded.system), JSON.stringify(messagesBody(messages).system))
+
+    // Below the trigger the count body forwards unchanged.
+    harness.upstream.requests.length = 0
+    const small = messagesBody([userMessage("hi")])
+    await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages/count_tokens",
+        Buffer.from(JSON.stringify(small)),
+        { ...CLIENT_HEADERS, "x-session": "s-count-small" },
+    )
+    const smallSeen = harness.upstream.requests.find((req) =>
+        req.url.startsWith("/v1/messages/count_tokens"),
+    )
+    assert.ok(smallSeen)
+    assert.deepEqual(
+        (JSON.parse(smallSeen.body.toString("utf-8")) as { messages: WireMessage[] }).messages,
+        small.messages,
+    )
+})
+
 test("fails open: a body the codec cannot handle reaches upstream byte-identical", async () => {
     const harness = await startHarness()
     for (const raw of [

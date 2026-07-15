@@ -27,6 +27,7 @@ interface MessagesBody {
 const anthropicDialect: Dialect<MessagesBody> = {
     name: "anthropic",
     rewritePath: "/v1/messages",
+    countTokensPath: "/v1/messages/count_tokens",
     spec: anthropicSpec,
     readBody(raw) {
         const body = JSON.parse(raw.toString("utf-8")) as MessagesBody

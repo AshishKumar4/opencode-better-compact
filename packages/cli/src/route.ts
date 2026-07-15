@@ -52,6 +52,12 @@ export interface SharedRouteOptions {
 export interface Dialect<Body> {
     name: string
     rewritePath: string
+    // Sibling endpoint that reports the request's token count (Anthropic's
+    // /v1/messages/count_tokens). Claude Code polls it to drive its context
+    // meter and its hard "context limit reached" gate, so it must be pruned
+    // with the same plan as rewritePath — otherwise the client sees the full,
+    // unpruned size and blocks before it ever sends an inference request.
+    countTokensPath?: string
     spec: LadderSpec
     // Parses and validates the request body; throws on anything the codec
     // cannot handle so the caller forwards the original bytes untouched.
@@ -124,7 +130,12 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
             res.end()
             return
         }
-        if (req.method !== "POST" || path.split("?")[0] !== dialect.rewritePath) {
+        const basePath = path.split("?")[0]
+        if (req.method === "POST" && basePath === dialect.countTokensPath) {
+            await handleCountTokens(req, res, path, options, dialect, ports)
+            return
+        }
+        if (req.method !== "POST" || basePath !== dialect.rewritePath) {
             await passthrough(req, res, path, options, dialect)
             return
         }
@@ -207,6 +218,40 @@ export function createDialectRoute<Body>(options: SharedRouteOptions, dialect: D
 
         relayWithUsage(upstream, res, rewrite, options, dialect)
     }
+}
+
+// count_tokens carries the same body shape as an inference request, so the
+// same plan prunes it. We never schedule summaries from a count (it is polled
+// far more often than inference) and never run the overflow retry (the reply
+// is a token tally, not a message). Under the trigger the body forwards
+// unchanged, exactly as before.
+async function handleCountTokens<Body>(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string,
+    options: SharedRouteOptions,
+    dialect: Dialect<Body>,
+    ports: EnginePorts,
+): Promise<void> {
+    const raw = await bufferBody(req)
+    const rewrite = await rewriteBody(raw, req, options, dialect, ports, {
+        scheduleSummaries: false,
+    })
+    let upstream: IncomingMessage
+    try {
+        upstream = await forwardRewrite(req, path, rewrite, options)
+    } catch (error) {
+        respondGatewayError(res, error, options.logger, dialect)
+        return
+    }
+    options.logger.info(`${dialect.name} ${path.split("?")[0]}`, {
+        sessionKey: rewrite.sessionKey,
+        pruned: rewrite.pruned,
+        status: upstream.statusCode ?? 502,
+        originalBytes: raw.length,
+        sentBytes: rewrite.body.length,
+    })
+    relay(upstream, res, {})
 }
 
 function forwardRewrite(
