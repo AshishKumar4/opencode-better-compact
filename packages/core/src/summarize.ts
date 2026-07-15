@@ -270,13 +270,14 @@ function dedupeJobs(jobs: BoundarySummaryJob[]): BoundarySummaryJob[] {
 }
 
 function validateSummary(text: string, job: BoundarySummaryJob, logger: Logger): string | null {
-    const summary = text.trim().slice(0, MAX_SUMMARY_CHARS).trimEnd()
+    const summary = text.trim()
     const lines = summary.split(/\r\n|\n|\r/).map((line) => line.trim())
     let headerIndex = -1
-    const hasRequiredSections = SUMMARY_SECTION_HEADERS.every((header) => {
+    const headerIndexes = SUMMARY_SECTION_HEADERS.map((header) => {
         headerIndex = lines.indexOf(header, headerIndex + 1)
-        return headerIndex >= 0
+        return headerIndex
     })
+    const hasRequiredSections = headerIndexes.every((index) => index >= 0)
     if (summary.length < MIN_SUMMARY_CHARS || !hasRequiredSections) {
         logger.warn("Discarded invalid Better Compact scratch summary", {
             rangeStartMessageId: job.rangeStartMessageId,
@@ -285,6 +286,38 @@ function validateSummary(text: string, job: BoundarySummaryJob, logger: Logger):
             hasRequiredSections,
         })
         return null
+    }
+    return summary.length <= MAX_SUMMARY_CHARS
+        ? summary
+        : truncateSummarySections(lines, headerIndexes)
+}
+
+function truncateSummarySections(lines: string[], headerIndexes: number[]): string {
+    const bodies = headerIndexes.map((headerIndex, index) => {
+        const nextHeaderIndex = headerIndexes[index + 1] ?? lines.length
+        return lines.slice(headerIndex + 1, nextHeaderIndex).join("\n").trim()
+    })
+    const render = () =>
+        SUMMARY_SECTION_HEADERS.map((header, index) =>
+            bodies[index] ? `${header}\n${bodies[index]}` : header,
+        ).join("\n\n")
+
+    let summary = render()
+    while (summary.length > MAX_SUMMARY_CHARS) {
+        let longestBodyIndex = 0
+        for (let index = 1; index < bodies.length; index++) {
+            if (bodies[index].length > bodies[longestBodyIndex].length) {
+                longestBodyIndex = index
+            }
+        }
+
+        const overflow = summary.length - MAX_SUMMARY_CHARS
+        const retainedLength = Math.max(0, bodies[longestBodyIndex].length - overflow)
+        let body = bodies[longestBodyIndex].slice(0, retainedLength).trimEnd()
+        const lineBoundary = body.lastIndexOf("\n")
+        if (lineBoundary >= 0) body = body.slice(0, lineBoundary).trimEnd()
+        bodies[longestBodyIndex] = body
+        summary = render()
     }
     return summary
 }

@@ -10,23 +10,32 @@ const job: BoundarySummaryJob = {
     prompt: "Summarize the run.",
 }
 
-const validSummary = [
+const summaryHeaders = [
     "## Decisions",
+    "## Files & Symbols",
+    "## Errors (verbatim)",
+    "## What failed and why",
+    "## Constraints",
+    "## Next step",
+]
+
+const validSummary = [
+    summaryHeaders[0],
     "- Keep the canonical parser.",
     "",
-    "## Files & Symbols",
+    summaryHeaders[1],
     "- src/parser.ts:parseInput",
     "",
-    "## Errors (verbatim)",
+    summaryHeaders[2],
     "- EINVAL request_id=req_123",
     "",
-    "## What failed and why",
+    summaryHeaders[3],
     "- The legacy parser rejected the payload.",
     "",
-    "## Constraints",
+    summaryHeaders[4],
     "- Preserve call_456 exactly.",
     "",
-    "## Next step",
+    summaryHeaders[5],
     "- Run pnpm test.",
 ].join("\n")
 
@@ -66,6 +75,46 @@ test("summary scheduler accepts a structured failure-preserving summary", async 
     })
 
     assert.equal(summaries[job.key], validSummary)
+})
+
+test("summary scheduler accepts an oversized structured summary", async () => {
+    const overlongSummary = validSummary.replace(
+        "- Keep the canonical parser.",
+        `- ${"x".repeat(4_000)}`,
+    )
+    assert.ok(overlongSummary.length > 4_000)
+
+    const scheduler = createSummaryScheduler(logger([]))
+    const summaries = await scheduler.summarize({
+        sessionKey: "session-overlong",
+        jobs: [job],
+        summarizer: { complete: async () => overlongSummary },
+    })
+
+    const stored = summaries[job.key]
+    assert.ok(stored)
+    assert.ok(stored.length <= 4_000)
+    let previousHeaderIndex = -1
+    const storedLines = stored.split(/\r\n|\n|\r/).map((line) => line.trim())
+    for (const header of summaryHeaders) {
+        const headerIndex = storedLines.indexOf(header, previousHeaderIndex + 1)
+        assert.ok(headerIndex > previousHeaderIndex)
+        previousHeaderIndex = headerIndex
+    }
+    assert.match(stored, /^- Run pnpm test\.$/m)
+})
+
+test("summary scheduler rejects a too-short response", async () => {
+    const warnings: Array<{ message: string; data: unknown }> = []
+    const scheduler = createSummaryScheduler(logger(warnings))
+    const summaries = await scheduler.summarize({
+        sessionKey: "session-too-short",
+        jobs: [job],
+        summarizer: { complete: async () => "Too short." },
+    })
+
+    assert.deepEqual(summaries, {})
+    assert.equal(warnings.length, 1)
 })
 
 test("a thrown summarizer is contained and reported as a failed job", async () => {
