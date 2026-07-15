@@ -183,7 +183,14 @@ export function turnText(turn: Turn): string {
 export function formatPrefixSummary(turns: Turn[]): string {
     const userMessages = turns
         .filter((turn) => turn.role === "user" && !turn.ephemeral)
-        .map((turn) => turnText(turn).trim())
+        .flatMap((turn) =>
+            turn.items
+                .filter(
+                    (item): item is Extract<Item, { kind: "text" | "synthetic" }> =>
+                        item.kind === "text" || item.kind === "synthetic",
+                )
+                .map((item) => item.text.trim()),
+        )
         .filter(Boolean)
     const assistantFacts = turns
         .filter((turn) => turn.role === "assistant")

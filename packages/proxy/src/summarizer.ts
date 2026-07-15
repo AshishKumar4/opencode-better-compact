@@ -29,6 +29,7 @@ export function createSummarizer(
                     headers: {
                         ...headers,
                         accept: "application/json",
+                        "accept-encoding": "identity",
                         "content-type": "application/json",
                     },
                     body,
@@ -95,6 +96,7 @@ export function createResponsesSummarizer(
                     headers: {
                         ...headers,
                         accept: "application/json",
+                        "accept-encoding": "identity",
                         "content-type": "application/json",
                     },
                     body,

@@ -731,6 +731,67 @@ test("planner preserves the latest two user turns as raw tail", () => {
     assert.doesNotMatch(oldAssistantText, /old output/)
 })
 
+test("planner preserves the active prompt during a single-user tool loop", () => {
+    const activePrompt = "Read the lockfile completely and report its architecture."
+    const turns = [
+        turn(
+            "msg-user-active",
+            "user",
+            [
+                textItem("msg-user-reminder", "global system reminder ".repeat(2_000)),
+                textItem("msg-user-prompt", activePrompt),
+            ],
+            1,
+        ),
+        turn(
+            "msg-assistant-1",
+            "assistant",
+            [toolItem("msg-assistant-1", "read", "first tool output ".repeat(4_000))],
+            2,
+        ),
+        turn(
+            "msg-assistant-2",
+            "assistant",
+            [toolItem("msg-assistant-2", "read", "second tool output ".repeat(4_000))],
+            3,
+        ),
+        turn(
+            "msg-assistant-3",
+            "assistant",
+            [toolItem("msg-assistant-3", "read", "third tool output ".repeat(4_000))],
+            4,
+        ),
+    ]
+    const plan = buildPlan(
+        turns,
+        inputs({
+            contextLimit: 10_000,
+            triggerRatio: 0.03,
+            targetRatio: 0.01,
+            recentToolResultBudgetTokens: 0,
+            force: true,
+        }),
+        spec,
+    )
+    assert.ok(plan)
+
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, spec)
+
+    assert.ok(plan.afterPruneTokens < plan.beforeTokens)
+    assert.ok(
+        plan.stages.some(
+            (stage) =>
+                (stage.name === "supersede-reads" ||
+                    stage.name === "tools-old" ||
+                    stage.name === "tools-remaining") &&
+                stage.clearedTokens > 0,
+        ),
+    )
+    const transformedText = transformed.map(syntheticTextOf).join("\n")
+    assert.match(transformedText, new RegExp(activePrompt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    assert.doesNotMatch(transformedText, /first tool output|second tool output|third tool output/)
+})
+
 test("planner compactifies contiguous assistant turns within an old turn", () => {
     const turns = [
         turn("msg-user-1", "user", [textItem("msg-user-1", "old turn")], 1),

@@ -585,8 +585,13 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     const response = await post(
         harness.proxyPort,
         "/openai/responses",
-        Buffer.from(JSON.stringify(responsesBody(input))),
-        { ...CLIENT_HEADERS, "thread-id": "t-summ" },
+        zstdCompressSync(Buffer.from(JSON.stringify(responsesBody(input)))),
+        {
+            ...CLIENT_HEADERS,
+            "Accept-Encoding": "gzip",
+            "Content-Encoding": "zstd",
+            "thread-id": "t-summ",
+        },
     )
     assert.equal(response.status, 200)
 
@@ -607,6 +612,8 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     )
     assert.ok(summaryCall, "summarizer must call /responses")
     assert.equal(summaryCall.headers.authorization, CLIENT_HEADERS.authorization)
+    assert.equal(summaryCall.headers["accept-encoding"], "identity")
+    assert.equal(summaryCall.headers["content-encoding"], undefined)
     const summaryBody = JSON.parse(summaryCall.body.toString("utf-8")) as {
         model: string
         max_output_tokens: number

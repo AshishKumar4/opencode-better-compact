@@ -433,7 +433,7 @@ async function upgradePlanWithSummaries<Body>(
     const summarizer = dialect.createSummarizer(
         options.upstream,
         model,
-        forwardableHeaders(req.rawHeaders),
+        forwardableHeaders(req.rawHeaders, ["content-encoding"]),
         options.logger,
     )
     const summaries = await options.summaryScheduler.summarize({

@@ -707,6 +707,17 @@ test("feeds relayed usage into the next request's trigger accounting", async () 
 
 test("summary side-calls reuse the request credentials and upgrade the plan", async () => {
     const harness = await startHarness()
+    const respond = harness.upstream.respond
+    harness.upstream.respond = (request) => {
+        const response = respond(request)
+        const body = JSON.parse(request.body.toString("utf-8")) as { stream?: boolean }
+        if (body.stream || request.headers["accept-encoding"] !== "gzip") return response
+        return {
+            ...response,
+            headers: { ...response.headers, "content-encoding": "gzip" },
+            chunks: [gzipSync(Buffer.concat(response.chunks))],
+        }
+    }
     // Assistant-text-heavy history: tool pruning cannot reach the target, so
     // runs are selected for summarization.
     const messages: WireMessage[] = []
@@ -723,8 +734,13 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     const response = await post(
         harness.proxyPort,
         "/anthropic/v1/messages",
-        Buffer.from(JSON.stringify(messagesBody(messages))),
-        { ...CLIENT_HEADERS, "x-session": "s-summ" },
+        gzipSync(Buffer.from(JSON.stringify(messagesBody(messages)))),
+        {
+            ...CLIENT_HEADERS,
+            "Accept-Encoding": "gzip",
+            "Content-Encoding": "gzip",
+            "x-session": "s-summ",
+        },
     )
     assert.equal(response.status, 200)
 
@@ -756,6 +772,8 @@ test("summary side-calls reuse the request credentials and upgrade the plan", as
     assert.equal(summaryCall.headers.authorization, CLIENT_HEADERS.authorization)
     assert.equal(summaryCall.headers["x-api-key"], CLIENT_HEADERS["x-api-key"])
     assert.equal(summaryCall.headers["anthropic-beta"], CLIENT_HEADERS["anthropic-beta"])
+    assert.equal(summaryCall.headers["accept-encoding"], "identity")
+    assert.equal(summaryCall.headers["content-encoding"], undefined)
     const summaryBody = JSON.parse(summaryCall.body.toString("utf-8")) as {
         model: string
         max_tokens: number
