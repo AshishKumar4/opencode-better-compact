@@ -20,7 +20,10 @@ import {
 // Every field the codec does not model rides along via index signatures and
 // re-emits verbatim: decode only rebuilds `content` arrays it changed.
 export interface WireMessage {
-    role: "user" | "assistant"
+    // Claude Code injects system-reminders inline as role "system" messages
+    // inside the messages array, alongside the conversational user/assistant
+    // turns; the codec preserves them verbatim (§groupMessages/encodeGroup).
+    role: "user" | "assistant" | "system"
     content: string | WireBlock[]
     [key: string]: unknown
 }
@@ -172,15 +175,14 @@ function groupMessages(messages: WireMessage[]): WireMessage[][] {
             run = [message]
             runCallIds = toolUseIds(message)
             groups.push(run)
-        } else if (message.role === "user") {
-            if (run && answersRun(message, runCallIds)) {
-                run.push(message)
-            } else {
-                groups.push([message])
-                run = null
-            }
+        } else if (message.role === "user" && run && answersRun(message, runCallIds)) {
+            run.push(message)
         } else {
-            throw new Error(`Unsupported message role: ${String(message.role)}`)
+            // A plain user message, or a system-reminder Claude Code injects
+            // inline (role "system"): each stands alone as its own turn and
+            // closes any open assistant run.
+            groups.push([message])
+            run = null
         }
     }
     return groups
@@ -205,6 +207,23 @@ function answersRun(message: WireMessage, runCallIds: Set<string>): boolean {
 function encodeGroup(group: WireMessage[], claimKey: (base: string) => string): Turn {
     const first = group[0]
     const key = claimKey(contentHashKey(stripCacheControl(group)))
+
+    // A message whose role is neither a conversation turn nor a tool-result
+    // carrier (Claude Code's inline system-reminders): preserve the whole
+    // message as one opaque, ephemeral turn — it carries no user intent, so it
+    // never anchors the tail or feeds summaries, and decode re-emits it
+    // verbatim while it lives.
+    if (first.role !== "assistant" && first.role !== "user") {
+        return {
+            key,
+            stamp: 0,
+            role: "user",
+            ephemeral: true,
+            items: [{ kind: "opaque", key: `${key}#0`, handle: first }],
+            handle: group,
+        }
+    }
+
     const items: Item[] = []
     const pendingCalls = new Map<string, ToolPair>()
 
@@ -322,6 +341,13 @@ function decodeTurn(turn: Turn): WireMessage[] {
     if (!group) return [synthesizeUserMessage(turn)]
 
     const first = group[0]
+    // Inline system-reminder (any non-conversational single message): re-emit
+    // verbatim while its opaque item survives. Nothing strips it, so it does.
+    if (group.length === 1 && first.role !== "user" && first.role !== "assistant") {
+        return turn.items.some((item) => item.kind !== "synthetic" && item.handle === first)
+            ? [first]
+            : []
+    }
     if (first.role === "user" && group.length === 1) return decodeUserMessage(first, turn.items)
 
     const out: WireMessage[] = []

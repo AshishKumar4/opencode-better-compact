@@ -8,6 +8,12 @@ export function assistantMessage(content: string | WireBlock[]): WireMessage {
     return { role: "assistant", content }
 }
 
+// Claude Code injects system-reminders inline as role "system" messages
+// interleaved with the conversation (verified against real captured bodies).
+export function systemMessage(content: string | WireBlock[]): WireMessage {
+    return { role: "system", content }
+}
+
 export function toolUse(
     id: string,
     name: string,

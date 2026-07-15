@@ -20,6 +20,7 @@ import {
     assistantMessage,
     bigConversation,
     kitchenSinkMessages,
+    systemMessage,
     thinking,
     toolResult,
     toolUse,
@@ -58,6 +59,81 @@ test("round-trip survives injected vendor junk fields", () => {
         return junked as WireMessage
     })
     assert.deepEqual(roundTrip(messages), messages)
+})
+
+test("inline system-reminder messages encode to preserved ephemeral turns", () => {
+    const messages = [
+        userMessage("start"),
+        assistantMessage([toolUse("toolu_1", "Bash", { command: "ls" })]),
+        userMessage([toolResult("toolu_1", "listing")]),
+        systemMessage("The task tools haven't been used recently."),
+        assistantMessage("done"),
+    ]
+    const turns = anthropicCodec.encode(messages)
+    // The system-reminder is its own turn between the assistant run and the
+    // trailing assistant reply — it closes the run, never folds into it.
+    const systemTurn = turns.find((turn) => turn.handle === messages[3] || (Array.isArray(turn.handle) && (turn.handle as WireMessage[])[0] === messages[3]))
+    assert.ok(systemTurn, "system message produced a turn")
+    assert.equal(systemTurn.ephemeral, true)
+    assert.equal(systemTurn.items.length, 1)
+    assert.equal(systemTurn.items[0].kind, "opaque")
+    // Round-trips verbatim as the exact same object when nothing is pruned.
+    const decoded = roundTrip(messages)
+    assert.deepEqual(decoded, messages)
+    const systemBack = decoded.find((message) => message.role === "system")
+    assert.equal(systemBack, messages[3])
+})
+
+test("inline system-reminders never break tool_use/tool_result pairing", () => {
+    // A system-reminder lands between each completed run and the next, exactly
+    // as Claude Code emits them; pairing must still hold across the boundary.
+    const messages = [
+        userMessage("go"),
+        assistantMessage([toolUse("toolu_a", "Read", { file_path: "/a" })]),
+        userMessage([toolResult("toolu_a", "aaa")]),
+        systemMessage("reminder one"),
+        assistantMessage([toolUse("toolu_b", "Read", { file_path: "/b" })]),
+        userMessage([toolResult("toolu_b", "bbb")]),
+        systemMessage("reminder two"),
+    ]
+    assert.deepEqual(roundTrip(messages), messages)
+    const turns = anthropicCodec.encode(messages)
+    // Each assistant+carrier run owns exactly one tool pair.
+    const runs = turns.filter((turn) => turn.role === "assistant")
+    assert.equal(runs.length, 2)
+    for (const run of runs) assert.equal(toolItems(run).length, 1)
+})
+
+test("pruning preserves inline system-reminders verbatim while compacting tools", () => {
+    const messages = [
+        systemMessage("Available agent types: alpha, beta, gamma."),
+        ...bigConversation(),
+    ]
+    // Inject a reminder partway so one sits inside the compacted prefix.
+    messages.splice(7, 0, systemMessage("The task tools haven't been used recently."))
+    const turns = anthropicCodec.encode(messages)
+    const plan = buildPlan(
+        turns,
+        {
+            contextLimit: 200_000,
+            sessionKey: "ses_system_preserved",
+            citablePath: (key, hash) => `/tmp/${key}/${hash}.md`,
+        },
+        anthropicSpec,
+    )
+    assert.ok(plan)
+    const transformed = transformTurns(turns, plan.rawTailStartIndex, plan, anthropicSpec)
+    const decoded = anthropicCodec.decode(transformed, messages)
+    // Real compaction happened.
+    assert.ok(
+        anthropicCodec.estimateTurns(anthropicCodec.encode(decoded)) <
+            anthropicCodec.estimateTurns(turns),
+    )
+    // A system-reminder is never emitted with any role but "system", and the
+    // preserved ones are the exact original objects.
+    for (const message of decoded) {
+        if (message.role === "system") assert.ok(messages.includes(message))
+    }
 })
 
 test("tool_use and its tool_result from the next user message form one IR item", () => {
