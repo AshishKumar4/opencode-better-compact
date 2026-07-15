@@ -56,7 +56,7 @@ export interface Dialect<Body> {
     // Parses and validates the request body; throws on anything the codec
     // cannot handle so the caller forwards the original bytes untouched.
     readBody(raw: Buffer): { body: Body; model: string }
-    stripManualTrigger(body: Body, marker: string): boolean
+    stripManualTrigger(body: Body, marker: string): { forced: boolean; stripped: boolean }
     sessionKeyOf(req: IncomingMessage, body: Body): string
     contextLimit(req: IncomingMessage, body: Body): number
     calibrateContextLimit?: boolean
@@ -294,11 +294,14 @@ async function rewriteBody<Body>(
     let sessionKey: string | null = null
     let fallbackBody = raw
     let manualTrigger = false
+    let manualTriggerStripped = false
     try {
         const decoded = await decodeRequestBody(raw, req.headers["content-encoding"])
         const { body, model } = dialect.readBody(decoded)
-        manualTrigger = dialect.stripManualTrigger(body, MANUAL_TRIGGER)
-        if (manualTrigger) fallbackBody = Buffer.from(JSON.stringify(body))
+        const trigger = dialect.stripManualTrigger(body, MANUAL_TRIGGER)
+        manualTrigger = trigger.forced
+        manualTriggerStripped = trigger.stripped
+        if (manualTriggerStripped) fallbackBody = Buffer.from(JSON.stringify(body))
         sessionKey = dialect.sessionKeyOf(req, body)
         const runtime = options.sessions.runtime(sessionKey)
         const configuredContextLimit = dialect.contextLimit(req, body)
@@ -331,7 +334,7 @@ async function rewriteBody<Body>(
         if (result.outcome === "unchanged") {
             return {
                 body: fallbackBody,
-                rewritten: manualTrigger,
+                rewritten: manualTriggerStripped,
                 pruned: false,
                 sessionKey,
                 model,
@@ -380,7 +383,7 @@ async function rewriteBody<Body>(
         })
         return {
             body: fallbackBody,
-            rewritten: manualTrigger,
+            rewritten: manualTriggerStripped,
             pruned: false,
             sessionKey,
             model: null,

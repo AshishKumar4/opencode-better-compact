@@ -13,7 +13,7 @@ import { gzipSync } from "node:zlib"
 import { COMPACTION_PRESETS, type Logger, type PlanSnapshot } from "@better-compact/core"
 import { checkHealth } from "../src/daemon"
 import { createProxyServer } from "../src/server"
-import type { WireMessage } from "../src/anthropic/codec"
+import { stripAnthropicManualTrigger, type WireMessage } from "../src/anthropic/codec"
 import {
     assistantMessage,
     bigConversation,
@@ -313,6 +313,44 @@ test("manual sentinel forces a plan and is stripped from the latest user message
         await readFile(join(harness.home, "plans", "s-manual.json"), "utf-8"),
     ) as PlanSnapshot
     assert.equal(plan.sessionId, "s-manual")
+})
+
+test("manual sentinel is stripped from replayed prompts without retriggering", () => {
+    const messages: WireMessage[] = [
+        userMessage([
+            { type: "text", text: "[[better-compact:run]] replayed prompt" },
+            { type: "text", text: "second [[better-compact:run]] marker" },
+        ]),
+        assistantMessage([toolUse("toolu_manual", "Read", { file_path: "/tmp/example" })]),
+        userMessage([toolResult("toolu_manual", "contents")]),
+    ]
+
+    assert.deepEqual(stripAnthropicManualTrigger(messages, "[[better-compact:run]]"), {
+        forced: false,
+        stripped: true,
+    })
+    assert.ok(!JSON.stringify(messages).includes("[[better-compact:run]]"))
+})
+
+test("replayed manual sentinel is sanitized on an otherwise unchanged request", async () => {
+    const harness = await startHarness()
+    const messages: WireMessage[] = [
+        userMessage("[[better-compact:run]] replayed prompt"),
+        assistantMessage([toolUse("toolu_replay", "Read", { file_path: "/tmp/example" })]),
+        userMessage([toolResult("toolu_replay", "contents")]),
+    ]
+
+    const response = await post(
+        harness.proxyPort,
+        "/anthropic/v1/messages",
+        Buffer.from(JSON.stringify(messagesBody(messages))),
+        { ...CLIENT_HEADERS, "x-session": "s-replay" },
+    )
+
+    assert.equal(response.status, 200)
+    const seen = JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8"))
+    assert.ok(!JSON.stringify(seen).includes("[[better-compact:run]]"))
+    assert.ok(!JSON.stringify(seen).includes("Better Compact context pruning applied"))
 })
 
 test("drops content-encoding when the body is rewritten, keeps it verbatim otherwise", async () => {

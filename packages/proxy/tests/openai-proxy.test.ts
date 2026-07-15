@@ -12,7 +12,7 @@ import { join } from "node:path"
 import { zstdCompressSync } from "node:zlib"
 import { COMPACTION_PRESETS, type Logger, type PlanSnapshot } from "@better-compact/core"
 import { createProxyServer } from "../src/server"
-import type { ResponseItemWire } from "../src/openai/codec"
+import { stripOpenAIManualTrigger, type ResponseItemWire } from "../src/openai/codec"
 import {
     assistantMessage,
     bigConversation,
@@ -309,6 +309,48 @@ test("manual sentinel forces a plan and is stripped from the latest user item", 
         await readFile(join(harness.home, "plans", "t-manual.json"), "utf-8"),
     ) as PlanSnapshot
     assert.equal(plan.sessionId, "t-manual")
+})
+
+test("manual sentinel is stripped from replayed prompts without retriggering", () => {
+    const input: ResponseItemWire[] = [
+        {
+            type: "message",
+            role: "user",
+            content: [
+                { type: "input_text", text: "[[better-compact:run]] replayed prompt" },
+                { type: "input_text", text: "second [[better-compact:run]] marker" },
+            ],
+        },
+        functionCall("call_manual", "read_file", { path: "/tmp/example" }),
+        functionCallOutput("call_manual", "contents"),
+    ]
+
+    assert.deepEqual(stripOpenAIManualTrigger(input, "[[better-compact:run]]"), {
+        forced: false,
+        stripped: true,
+    })
+    assert.ok(!JSON.stringify(input).includes("[[better-compact:run]]"))
+})
+
+test("replayed manual sentinel is sanitized on an otherwise unchanged request", async () => {
+    const harness = await startHarness()
+    const input: ResponseItemWire[] = [
+        userMessage("[[better-compact:run]] replayed prompt"),
+        functionCall("call_replay", "read_file", { path: "/tmp/example" }),
+        functionCallOutput("call_replay", "contents"),
+    ]
+
+    const response = await post(
+        harness.proxyPort,
+        "/openai/responses",
+        Buffer.from(JSON.stringify(responsesBody(input))),
+        { ...CLIENT_HEADERS, "thread-id": "t-replay" },
+    )
+
+    assert.equal(response.status, 200)
+    const seen = JSON.parse(streamRequests(harness.upstream)[0].body.toString("utf-8"))
+    assert.ok(!JSON.stringify(seen).includes("[[better-compact:run]]"))
+    assert.ok(!JSON.stringify(seen).includes("Better Compact context pruning applied"))
 })
 
 test("decodes a compressed Responses body before pruning it", async () => {

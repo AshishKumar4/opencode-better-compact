@@ -111,21 +111,41 @@ export const openaiSpec: LadderSpec = {
     ],
 }
 
-export function stripOpenAIManualTrigger(input: ResponseItemWire[], marker: string): boolean {
-    const message = input.findLast(isUserMessage)
-    if (!message) return false
-    if (typeof message.content === "string") {
-        if (!message.content.includes(marker)) return false
-        message.content = message.content.replaceAll(marker, "")
-        return true
+export function stripOpenAIManualTrigger(
+    input: ResponseItemWire[],
+    marker: string,
+): { forced: boolean; stripped: boolean } {
+    const latest = input.at(-1)
+    const forced =
+        latest !== undefined && isUserMessage(latest) && openAIMessageIncludes(latest, marker)
+    let stripped = false
+    for (const item of input) {
+        if (!isUserMessage(item)) continue
+        if (typeof item.content === "string") {
+            stripped ||= item.content.includes(marker)
+            item.content = item.content.replaceAll(marker, "")
+            continue
+        }
+        if (!Array.isArray(item.content)) continue
+        for (const part of item.content) {
+            if (part?.type === "input_text" && typeof part.text === "string") {
+                stripped ||= part.text.includes(marker)
+                part.text = part.text.replaceAll(marker, "")
+            }
+        }
     }
+    return { forced, stripped }
+}
+
+function openAIMessageIncludes(message: MessageItem, marker: string): boolean {
+    if (typeof message.content === "string") return message.content.includes(marker)
     if (!Array.isArray(message.content)) return false
-    const part = message.content.findLast(
-        (candidate) => candidate?.type === "input_text" && typeof candidate.text === "string",
+    return message.content.some(
+        (part) =>
+            part?.type === "input_text" &&
+            typeof part.text === "string" &&
+            part.text.includes(marker),
     )
-    if (!part || !part.text.includes(marker)) return false
-    part.text = part.text.replaceAll(marker, "")
-    return true
 }
 
 // A Turn is a role-run over the flat item array: consecutive user `message`

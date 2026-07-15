@@ -125,20 +125,36 @@ export const anthropicSpec: LadderSpec = {
     ],
 }
 
-export function stripAnthropicManualTrigger(messages: WireMessage[], marker: string): boolean {
-    const message = messages.findLast((candidate) => candidate.role === "user")
-    if (!message) return false
-    if (typeof message.content === "string") {
-        if (!message.content.includes(marker)) return false
-        message.content = message.content.replaceAll(marker, "")
-        return true
+export function stripAnthropicManualTrigger(
+    messages: WireMessage[],
+    marker: string,
+): { forced: boolean; stripped: boolean } {
+    const latest = messages.at(-1)
+    const forced = latest?.role === "user" && anthropicMessageIncludes(latest, marker)
+    let stripped = false
+    for (const message of messages) {
+        if (message.role !== "user") continue
+        if (typeof message.content === "string") {
+            stripped ||= message.content.includes(marker)
+            message.content = message.content.replaceAll(marker, "")
+            continue
+        }
+        for (const block of message.content) {
+            if (block.type === "text" && typeof block.text === "string") {
+                stripped ||= block.text.includes(marker)
+                block.text = block.text.replaceAll(marker, "")
+            }
+        }
     }
-    const block = message.content.findLast(
-        (candidate) => candidate.type === "text" && typeof candidate.text === "string",
+    return { forced, stripped }
+}
+
+function anthropicMessageIncludes(message: WireMessage, marker: string): boolean {
+    if (typeof message.content === "string") return message.content.includes(marker)
+    return message.content.some(
+        (block) =>
+            block.type === "text" && typeof block.text === "string" && block.text.includes(marker),
     )
-    if (!block || typeof block.text !== "string" || !block.text.includes(marker)) return false
-    block.text = block.text.replaceAll(marker, "")
-    return true
 }
 
 // A Turn is one plain user message, or one assistant message plus the user
