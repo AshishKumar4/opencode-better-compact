@@ -1,0 +1,14 @@
+{
+    "name": "better-compact",
+    "description": "Better Compact for Claude Code: on-the-wire context pruning that keeps long sessions lean without losing recallable history.",
+    "owner": {
+        "name": "AshishKumar4"
+    },
+    "plugins": [
+        {
+            "name": "better-compact",
+            "source": "./packages/claude-code",
+            "description": "Context pruning for Claude Code through the better-compact daemon: keeps long sessions lean without losing recallable history."
+        }
+    ]
+}

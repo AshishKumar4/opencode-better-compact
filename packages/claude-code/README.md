@@ -8,6 +8,10 @@ over the wire, so this package is distribution and UX only:
 
 - **SessionStart hook** (`hooks/hooks.json` + `hooks/session-start.sh`): ensures the daemon is
   running when a session starts. Idempotent through the daemon's lockfile; never blocks a session.
+- **`/better-compact:compact` command** (`commands/compact.md`): compacts the session on demand.
+  It emits the `[[better-compact:run]]` sentinel in the prompt; the proxy force-runs the pruning
+  ladder on that request and strips the marker before the model sees it. The Claude Code analog of
+  opencode's `/better-compact`.
 - **`/better-compact:status` command** (`commands/status.md`): surfaces proxy status and the
   current session's plan stats from `~/.better-compact/plans/`.
 - **Installer** (`npx @better-compact/cli install claude-code`): writes
