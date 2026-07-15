@@ -12,15 +12,27 @@ export function rangeHash(turns: Turn[]): string {
     return createHash("sha256").update(seed).digest("hex").slice(0, 16)
 }
 
-// Summary keys survive forks: forked sessions mint new message ids but copy
-// roles and creation stamps, so a content-inherited plan can keep reusing
-// its paid-for assistant summaries. Adapted from origin/master 173146f,
+// Summary keys survive forks: forked sessions mint new message and item ids but
+// copy roles, creation stamps, and content, so inherited plans can keep reusing
+// their paid-for assistant summaries. Adapted from origin/master 173146f,
 // which additionally hashed provider/model metadata the IR does not carry.
 export function assistantRunKey(turns: Turn[]): string {
-    const seed = turns
-        .map((turn) => `${turn.role}:${turn.stamp}${turn.fragmentKey ? `:${turn.fragmentKey}` : ""}`)
-        .join("|")
-    return createHash("sha256").update(seed).digest("hex").slice(0, 16)
+    const seed = turns.map((turn) => [
+        turn.role,
+        turn.stamp,
+        assistantContentDigest(turn.items),
+        turn.fragmentKey ?? null,
+    ])
+    return createHash("sha256").update(JSON.stringify(seed)).digest("hex").slice(0, 16)
+}
+
+function assistantContentDigest(items: Turn["items"]): string {
+    const seed = items.map((item) => {
+        if (item.kind === "text" || item.kind === "synthetic") return [item.kind, item.text]
+        if (item.kind === "tool") return [item.kind, item.callId]
+        return [item.kind]
+    })
+    return createHash("sha256").update(JSON.stringify(seed)).digest("hex")
 }
 
 export function syntheticTextKey(turnKey: string, text: string): string {
