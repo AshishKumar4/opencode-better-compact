@@ -10,14 +10,5 @@
         "directory": "packages/claude-code"
     },
     "author": "AshishKumar4",
-    "license": "AGPL-3.0-or-later",
-    "scripts": {
-        "typecheck": "tsc --noEmit",
-        "test": "node --import tsx --test tests/*.test.ts"
-    },
-    "devDependencies": {
-        "@types/node": "^25.5.0",
-        "tsx": "^4.21.0",
-        "typescript": "^6.0.2"
-    }
+    "license": "AGPL-3.0-or-later"
 }

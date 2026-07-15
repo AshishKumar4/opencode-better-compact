@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { CHATGPT_CODEX_UPSTREAM, DEFAULT_PORT, type ProxyPaths } from "./config"
 
 export const CODEX_PROXY_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}/openai`
+export const ANTHROPIC_PROXY_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}/anthropic`
 
 const CODEX_BACKEND_AUTH_MODES = new Set([
     "chatgpt",
@@ -118,6 +119,57 @@ export interface CodexInstallResult {
     configJsonPath: string
 }
 
+export interface ClaudeCodeInstallResult {
+    settingsPath: string
+    configJsonPath: string
+    previousBaseUrl: string | null
+    undoSteps: string[]
+}
+
+export function installClaudeCode(paths: ProxyPaths, home = homedir()): ClaudeCodeInstallResult {
+    const settingsPath = join(home, ".claude", "settings.json")
+    const settings = readClaudeJson(settingsPath)
+    const config = readClaudeJson(paths.configFile)
+    const priorEnv = jsonObjectProperty(settings, "env", settingsPath)
+    const settingsBaseUrl = stringProperty(priorEnv, "ANTHROPIC_BASE_URL")
+    const shellBaseUrl = process.env.ANTHROPIC_BASE_URL || null
+    const existingPreserved = stringProperty(config, "anthropicUpstream")
+    const previousBaseUrl =
+        realAnthropicUpstream(settingsBaseUrl) ?? realAnthropicUpstream(shellBaseUrl)
+    const addedDisableAutoCompact = priorEnv.DISABLE_AUTO_COMPACT === undefined
+
+    if (previousBaseUrl) config.anthropicUpstream = previousBaseUrl
+
+    settings.env = {
+        ...priorEnv,
+        ANTHROPIC_BASE_URL: ANTHROPIC_PROXY_BASE_URL,
+        DISABLE_AUTO_COMPACT: "1",
+    }
+
+    mkdirSync(dirname(paths.configFile), { recursive: true })
+    mkdirSync(dirname(settingsPath), { recursive: true })
+    writeFileSync(paths.configFile, JSON.stringify(config, null, 4) + "\n")
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 4) + "\n")
+
+    const restoreBaseUrl = previousBaseUrl ?? existingPreserved
+    const undoSteps = [
+        "better-compact-proxy stop",
+        restoreBaseUrl
+            ? `set env.ANTHROPIC_BASE_URL back to "${restoreBaseUrl}" in ${settingsPath}`
+            : `remove env.ANTHROPIC_BASE_URL from ${settingsPath}`,
+    ]
+    if (addedDisableAutoCompact) {
+        undoSteps.push(`remove env.DISABLE_AUTO_COMPACT from ${settingsPath}`)
+    }
+
+    return {
+        settingsPath,
+        configJsonPath: paths.configFile,
+        previousBaseUrl,
+        undoSteps,
+    }
+}
+
 // Applies the config.toml edit and records a preserved upstream in the proxy's
 // config.json. Throws with a user-facing message when the edit is refused.
 export function installCodex(paths: ProxyPaths, home = homedir()): CodexInstallResult {
@@ -178,15 +230,64 @@ function codexAuthUpstream(codexHome: string): string | null {
 }
 
 function readConfigJson(path: string): Record<string, unknown> {
+    return readJsonObject(path, (error) =>
+        error
+            ? new Error(`${path} must contain a valid JSON object`, { cause: error })
+            : new Error(`${path} must contain a valid JSON object`),
+    )
+}
+
+function readClaudeJson(path: string): Record<string, unknown> {
+    return readJsonObject(
+        path,
+        (error) => {
+            if (!error) return new Error(`${path} must contain a JSON object`)
+            const detail = error instanceof Error ? error.message : String(error)
+            return new Error(
+                `${path} is not valid JSON (${detail}); fix or remove it, then re-run.`,
+                { cause: error },
+            )
+        },
+        true,
+    )
+}
+
+function readJsonObject(
+    path: string,
+    invalid: (error: unknown | null) => Error,
+    allowEmpty = false,
+): Record<string, unknown> {
     if (!existsSync(path)) return {}
     let raw: unknown
     try {
-        raw = JSON.parse(readFileSync(path, "utf-8"))
+        const content = readFileSync(path, "utf-8")
+        raw = JSON.parse(allowEmpty && !content ? "{}" : content)
     } catch (error) {
-        throw new Error(`${path} must contain a valid JSON object`, { cause: error })
+        throw invalid(error)
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new Error(`${path} must contain a valid JSON object`)
+        throw invalid(null)
     }
     return raw as Record<string, unknown>
+}
+
+function jsonObjectProperty(
+    object: Record<string, unknown>,
+    key: string,
+    path: string,
+): Record<string, unknown> {
+    const value = object[key]
+    if (value === undefined) return {}
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`${path} ${key} must contain a JSON object`)
+    }
+    return value as Record<string, unknown>
+}
+
+function stringProperty(object: Record<string, unknown>, key: string): string | null {
+    return typeof object[key] === "string" ? object[key] : null
+}
+
+function realAnthropicUpstream(value: string | null): string | null {
+    return value && value !== ANTHROPIC_PROXY_BASE_URL ? value : null
 }

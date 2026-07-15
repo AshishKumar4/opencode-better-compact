@@ -1,10 +1,17 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { loadConfig, proxyPaths } from "../src/config"
-import { CODEX_PROXY_BASE_URL, editCodexConfig, installCodex } from "../src/install"
+import {
+    ANTHROPIC_PROXY_BASE_URL,
+    CODEX_PROXY_BASE_URL,
+    editCodexConfig,
+    installClaudeCode,
+    installCodex,
+} from "../src/install"
 
 const PROXY = "http://127.0.0.1:42817/openai"
 
@@ -254,4 +261,150 @@ test("installCodex refreshes an inferred upstream when the auth mode changes", a
     } finally {
         await rm(home, { recursive: true, force: true })
     }
+})
+
+test("installClaudeCode creates merged settings for a fresh install", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    const previous = process.env.ANTHROPIC_BASE_URL
+    try {
+        delete process.env.ANTHROPIC_BASE_URL
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        const result = installClaudeCode(paths, home)
+
+        const settings = JSON.parse(
+            await readFile(join(home, ".claude", "settings.json"), "utf-8"),
+        ) as { env: Record<string, string> }
+        assert.deepEqual(settings.env, {
+            ANTHROPIC_BASE_URL: ANTHROPIC_PROXY_BASE_URL,
+            DISABLE_AUTO_COMPACT: "1",
+        })
+        assert.deepEqual(JSON.parse(await readFile(paths.configFile, "utf-8")), {})
+        assert.match(result.undoSteps.join("\n"), /remove env\.ANTHROPIC_BASE_URL/)
+        assert.match(result.undoSteps.join("\n"), /remove env\.DISABLE_AUTO_COMPACT/)
+    } finally {
+        if (previous === undefined) delete process.env.ANTHROPIC_BASE_URL
+        else process.env.ANTHROPIC_BASE_URL = previous
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installClaudeCode preserves a gateway URL as upstream and in restore guidance", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    try {
+        const settingsPath = join(home, ".claude", "settings.json")
+        await mkdir(join(home, ".claude"), { recursive: true })
+        await writeFile(
+            settingsPath,
+            JSON.stringify({
+                theme: "dark",
+                env: {
+                    ANTHROPIC_BASE_URL: "https://gateway.example/anthropic",
+                    EXISTING: "value",
+                },
+            }),
+        )
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        const result = installClaudeCode(paths, home)
+
+        const settings = JSON.parse(await readFile(settingsPath, "utf-8")) as {
+            theme: string
+            env: Record<string, string>
+        }
+        assert.equal(settings.theme, "dark")
+        assert.equal(settings.env.EXISTING, "value")
+        assert.equal(settings.env.ANTHROPIC_BASE_URL, ANTHROPIC_PROXY_BASE_URL)
+        assert.deepEqual(JSON.parse(await readFile(paths.configFile, "utf-8")), {
+            anthropicUpstream: "https://gateway.example/anthropic",
+        })
+        assert.match(
+            result.undoSteps.join("\n"),
+            /set env\.ANTHROPIC_BASE_URL back to "https:\/\/gateway\.example\/anthropic"/,
+        )
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installClaudeCode preserves the invoking shell gateway when settings have none", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    const previous = process.env.ANTHROPIC_BASE_URL
+    try {
+        process.env.ANTHROPIC_BASE_URL = "https://shell-gateway.example/anthropic"
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        installClaudeCode(paths, home)
+
+        assert.deepEqual(JSON.parse(await readFile(paths.configFile, "utf-8")), {
+            anthropicUpstream: "https://shell-gateway.example/anthropic",
+        })
+    } finally {
+        if (previous === undefined) delete process.env.ANTHROPIC_BASE_URL
+        else process.env.ANTHROPIC_BASE_URL = previous
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installClaudeCode refuses malformed settings before mutating either file", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    try {
+        const settingsPath = join(home, ".claude", "settings.json")
+        const paths = proxyPaths(join(home, ".better-compact"))
+        await mkdir(join(home, ".claude"), { recursive: true })
+        await mkdir(paths.home, { recursive: true })
+        await writeFile(settingsPath, "{broken")
+        await writeFile(paths.configFile, '{"preset":"light"}\n')
+
+        assert.throws(() => installClaudeCode(paths, home), /settings\.json is not valid JSON/)
+        assert.equal(await readFile(settingsPath, "utf-8"), "{broken")
+        assert.equal(await readFile(paths.configFile, "utf-8"), '{"preset":"light"}\n')
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installClaudeCode refuses malformed proxy config before mutating settings", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    try {
+        const settingsPath = join(home, ".claude", "settings.json")
+        const paths = proxyPaths(join(home, ".better-compact"))
+        await mkdir(join(home, ".claude"), { recursive: true })
+        await mkdir(paths.home, { recursive: true })
+        await writeFile(settingsPath, '{"env":{"EXISTING":"value"}}\n')
+        await writeFile(paths.configFile, "{broken")
+
+        assert.throws(() => installClaudeCode(paths, home), /config\.json is not valid JSON/)
+        assert.equal(await readFile(settingsPath, "utf-8"), '{"env":{"EXISTING":"value"}}\n')
+        assert.equal(await readFile(paths.configFile, "utf-8"), "{broken")
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("installClaudeCode only removes DISABLE_AUTO_COMPACT on undo when it added it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-install-"))
+    try {
+        const settingsPath = join(home, ".claude", "settings.json")
+        await mkdir(join(home, ".claude"), { recursive: true })
+        await writeFile(settingsPath, '{"env":{"DISABLE_AUTO_COMPACT":"0"}}\n')
+        const paths = proxyPaths(join(home, ".better-compact"))
+
+        const result = installClaudeCode(paths, home)
+
+        assert.doesNotMatch(result.undoSteps.join("\n"), /DISABLE_AUTO_COMPACT/)
+    } finally {
+        await rm(home, { recursive: true, force: true })
+    }
+})
+
+test("install command rejects an unknown target and lists valid targets", () => {
+    const result = spawnSync(
+        process.execPath,
+        ["--import", "tsx", join(process.cwd(), "src", "cli.ts"), "install", "unknown"],
+        { encoding: "utf-8" },
+    )
+
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /Valid targets: claude-code, codex/)
 })
