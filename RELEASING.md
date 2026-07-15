@@ -41,9 +41,9 @@ versions without a token, configure a trusted publisher once on npmjs.com:
 After that, a `core-v*` tag publishes core hands-off, the same way the plugin
 already releases.
 
-## `@better-compact/proxy` (the coding-agent proxy)
+## `@better-compact/cli` (the coding-agent proxy)
 
-1. Bump `packages/proxy/package.json` `version`, commit, push to `master`.
+1. Bump `packages/cli/package.json` `version`, commit, push to `master`.
 2. Tag and push with the `proxy-v` prefix:
    ```bash
    git tag proxy-v0.1.1 && git push origin proxy-v0.1.1
@@ -54,11 +54,11 @@ already releases.
 
 ### One-time trusted-publisher setup (required before the first CI proxy release)
 
-The first publish of `@better-compact/proxy@0.1.0` must be manual from an
+The first publish of `@better-compact/cli@0.1.0` must be manual from an
 authenticated npm session. After it exists, configure a trusted publisher once
 on npmjs.com so CI can publish future versions without a token:
 
-- npmjs.com → the `@better-compact/proxy` package → **Settings → Trusted Publishing**
+- npmjs.com → the `@better-compact/cli` package → **Settings → Trusted Publishing**
 - Add a **GitHub Actions** publisher:
   - Repository owner/name: `AshishKumar4/opencode-better-compact`
   - Workflow filename: `release-proxy.yml`

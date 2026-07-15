@@ -153,7 +153,7 @@ export function installClaudeCode(paths: ProxyPaths, home = homedir()): ClaudeCo
 
     const restoreBaseUrl = previousBaseUrl ?? existingPreserved
     const undoSteps = [
-        "better-compact-proxy stop",
+        "better-compact stop",
         restoreBaseUrl
             ? `set env.ANTHROPIC_BASE_URL back to "${restoreBaseUrl}" in ${settingsPath}`
             : `remove env.ANTHROPIC_BASE_URL from ${settingsPath}`,

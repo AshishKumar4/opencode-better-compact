@@ -135,7 +135,7 @@ export function runDaemon(paths: ProxyPaths, port: number, capture: boolean): vo
     server.listen(port, "127.0.0.1", () => {
         mkdirSync(paths.home, { recursive: true })
         writeFileSync(paths.lockfile, JSON.stringify({ port, pid: process.pid } satisfies LockInfo))
-        logger.info("better-compact-proxy listening", {
+        logger.info("better-compact listening", {
             port,
             pid: process.pid,
             upstream: config.anthropicUpstream,

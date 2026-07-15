@@ -31,7 +31,7 @@ function runInstaller(commands: string[], args: string[] = []): InstallerRun {
     for (const command of commands) {
         let body = "#!/bin/sh\n"
         if (command === "npm") body += `printf 'npm:%s\\n' "$*" >> "$CALLS"\n`
-        if (command === "better-compact-proxy") {
+        if (command === "better-compact") {
             body += `printf 'proxy:%s\\n' "$*" >> "$CALLS"\n`
         }
         writeFileSync(join(bin, command), body)
@@ -68,14 +68,14 @@ test("hosted installer auto-detects every installed agent CLI", () => {
     ]
 
     for (const { agents, targets } of cases) {
-        const result = runInstaller(["node", "npm", "better-compact-proxy", ...agents])
+        const result = runInstaller(["node", "npm", "better-compact", ...agents])
 
         assert.equal(result.status, 0, result.stderr)
         assert.deepEqual(result.calls, [
-            "npm:install -g @better-compact/proxy@latest",
+            "npm:install -g @better-compact/cli@latest",
             ...targets.map((target) => `proxy:install ${target}`),
         ])
-        assert.match(result.stdout, /Installed @better-compact\/proxy@latest globally\./)
+        assert.match(result.stdout, /Installed @better-compact\/cli@latest globally\./)
         for (const target of targets) {
             assert.match(result.stdout, new RegExp(`Configured Better Compact for ${target}\\.`))
         }
@@ -84,13 +84,13 @@ test("hosted installer auto-detects every installed agent CLI", () => {
 
 test("an explicit hosted-installer target wins over auto-detection", () => {
     const result = runInstaller(
-        ["node", "npm", "better-compact-proxy", "claude", "codex"],
+        ["node", "npm", "better-compact", "claude", "codex"],
         ["codex"],
     )
 
     assert.equal(result.status, 0, result.stderr)
     assert.deepEqual(result.calls, [
-        "npm:install -g @better-compact/proxy@latest",
+        "npm:install -g @better-compact/cli@latest",
         "proxy:install codex",
     ])
     assert.match(result.stdout, /Configured Better Compact for codex\./)
@@ -98,7 +98,7 @@ test("an explicit hosted-installer target wins over auto-detection", () => {
 })
 
 test("hosted installer refuses to install when no supported agent CLI is present", () => {
-    const result = runInstaller(["node", "npm", "better-compact-proxy"])
+    const result = runInstaller(["node", "npm", "better-compact"])
 
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /Valid targets: claude-code, codex/)
@@ -106,19 +106,19 @@ test("hosted installer refuses to install when no supported agent CLI is present
 })
 
 test("hosted installer names missing Node.js and npm prerequisites", () => {
-    const missingNode = runInstaller(["npm", "better-compact-proxy"], ["codex"])
+    const missingNode = runInstaller(["npm", "better-compact"], ["codex"])
     assert.notEqual(missingNode.status, 0)
     assert.match(missingNode.stderr, /Node\.js is required; install Node\.js/)
     assert.deepEqual(missingNode.calls, [])
 
-    const missingNpm = runInstaller(["node", "better-compact-proxy"], ["codex"])
+    const missingNpm = runInstaller(["node", "better-compact"], ["codex"])
     assert.notEqual(missingNpm.status, 0)
     assert.match(missingNpm.stderr, /npm is required; install npm/)
     assert.deepEqual(missingNpm.calls, [])
 })
 
 test("hosted installer rejects an unknown explicit target before npm install", () => {
-    const result = runInstaller(["node", "npm", "better-compact-proxy"], ["other"])
+    const result = runInstaller(["node", "npm", "better-compact"], ["other"])
 
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /Valid targets: claude-code, codex/)

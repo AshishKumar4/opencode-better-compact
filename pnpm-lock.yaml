@@ -14,6 +14,24 @@ importers:
 
   packages/claude-code: {}
 
+  packages/cli:
+    devDependencies:
+      '@better-compact/core':
+        specifier: workspace:*
+        version: link:../core
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.9.4
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(jiti@2.7.0)(tsx@4.22.5)(typescript@6.0.3)(yaml@2.9.0)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.5
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+
   packages/core:
     devDependencies:
       '@types/node':
@@ -80,24 +98,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.80.6
         version: 0.80.6(ws@8.21.0)(zod@4.1.8)
-      '@types/node':
-        specifier: ^25.5.0
-        version: 25.9.4
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(jiti@2.7.0)(tsx@4.22.5)(typescript@6.0.3)(yaml@2.9.0)
-      tsx:
-        specifier: ^4.21.0
-        version: 4.22.5
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.3
-
-  packages/proxy:
-    devDependencies:
-      '@better-compact/core':
-        specifier: workspace:*
-        version: link:../core
       '@types/node':
         specifier: ^25.5.0
         version: 25.9.4

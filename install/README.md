@@ -2,7 +2,7 @@
 
 # Hosted installer
 
-The installer works only after `@better-compact/proxy` has been published to npm.
+The installer works only after `@better-compact/cli` has been published to npm.
 
 ## Deploy
 

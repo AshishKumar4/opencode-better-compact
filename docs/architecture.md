@@ -95,7 +95,7 @@ better-compact/
     │             host-permissions, auth, update — today's lib/, minus what moved to core)
     ├── pi/                      # @better-compact/pi — single-file-bundled extension + npm "pi package"
     │   └── src/  extension.ts  codec.ts  summarizer.ts  plan-store.ts
-    ├── proxy/                   # @better-compact/proxy — `better-compact-proxy` daemon
+    ├── proxy/                   # @better-compact/cli — `better-compact` daemon
     │   └── src/  server.ts  session.ts  engine.ts  anthropic/codec.ts  openai/codec.ts
     │             summarizer.ts  stores.ts
     └── claude-code/             # @better-compact/claude-code — CC plugin (UX shell over proxy)
@@ -105,8 +105,8 @@ better-compact/
 **Judgment calls:**
 
 - **One proxy package, not three.** Rejected `proxy` + `proxy-anthropic` + `proxy-openai-responses`: the codecs are not independently consumable (nothing imports an Anthropic codec except the proxy), and one daemon serving both dialects by route (`/anthropic/v1/messages`, `/openai/responses`) is one deployable, one lifecycle, one install story. Codecs are modules inside the package.
-- **Codecs live with their consumer**, not in core: OpenCode codec in `packages/opencode`, pi codec in `packages/pi`, wire codecs in `packages/proxy`. Core stays dependency-free and platform-blind.
-- **No `codex` package.** Codex's only extension surface is prompt-file slash commands; its entire adapter *is* the openai codec plus installer edits to `config.toml` (`openai_base_url`, custom `compact_prompt`). A package with no code fails the deletion test — Codex setup ships as `better-compact-proxy install codex`.
+- **Codecs live with their consumer**, not in core: OpenCode codec in `packages/opencode`, pi codec in `packages/pi`, wire codecs in `packages/cli`. Core stays dependency-free and platform-blind.
+- **No `codex` package.** Codex's only extension surface is prompt-file slash commands; its entire adapter *is* the openai codec plus installer edits to `config.toml` (`openai_base_url`, custom `compact_prompt`). A package with no code fails the deletion test — Codex setup ships as `better-compact install codex`.
 - **What stays OpenCode-specific:** TUI (`tui.tsx`, lib/tui, lib/ui), commands, host-permissions, compress-permission, auth, auto-update, hallucination stripping (lib/messages/reasoning-strip et al.), scratch-session summarizer. None of it generalizes; none of it should.
 
 **Release/installer per platform:** OpenCode — npm package installed through OpenCode's built-in plugin manager (`opencode plugin better-compact --global`); the release pipeline packs, smoke-installs, and publishes with provenance (the earlier curl install.sh is retired). pi — npm "pi package" plus a bundled single `.ts`/`.js` artifact for `~/.pi/agent/extensions` drop-in; extension sets `compaction.enabled:false` (the pi analogue of today's `compaction.auto:false` in index.ts). Claude Code — plugin distribution (git/marketplace); its installer writes `ANTHROPIC_BASE_URL` into settings `env` and installs the proxy binary. Proxy — npm `bin` + install.sh, same checksum discipline as the existing installer.
@@ -187,7 +187,7 @@ Per-platform port implementations: **pi** — Summarizer via pi-ai `complete` + 
 
 ## 4. Proxy engine design
 
-One daemon, `better-compact-proxy`, binding `127.0.0.1` on a fixed default port (e.g. 42817), serving both dialects by route:
+One daemon, `better-compact`, binding `127.0.0.1` on a fixed default port (e.g. 42817), serving both dialects by route:
 
 - `POST /anthropic/v1/messages` → rewrite → `api.anthropic.com` (or the pre-existing `ANTHROPIC_BASE_URL` value, read at install time and composed as upstream, so existing gateway users keep working)
 - `POST /openai/responses` → rewrite → configured OpenAI upstream

@@ -3,14 +3,14 @@
 # @better-compact/claude-code
 
 I'm the Claude Code shell for Better Compact. All the actual context work happens in the
-[`better-compact-proxy` daemon](../proxy/README.md) — a Claude Code plugin cannot touch what goes
+[`better-compact` daemon](../cli/README.md) — a Claude Code plugin cannot touch what goes
 over the wire, so this package is distribution and UX only:
 
 - **SessionStart hook** (`hooks/hooks.json` + `hooks/session-start.sh`): ensures the daemon is
   running when a session starts. Idempotent through the daemon's lockfile; never blocks a session.
 - **`/better-compact:status` command** (`commands/status.md`): surfaces proxy status and the
   current session's plan stats from `~/.better-compact/plans/`.
-- **Installer** (`npx @better-compact/proxy install claude-code`): writes
+- **Installer** (`npx @better-compact/cli install claude-code`): writes
   `env.ANTHROPIC_BASE_URL=http://127.0.0.1:42817/anthropic` and `env.DISABLE_AUTO_COMPACT=1` into
   `~/.claude/settings.json` (merged, not clobbered — a pre-existing `ANTHROPIC_BASE_URL` is
   preserved as the proxy's upstream), starts the daemon, and prints what it changed and how to
@@ -19,7 +19,7 @@ over the wire, so this package is distribution and UX only:
 ## Install
 
 ```sh
-npx @better-compact/proxy install claude-code
+npx @better-compact/cli install claude-code
 ```
 
 Then add the plugin itself (hook + command) to Claude Code, e.g. by registering this repository

@@ -77,5 +77,5 @@ loop); the adapter provides the `Summarizer.complete` transport and schedules th
 background upgrade, which lands in the plan for the next request.
 
 The three shipping adapters — `packages/opencode`, `packages/pi`,
-`packages/proxy` (Anthropic + OpenAI Responses codecs) — are the reference
+`packages/cli` (Anthropic + OpenAI Responses codecs) — are the reference
 consumers. The full design is in [`../../docs/architecture.md`](../../docs/architecture.md).

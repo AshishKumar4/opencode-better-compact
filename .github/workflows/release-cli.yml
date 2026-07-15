@@ -1,15 +1,15 @@
-name: Release Proxy
+name: Release CLI
 
 on:
     push:
         tags:
-            - "proxy-v*"
+            - "cli-v*"
 
 permissions:
     contents: read
 
 concurrency:
-    group: release-proxy-${{ github.ref }}
+    group: release-cli-${{ github.ref }}
     cancel-in-progress: false
 
 jobs:
@@ -29,15 +29,15 @@ jobs:
                   cache: pnpm
                   registry-url: https://registry.npmjs.org
             - run: pnpm install --frozen-lockfile
-            - name: Verify tag matches proxy version
+            - name: Verify tag matches CLI version
               run: |
-                  expected="proxy-v$(node -p 'require("./packages/proxy/package.json").version')"
+                  expected="cli-v$(node -p 'require("./packages/cli/package.json").version')"
                   test "$GITHUB_REF_NAME" = "$expected" || { echo "tag $GITHUB_REF_NAME does not match $expected"; exit 1; }
             - run: pnpm run typecheck
             - run: pnpm test
-            - run: pnpm --filter @better-compact/proxy run build
+            - run: pnpm --filter @better-compact/cli run build
             - name: Pack
               run: |
-                  archive="$(cd packages/proxy && pnpm pack --pack-destination "$RUNNER_TEMP" | tail -1)"
-                  mv "$archive" "$RUNNER_TEMP/proxy.tgz"
-            - run: npm publish "$RUNNER_TEMP/proxy.tgz" --access public --provenance
+                  archive="$(cd packages/cli && pnpm pack --pack-destination "$RUNNER_TEMP" | tail -1)"
+                  mv "$archive" "$RUNNER_TEMP/cli.tgz"
+            - run: npm publish "$RUNNER_TEMP/cli.tgz" --access public --provenance

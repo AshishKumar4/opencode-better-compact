@@ -32,12 +32,12 @@ else
     fi
 fi
 
-printf '%s\n' "Installing @better-compact/proxy@latest globally with npm..."
-npm install -g @better-compact/proxy@latest
-printf '%s\n' "Installed @better-compact/proxy@latest globally."
+printf '%s\n' "Installing @better-compact/cli@latest globally with npm..."
+npm install -g @better-compact/cli@latest
+printf '%s\n' "Installed @better-compact/cli@latest globally."
 
 for target in $targets; do
     printf "Configuring Better Compact for %s...\n" "$target"
-    better-compact-proxy install "$target"
+    better-compact install "$target"
     printf "Configured Better Compact for %s.\n" "$target"
 done

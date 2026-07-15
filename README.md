@@ -23,8 +23,8 @@ The ladder lives in a platform-neutral core (`packages/core`) that operates on a
 | ------------------------------- | ---------------------------------------------------- | ------------------------------------ |
 | [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`)                       | In-process message transform plugin  |
 | pi                              | Shipping (`packages/pi`)                             | In-process `context` event extension |
-| Claude Code                     | Shipping (`packages/proxy` + `packages/claude-code`) | Local proxy on `ANTHROPIC_BASE_URL`  |
-| Codex                           | Shipping (`packages/proxy`)                          | Local proxy on `openai_base_url`     |
+| Claude Code                     | Shipping (`packages/cli` + `packages/claude-code`) | Local proxy on `ANTHROPIC_BASE_URL`  |
+| Codex                           | Shipping (`packages/cli`)                          | Local proxy on `openai_base_url`     |
 
 The full design, including the IR, the codec contract, and the proxy engine, lives in [docs/architecture.md](docs/architecture.md).
 
@@ -49,7 +49,7 @@ packages/
 ├── core/         @better-compact/core — the platform-neutral ladder, pure, zero runtime dependencies
 ├── opencode/     better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
 ├── pi/           @better-compact/pi — the pi extension (codec, plan store, summarizer)
-├── proxy/        @better-compact/proxy — the better-compact-proxy daemon (Anthropic + OpenAI Responses codecs, Codex installer)
+├── proxy/        @better-compact/cli — the better-compact daemon (Anthropic + OpenAI Responses codecs, Codex installer)
 └── claude-code/  @better-compact/claude-code — the Claude Code plugin shell over the proxy
 ```
 

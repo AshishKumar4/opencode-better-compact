@@ -596,7 +596,7 @@ function respondGatewayError<Body>(
     }
     res.end(
         JSON.stringify(
-            dialect.errorBody("api_error", "better-compact-proxy: upstream unreachable"),
+            dialect.errorBody("api_error", "better-compact: upstream unreachable"),
         ),
     )
 }

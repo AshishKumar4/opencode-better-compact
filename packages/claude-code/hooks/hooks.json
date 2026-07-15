@@ -1,5 +1,5 @@
 {
-    "description": "Ensures the better-compact-proxy daemon is running for this session",
+    "description": "Ensures the better-compact daemon is running for this session",
     "hooks": {
         "SessionStart": [
             {

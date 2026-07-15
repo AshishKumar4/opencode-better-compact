@@ -10,15 +10,15 @@ import {
     installCodex,
 } from "./install"
 
-const HELP = `better-compact-proxy — local context-pruning proxy for coding agents
+const HELP = `better-compact — local context-pruning proxy for coding agents
 
 Usage:
-  better-compact-proxy start [--capture]   Start the daemon (idempotent)
-  better-compact-proxy run [--capture]     Run in the foreground
-  better-compact-proxy stop                Stop the daemon
-  better-compact-proxy status              Show daemon status
-  better-compact-proxy install claude-code Point Claude Code settings at the proxy
-  better-compact-proxy install codex       Point Codex config.toml at the proxy
+  better-compact start [--capture]   Start the daemon (idempotent)
+  better-compact run [--capture]     Run in the foreground
+  better-compact stop                Stop the daemon
+  better-compact status              Show daemon status
+  better-compact install claude-code Point Claude Code settings at the proxy
+  better-compact install codex       Point Codex config.toml at the proxy
 
 --capture writes sanitized request bodies to ~/.better-compact/captures/`
 
@@ -44,13 +44,13 @@ async function main(): Promise<void> {
             const decision = decideStop(await checkHealth(DEFAULT_PORT), readLock(paths))
             if (decision.action !== "signal") {
                 if (decision.action === "clear-stale") rmSync(paths.lockfile, { force: true })
-                console.log("better-compact-proxy is not running")
+                console.log("better-compact is not running")
                 return
             }
             try {
                 process.kill(decision.pid, "SIGTERM")
             } catch {
-                console.log("better-compact-proxy is not running")
+                console.log("better-compact is not running")
                 return
             }
             const stopped = await waitFor(
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
             )
             console.log(
                 stopped
-                    ? `Stopped better-compact-proxy (pid ${decision.pid})`
+                    ? `Stopped better-compact (pid ${decision.pid})`
                     : `Sent SIGTERM to pid ${decision.pid}`,
             )
             return
@@ -94,7 +94,7 @@ async function startDaemon(paths: ProxyPaths, capture: boolean): Promise<void> {
         const shouldRestart = daemonNeedsRestart(health, loadConfig(paths), capture)
         if (!shouldRestart) {
             console.log(
-                `better-compact-proxy already running (pid ${health.pid}, port ${DEFAULT_PORT})`,
+                `better-compact already running (pid ${health.pid}, port ${DEFAULT_PORT})`,
             )
             return
         }
@@ -104,7 +104,7 @@ async function startDaemon(paths: ProxyPaths, capture: boolean): Promise<void> {
         } catch {
             const current = await checkHealth(DEFAULT_PORT)
             if (current.kind !== "down") {
-                console.error(`Could not restart better-compact-proxy (pid ${health.pid})`)
+                console.error(`Could not restart better-compact (pid ${health.pid})`)
                 process.exit(1)
             }
         }
@@ -114,7 +114,7 @@ async function startDaemon(paths: ProxyPaths, capture: boolean): Promise<void> {
             3_000,
         )
         if (!stopped) {
-            console.error(`Could not restart better-compact-proxy (pid ${health.pid})`)
+            console.error(`Could not restart better-compact (pid ${health.pid})`)
             process.exit(1)
         }
     }
@@ -139,7 +139,7 @@ async function startDaemon(paths: ProxyPaths, capture: boolean): Promise<void> {
         console.error(`Daemon failed to start; see ${paths.logFile}`)
         process.exit(1)
     }
-    console.log(`better-compact-proxy started (pid ${started.pid}, port ${DEFAULT_PORT})`)
+    console.log(`better-compact started (pid ${started.pid}, port ${DEFAULT_PORT})`)
     console.log(`Anthropic upstream: ${started.upstream}`)
     console.log(`OpenAI upstream: ${started.openaiUpstream}`)
 }
@@ -211,7 +211,7 @@ async function installCommand(
     console.log("structurally by our earlier trigger; no Codex setting needs disabling.")
     console.log("")
     console.log("To undo:")
-    console.log("  better-compact-proxy stop")
+    console.log("  better-compact stop")
     console.log(
         result.previousBaseUrl
             ? `  restore openai_base_url = "${result.previousBaseUrl}" in ${result.codexConfigPath}`

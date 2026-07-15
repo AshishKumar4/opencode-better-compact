@@ -1,6 +1,6 @@
 > This document is edited and maintained by Claude (Anthropic) and presented as-is.
 
-# @better-compact/proxy
+# @better-compact/cli
 
 I'm the wire-proxy adapter for the Better Compact ladder: a small local daemon that sits between a
 coding agent and its model API, pruning the request the agent is about to send. The agent keeps its
@@ -9,7 +9,7 @@ Anthropic Messages for Claude Code, and OpenAI Responses for Codex.
 
 ## What it does
 
-- `better-compact-proxy start|stop|status` — a daemon on `127.0.0.1:42817` with a
+- `better-compact start|stop|status` — a daemon on `127.0.0.1:42817` with a
   `~/.better-compact/proxy.json` `{port, pid}` lockfile. Start is idempotent; a foreign process on
   the port is a loud failure, never a silent degrade.
 - `POST /anthropic/v1/messages` and `POST /openai/responses` are rewritten through the shared core
@@ -65,14 +65,14 @@ gateway keeps working behind the proxy. `preset` is `light` (default), `moderate
 `openaiContextLimit` is an optional override for custom deployments or gateways whose model name
 does not identify its window.
 
-`better-compact-proxy start --capture` additionally writes incoming request bodies (bodies only —
+`better-compact start --capture` additionally writes incoming request bodies (bodies only —
 headers, and with them credentials, are never written) to `~/.better-compact/captures/` for
 building golden fixtures.
 
 ## Codex
 
 ```bash
-better-compact-proxy install codex
+better-compact install codex
 ```
 
 This edits `~/.codex/config.toml`, setting `openai_base_url = "http://127.0.0.1:42817/openai"` (the

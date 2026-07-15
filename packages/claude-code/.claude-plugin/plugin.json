@@ -1,6 +1,6 @@
 {
     "name": "better-compact",
-    "description": "Context pruning for Claude Code through the better-compact-proxy daemon: keeps long sessions lean without losing recallable history.",
+    "description": "Context pruning for Claude Code through the better-compact daemon: keeps long sessions lean without losing recallable history.",
     "version": "0.1.0",
     "author": {
         "name": "AshishKumar4"

@@ -6,7 +6,7 @@ import { errorEnvelope } from "./route"
 import { createSessionTracker } from "./sessions"
 import { createPlanStore, createTranscriptStore } from "./stores"
 
-export const SERVICE_NAME = "better-compact-proxy"
+export const SERVICE_NAME = "better-compact"
 
 export interface ProxyServerOptions {
     upstream: string

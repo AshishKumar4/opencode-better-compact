@@ -1,19 +1,19 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
-    "name": "@better-compact/proxy",
+    "name": "@better-compact/cli",
     "version": "0.1.0",
     "type": "module",
-    "description": "Local pruning proxy for Anthropic-wire coding agents (Claude Code)",
+    "description": "Local context-pruning CLI and proxy daemon for coding agents (Claude Code, Codex)",
     "keywords": [
         "claude-code",
+        "codex",
         "anthropic",
-        "proxy",
         "context",
         "pruning",
         "tokens"
     ],
     "bin": {
-        "better-compact-proxy": "./dist/cli.js"
+        "better-compact": "./dist/cli.js"
     },
     "files": [
         "dist/"
@@ -21,7 +21,7 @@
     "repository": {
         "type": "git",
         "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
-        "directory": "packages/proxy"
+        "directory": "packages/cli"
     },
     "bugs": {
         "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
