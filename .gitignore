@@ -5,6 +5,7 @@ bun.lock
 # Build output
 dist/
 *.tgz
+install/.wrangler/
 
 # Logs
 *.log

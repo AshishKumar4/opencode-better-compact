@@ -1,0 +1,18 @@
+{
+    "name": "better-compact-install",
+    "main": "worker.ts",
+    "compatibility_date": "2026-07-15",
+    "rules": [
+        {
+            "type": "Text",
+            "globs": ["**/*.sh"],
+            "fallthrough": false,
+        },
+    ],
+    // "routes": [
+    //     {
+    //         "pattern": "better-compact.ashishkumarsingh.com",
+    //         "custom_domain": true
+    //     }
+    // ]
+}
