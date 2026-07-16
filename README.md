@@ -49,6 +49,20 @@ opencode plugin better-compact --global
 
 OpenCode downloads the prebuilt npm package with its embedded package manager and registers the server and TUI plugins in `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json` (JSONC equivalents are preserved). Restart OpenCode after installation. Commands, configuration, presets, and uninstall steps: [packages/opencode/README.md](packages/opencode/README.md).
 
+Two OpenCode package-cache behaviors worth knowing (verified against OpenCode 1.17.13 source):
+its cache never re-resolves an installed package — a bare install stays on whatever version it
+first fetched, and a partially failed first install is reused forever without any error in the
+logs (TUI plugin load errors appear only in the in-app console overlay). If the plugin seems
+absent or stale — no `/better-compact` in autocomplete, no progress UI — reset the cache and
+restart:
+
+```bash
+rm -rf ~/.cache/opencode/packages/better-compact*
+```
+
+To upgrade deliberately, prefer a pinned install (`opencode plugin better-compact@0.2.2 --global`),
+which gets a fresh per-version cache directory.
+
 ### Claude Code
 
 ```bash
