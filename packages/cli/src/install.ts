@@ -5,6 +5,7 @@ import { CHATGPT_CODEX_UPSTREAM, DEFAULT_PORT, type ProxyPaths } from "./config"
 
 export const CODEX_PROXY_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}/openai`
 export const ANTHROPIC_PROXY_BASE_URL = `http://127.0.0.1:${DEFAULT_PORT}/anthropic`
+const PROXY_HOST = `127.0.0.1:${DEFAULT_PORT}`
 
 const CODEX_BACKEND_AUTH_MODES = new Set([
     "chatgpt",
@@ -119,55 +120,47 @@ export interface CodexInstallResult {
     configJsonPath: string
 }
 
-export interface ClaudeCodeInstallResult {
+export interface ClaudeCodeSetupResult {
     settingsPath: string
-    configJsonPath: string
-    previousBaseUrl: string | null
-    undoSteps: string[]
+    removedBaseUrl: boolean
+    restoredBaseUrl: string | null
+    removedDisableAutoCompact: boolean
 }
 
-export function installClaudeCode(paths: ProxyPaths, home = homedir()): ClaudeCodeInstallResult {
+// Claude Code is no longer served through the proxy: the proxy cannot manage
+// Claude Code's client-side context ceiling, and DISABLE_AUTO_COMPACT removed
+// its native safety net. On-disk compaction (`better-compact claude`) replaces
+// it. This unwinds any prior proxy redirect from settings.json, restoring a
+// real upstream if one was preserved, and re-enables native auto-compaction.
+export function installClaudeCode(paths: ProxyPaths, home = homedir()): ClaudeCodeSetupResult {
     const settingsPath = join(home, ".claude", "settings.json")
     const settings = readClaudeJson(settingsPath)
     const config = readClaudeJson(paths.configFile)
-    const priorEnv = jsonObjectProperty(settings, "env", settingsPath)
-    const settingsBaseUrl = stringProperty(priorEnv, "ANTHROPIC_BASE_URL")
-    const shellBaseUrl = process.env.ANTHROPIC_BASE_URL || null
-    const existingPreserved = stringProperty(config, "anthropicUpstream")
-    const previousBaseUrl =
-        realAnthropicUpstream(settingsBaseUrl) ?? realAnthropicUpstream(shellBaseUrl)
-    const addedDisableAutoCompact = priorEnv.DISABLE_AUTO_COMPACT === undefined
+    const env = jsonObjectProperty(settings, "env", settingsPath)
+    const currentBaseUrl = stringProperty(env, "ANTHROPIC_BASE_URL")
+    const preservedUpstream = stringProperty(config, "anthropicUpstream")
 
-    if (previousBaseUrl) config.anthropicUpstream = previousBaseUrl
-
-    settings.env = {
-        ...priorEnv,
-        ANTHROPIC_BASE_URL: ANTHROPIC_PROXY_BASE_URL,
-        DISABLE_AUTO_COMPACT: "1",
+    let removedBaseUrl = false
+    let restoredBaseUrl: string | null = null
+    if (currentBaseUrl && currentBaseUrl.includes(PROXY_HOST)) {
+        if (preservedUpstream) {
+            env.ANTHROPIC_BASE_URL = preservedUpstream
+            restoredBaseUrl = preservedUpstream
+        } else {
+            delete env.ANTHROPIC_BASE_URL
+        }
+        removedBaseUrl = true
     }
+    const removedDisableAutoCompact = env.DISABLE_AUTO_COMPACT !== undefined
+    if (removedDisableAutoCompact) delete env.DISABLE_AUTO_COMPACT
 
-    mkdirSync(dirname(paths.configFile), { recursive: true })
+    if (Object.keys(env).length > 0) settings.env = env
+    else delete settings.env
+
     mkdirSync(dirname(settingsPath), { recursive: true })
-    writeFileSync(paths.configFile, JSON.stringify(config, null, 4) + "\n")
     writeFileSync(settingsPath, JSON.stringify(settings, null, 4) + "\n")
 
-    const restoreBaseUrl = previousBaseUrl ?? existingPreserved
-    const undoSteps = [
-        "better-compact stop",
-        restoreBaseUrl
-            ? `set env.ANTHROPIC_BASE_URL back to "${restoreBaseUrl}" in ${settingsPath}`
-            : `remove env.ANTHROPIC_BASE_URL from ${settingsPath}`,
-    ]
-    if (addedDisableAutoCompact) {
-        undoSteps.push(`remove env.DISABLE_AUTO_COMPACT from ${settingsPath}`)
-    }
-
-    return {
-        settingsPath,
-        configJsonPath: paths.configFile,
-        previousBaseUrl,
-        undoSteps,
-    }
+    return { settingsPath, removedBaseUrl, restoredBaseUrl, removedDisableAutoCompact }
 }
 
 // Applies the config.toml edit and records a preserved upstream in the proxy's
@@ -286,8 +279,4 @@ function jsonObjectProperty(
 
 function stringProperty(object: Record<string, unknown>, key: string): string | null {
     return typeof object[key] === "string" ? object[key] : null
-}
-
-function realAnthropicUpstream(value: string | null): string | null {
-    return value && value !== ANTHROPIC_PROXY_BASE_URL ? value : null
 }

@@ -1,6 +1,6 @@
 {
     "name": "better-compact",
-    "description": "Context pruning for Claude Code through the better-compact daemon: keeps long sessions lean without losing recallable history.",
+    "description": "On-disk context compaction for Claude Code: prune old tool output and reasoning from a session and reopen it under the limit, keeping every message.",
     "version": "0.1.0",
     "author": {
         "name": "AshishKumar4"

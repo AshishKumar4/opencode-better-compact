@@ -4,12 +4,7 @@ import { fileURLToPath } from "node:url"
 import { DEFAULT_PORT, loadConfig, proxyPaths, type ProxyPaths } from "./config"
 import { claudeCommand } from "./claude/command"
 import { checkHealth, daemonNeedsRestart, decideStop, readLock, runDaemon } from "./daemon"
-import {
-    ANTHROPIC_PROXY_BASE_URL,
-    CODEX_PROXY_BASE_URL,
-    installClaudeCode,
-    installCodex,
-} from "./install"
+import { CODEX_PROXY_BASE_URL, installClaudeCode, installCodex } from "./install"
 
 const HELP = `better-compact — local context-pruning for coding agents
 
@@ -176,32 +171,32 @@ async function installCommand(
         try {
             result = installClaudeCode(paths)
         } catch (error) {
-            console.error(`Claude Code installation failed: ${(error as Error).message}`)
+            console.error(`Claude Code setup failed: ${(error as Error).message}`)
             process.exit(1)
         }
 
-        console.log("Better Compact is now wired into Claude Code. Changes made:")
-        if (result.previousBaseUrl) {
-            console.log(
-                `  - ${result.configJsonPath}: recorded your previous ANTHROPIC_BASE_URL (${result.previousBaseUrl}) as the proxy upstream`,
-            )
+        console.log("Claude Code uses on-disk compaction, not the proxy.")
+        if (result.removedBaseUrl || result.removedDisableAutoCompact) {
+            console.log(`Cleaned up ${result.settingsPath}:`)
+            if (result.removedBaseUrl) {
+                console.log(
+                    result.restoredBaseUrl
+                        ? `  - restored env.ANTHROPIC_BASE_URL to ${result.restoredBaseUrl}`
+                        : "  - removed the proxy env.ANTHROPIC_BASE_URL redirect",
+                )
+            }
+            if (result.removedDisableAutoCompact) {
+                console.log("  - removed env.DISABLE_AUTO_COMPACT (native auto-compaction restored)")
+            }
         } else {
-            console.log(`  - ${result.configJsonPath}: wrote proxy configuration`)
+            console.log("No proxy redirect to remove; nothing to change.")
         }
-        console.log(
-            `  - ${result.settingsPath}: env.ANTHROPIC_BASE_URL=${ANTHROPIC_PROXY_BASE_URL}, env.DISABLE_AUTO_COMPACT=1`,
-        )
-        await startDaemon(paths, capture)
         console.log("")
-        console.log("Claude Code will now route through the proxy.")
-        console.log("")
-        console.log("To undo:")
-        for (const step of result.undoSteps) console.log(`  ${step}`)
-        console.log("")
-        console.log("Note for OAuth (subscription) logins: OAuth was verified working through the")
-        console.log("proxy on Claude Code 2.1.205 with no extra configuration. If a different")
-        console.log("version rejects OAuth against a custom base URL, see the README section on")
-        console.log("_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL.")
+        console.log("To compact a session that hit the limit:")
+        console.log("  1. quit the session")
+        console.log("  2. better-compact claude <sessionId> --resume")
+        console.log("Or launch via `better-compact claude --run` and use /better-compact:compact.")
+        console.log("Install the plugin for the command + auto-start hook (see the README).")
         return
     }
 

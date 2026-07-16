@@ -2,45 +2,55 @@
 
 # @better-compact/claude-code
 
-I'm the Claude Code shell for Better Compact. All the actual context work happens in the
-[`better-compact` daemon](../cli/README.md) — a Claude Code plugin cannot touch what goes
-over the wire, so this package is distribution and UX only:
+The Claude Code plugin for Better Compact. Claude Code enforces its context ceiling
+**client-side** — it refuses to send once the transcript is too large — so a wire proxy
+can't help. What controls the ceiling is the session transcript on disk, which Claude Code
+re-derives context from on resume. Better Compact compacts that transcript directly (via the
+`better-compact` CLI); this plugin is the in-session UX for it.
 
-- **SessionStart hook** (`hooks/hooks.json` + `hooks/session-start.sh`): ensures the daemon is
-  running when a session starts. Idempotent through the daemon's lockfile; never blocks a session.
-- **`/better-compact:compact` command** (`commands/compact.md`): compacts the session on demand.
-  It emits the `[[better-compact:run]]` sentinel in the prompt; the proxy force-runs the pruning
-  ladder on that request and strips the marker before the model sees it. The Claude Code analog of
-  opencode's `/better-compact`.
-- **`/better-compact:status` command** (`commands/status.md`): surfaces proxy status and the
-  current session's plan stats from `~/.better-compact/plans/`.
-- **Installer** (`npx @better-compact/cli install claude-code`): writes
-  `env.ANTHROPIC_BASE_URL=http://127.0.0.1:42817/anthropic` and `env.DISABLE_AUTO_COMPACT=1` into
-  `~/.claude/settings.json` (merged, not clobbered — a pre-existing `ANTHROPIC_BASE_URL` is
-  preserved as the proxy's upstream), starts the daemon, and prints what it changed and how to
-  undo it.
+- **`/better-compact:compact` command** (`commands/compact.md`): flags the current session for
+  compaction and tells you to exit. On exit, `better-compact claude --run` prunes old tool output
+  and reasoning — **keeping every message** — and reopens the session automatically. Without the
+  launcher it prints the one-shot `better-compact claude <id> --resume`.
 
-## Install
+## Setup
+
+1. Install the CLI (provides the `better-compact` command):
+
+   ```sh
+   npm install -g @better-compact/cli
+   ```
+
+2. Add this plugin to Claude Code (register the repository as a plugin marketplace, or copy this
+   directory into your plugin setup) to get the `/better-compact:compact` command.
+
+3. If you previously pointed Claude Code at the proxy, undo it:
+
+   ```sh
+   better-compact install claude-code
+   ```
+
+   This removes the `env.ANTHROPIC_BASE_URL` redirect and re-enables native auto-compaction. The
+   proxy could never manage Claude Code's ceiling, and `DISABLE_AUTO_COMPACT` removed its safety
+   net — on-disk compaction replaces both.
+
+## Usage
+
+Launch Claude Code through the wrapper so compaction can reopen the session:
 
 ```sh
-npx @better-compact/cli install claude-code
+better-compact claude --run          # or: better-compact claude --run --resume <id>
 ```
 
-Then add the plugin itself (hook + command) to Claude Code, e.g. by registering this repository
-as a plugin marketplace or copying this directory into your plugin setup. The proxy works without
-the plugin — the hook and command are conveniences; the `env` settings from the installer are what
-routes requests through the proxy.
+When a long session gets heavy, run `/better-compact:compact` and press Ctrl-D. Better Compact
+prunes old tool output and reasoning (keeping the whole conversation), then reopens the session.
 
-To compact immediately, send `[[better-compact:run]]` in the latest prompt (for example from a
-Claude Code command or skill). The proxy strips the marker before the request reaches the model.
+Any time, from a session's project directory with the session closed:
 
-## Honest notes
+```sh
+better-compact claude <sessionId> --resume        # prune + reopen
+better-compact claude <sessionId> --aggressive    # summarize old turns (last resort; drops them from view)
+better-compact claude <sessionId> --from-backup   # restore full history, then compact
+```
 
-- **API-key logins** work through the proxy directly — headers pass through verbatim.
-- **OAuth (subscription) logins**: verified live on Claude Code 2.1.205 — OAuth requests flowed
-  through the loopback proxy and were accepted upstream without any extra configuration.
-  `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1` exists in that binary and also worked, but was not
-  needed; if a different version rejects OAuth against a custom base URL, it is the escape hatch
-  to try.
-- `DISABLE_AUTO_COMPACT` is belt-and-braces: the usage Claude Code observes already reflects the
-  pruned requests, so its own auto-compact threshold recedes naturally.
+The full transcript is always backed up to `~/.better-compact/claude-backups/` before any change.
