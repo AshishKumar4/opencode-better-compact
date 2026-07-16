@@ -31,11 +31,9 @@ export interface StubOutcome {
     totalMessages: number
 }
 
-// Prune the heavy parts (old tool outputs, old reasoning) in place while
-// preserving every conversation entry and the parentUuid chain — the
-// non-destructive tier of the ladder. Which turns are "recent" and which tool
-// calls to spare comes from the engine's own tail selectors, so this stays one
-// algorithm with the other harnesses.
+// Prune the heavy parts (old tool inputs/outputs, old reasoning) in place
+// while preserving every conversation entry and the parentUuid chain — the
+// non-destructive tier of the ladder, applied directly to the transcript.
 export function stubTranscript(
     entries: TranscriptEntry[],
     options: CompactionOptions = {},
@@ -66,9 +64,7 @@ export function stubTranscript(
     }
     // A transcript pruned by an earlier run still needs its stale usage
     // anchor cleared, even when there is nothing new to stub.
-    const previouslyPruned = entries.some(
-        (entry) => JSON.stringify(entry.message?.content ?? "").includes("better-compact: pruned"),
-    )
+    const previouslyPruned = entries.some(hasStubMarker)
     const usageReset =
         stubbedTools > 0 || strippedReasoning > 0 || previouslyPruned
             ? resetStaleUsage(entries)
@@ -84,6 +80,31 @@ export function stubTranscript(
         keptTailMessages: keepIntact.size,
         totalMessages: conv.length,
     }
+}
+
+// Our stub shapes exactly, not any text that happens to mention the marker
+// (e.g. a session working on this repo): a tool_result whose content IS a
+// stub string, or a tool_use whose input carries our `pruned` field.
+function hasStubMarker(entry: TranscriptEntry): boolean {
+    const content = entry.message?.content
+    if (!Array.isArray(content)) return false
+    for (const block of content as WireBlock[]) {
+        if (
+            block.type === "tool_result" &&
+            typeof block.content === "string" &&
+            block.content.startsWith("[better-compact: pruned")
+        ) {
+            return true
+        }
+        if (
+            block.type === "tool_use" &&
+            typeof (block.input as { pruned?: unknown } | undefined)?.pruned === "string" &&
+            ((block.input as { pruned: string }).pruned.startsWith("[better-compact: pruned"))
+        ) {
+            return true
+        }
+    }
+    return false
 }
 
 function estimateEntryTokens(entry: TranscriptEntry): number {
@@ -138,8 +159,13 @@ function stubEntry(entry: TranscriptEntry): { stubbedTools: number; strippedReas
             }
             kept.push(block)
         }
-        entry.message!.content =
-            kept.length > 0 ? kept : [{ type: "text", text: "[better-compact: pruned]" }]
+        if (kept.length > 0) {
+            entry.message!.content = kept
+        } else if (content.length > 0) {
+            entry.message!.content = [{ type: "text", text: "[better-compact: pruned]" }]
+        }
+        // An originally-empty content array stays empty — Claude Code wrote
+        // it that way (e.g. an interrupted turn) and a marker would be false.
     }
     // The mirror field Claude Code stores for display; shrink it in lockstep.
     if (entry.toolUseResult && contentChars(entry.toolUseResult) > STUB_MIN_CHARS) {
@@ -181,7 +207,7 @@ export function summarizeTranscript(
     })
 
     const turns = anthropicCodec.encode(messages)
-    const keepTailTokens = options.keepTailTokens ?? 20_000
+    const keepTailTokens = options.keepTailTokens ?? 25_000
     const contextLimit = Math.round(keepTailTokens / (profile.targetPercent / 100))
     const plan = buildPlan(
         turns,

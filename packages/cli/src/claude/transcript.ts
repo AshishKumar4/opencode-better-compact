@@ -63,12 +63,25 @@ export function resolveSession(sessionId: string, home = homedir()): ResolvedSes
 }
 
 // The most recently modified session transcript for a working directory,
-// used when no session id is given. Matches Claude Code's own project-dir
-// encoding (cwd with `/` and `.` replaced by `-`).
+// used when no session id is given. Claude Code encodes the project dir as
+// the cwd with every non-alphanumeric replaced by `-` (verified against the
+// 2.1.211 binary; paths over 200 chars additionally get truncated with a
+// hash suffix — those fall through to a cwd-field scan of the transcripts).
 export function latestSessionForCwd(cwd: string, home = homedir()): ResolvedSession | null {
-    const encoded = cwd.replace(/[/.]/g, "-")
-    const projectDir = join(projectsDir(home), encoded)
-    if (!existsSync(projectDir)) return null
+    const projectDir = join(projectsDir(home), cwd.replace(/[^a-zA-Z0-9]/g, "-"))
+    if (existsSync(projectDir)) return newestTranscript(projectDir)
+
+    const root = projectsDir(home)
+    if (!existsSync(root)) return null
+    for (const project of readdirSync(root)) {
+        const dir = join(root, project)
+        const newest = newestTranscript(dir)
+        if (newest && transcriptCwd(newest.file) === cwd) return newest
+    }
+    return null
+}
+
+function newestTranscript(projectDir: string): ResolvedSession | null {
     let newest: { file: string; sessionId: string; mtimeMs: number } | null = null
     for (const name of readdirSync(projectDir)) {
         if (!name.endsWith(".jsonl")) continue
@@ -79,6 +92,26 @@ export function latestSessionForCwd(cwd: string, home = homedir()): ResolvedSess
         }
     }
     return newest ? { sessionId: newest.sessionId, file: newest.file, projectDir } : null
+}
+
+// The cwd recorded by the transcript's first entries that carry one.
+function transcriptCwd(file: string): string | null {
+    let text: string
+    try {
+        text = readFileSync(file, "utf-8")
+    } catch {
+        return null
+    }
+    for (const line of text.split("\n").slice(0, 20)) {
+        if (!line.trim()) continue
+        try {
+            const entry = JSON.parse(line) as TranscriptEntry
+            if (typeof entry.cwd === "string") return entry.cwd
+        } catch {
+            continue
+        }
+    }
+    return null
 }
 
 // A session is live when a registry entry names it and that process is still
@@ -163,18 +196,36 @@ export function backupTranscript(file: string, stamp: string): string {
     return backup
 }
 
-// The most recent backup captured for a session, used by --from-backup to
-// undo a prior compaction before recompacting from the full history.
-export function latestBackup(sessionId: string, home = homedir()): string | null {
+// All backups captured for a session, oldest first.
+export function sessionBackups(sessionId: string, home = homedir()): string[] {
     const dir = backupDir(home)
-    if (!existsSync(dir)) return null
+    if (!existsSync(dir)) return []
     const prefix = `${sessionId}.jsonl.`
-    let newest: { file: string; mtimeMs: number } | null = null
-    for (const name of readdirSync(dir)) {
-        if (!name.startsWith(prefix) || !name.endsWith(".bak")) continue
-        const file = join(dir, name)
-        const mtimeMs = statSync(file).mtimeMs
-        if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs }
+    return readdirSync(dir)
+        .filter((name) => name.startsWith(prefix) && name.endsWith(".bak"))
+        .map((name) => join(dir, name))
+        .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
+}
+
+// Restore original content in memory: entries are appended once by Claude
+// Code and only ever modified by compaction, so the OLDEST backup containing
+// an entry holds its original form. Later backups are themselves pruned, and
+// turns added after a backup exist only in the current file — the current
+// entry list stays authoritative for membership and order, each entry
+// swapped for its oldest recorded version.
+export function restoreFromBackups(
+    current: TranscriptEntry[],
+    backupFiles: string[],
+): TranscriptEntry[] {
+    const oldest = new Map<string, TranscriptEntry>()
+    for (const file of backupFiles) {
+        for (const entry of parseTranscript(readFileSync(file, "utf-8"))) {
+            if (typeof entry.uuid === "string" && !oldest.has(entry.uuid)) {
+                oldest.set(entry.uuid, entry)
+            }
+        }
     }
-    return newest?.file ?? null
+    return current.map((entry) =>
+        typeof entry.uuid === "string" ? (oldest.get(entry.uuid) ?? entry) : entry,
+    )
 }

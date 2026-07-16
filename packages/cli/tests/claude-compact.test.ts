@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { stubTranscript, summarizeTranscript } from "../src/claude/compact"
-import type { TranscriptEntry } from "../src/claude/transcript"
+import { stripSessionArgs } from "../src/claude/command"
+import { restoreFromBackups, type TranscriptEntry } from "../src/claude/transcript"
 
 let counter = 0
 function uuid(): string {
@@ -218,6 +219,72 @@ test("aggressive mode appends a valid native compaction boundary + summary", () 
     const preserved = (boundary.compactMetadata as { preservedMessages: { uuids: string[] } }).preservedMessages.uuids
     assert.ok(preserved.length >= 1 && preserved.length < outcome.keptMessages + outcome.droppedMessages)
     assert.ok(outcome.droppedMessages > outcome.keptMessages, "aggressive drops most turns")
+})
+
+test("restoreFromBackups takes each entry's oldest version and keeps newer turns", async () => {
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const dir = await mkdtemp(join(tmpdir(), "bc-restore-"))
+    try {
+        const original = conversation(3)
+        const afterFirstStub = original.map((e) => structuredClone(e))
+        stubTranscript(afterFirstStub, { keepTailTokens: 500 })
+        // Oldest backup = full history; newer backup = already pruned.
+        const b1 = join(dir, "b1.bak")
+        const b2 = join(dir, "b2.bak")
+        await writeFile(b1, original.map((e) => JSON.stringify(e)).join("\n") + "\n")
+        await writeFile(b2, afterFirstStub.map((e) => JSON.stringify(e)).join("\n") + "\n")
+        // Current = pruned state + a turn added after both backups.
+        const newTurn = userText(afterFirstStub.at(-1)!.uuid!, "added later")
+        const current = [...afterFirstStub.map((e) => structuredClone(e)), newTurn]
+
+        const restored = restoreFromBackups(current, [b1, b2])
+        assert.equal(restored.length, current.length)
+        assert.equal(restored.at(-1), newTurn, "post-backup turn preserved")
+        // A stubbed tool_result got its original content back from the oldest backup.
+        const anyStub = restored.some(
+            (e) =>
+                Array.isArray(e.message?.content) &&
+                (e.message!.content as { content?: unknown }[]).some(
+                    (b) => typeof b.content === "string" && b.content.startsWith("[better-compact: pruned"),
+                ),
+        )
+        assert.equal(anyStub, false, "original content restored everywhere")
+    } finally {
+        await rm(dir, { recursive: true, force: true })
+    }
+})
+
+test("a session merely mentioning the stub marker is not treated as previously pruned", () => {
+    const entries = conversation(1, 50)
+    entries.push(userText(entries.at(-1)!.uuid!, "docs say '[better-compact: pruned 123-char tool output]'"))
+    assert.equal(stubTranscript(entries, { keepTailTokens: 25000 }), null)
+})
+
+test("an originally-empty content array stays empty, with no false marker", () => {
+    const entries = conversation(8)
+    const empty: TranscriptEntry = {
+        ...COMMON,
+        type: "assistant",
+        uuid: uuid(),
+        parentUuid: entries[0].uuid,
+        message: { role: "assistant", content: [] },
+    }
+    entries.splice(2, 0, empty)
+    const outcome = stubTranscript(entries, { keepTailTokens: 2000 })
+    assert.ok(outcome)
+    assert.deepEqual(empty.message!.content, [])
+})
+
+test("stripSessionArgs removes session selection and keeps every other flag", () => {
+    assert.deepEqual(
+        stripSessionArgs(["--model", "opus", "--resume", "abc-123", "--dangerously-skip-permissions"]),
+        ["--model", "opus", "--dangerously-skip-permissions"],
+    )
+    assert.deepEqual(stripSessionArgs(["-c", "--model", "opus"]), ["--model", "opus"])
+    assert.deepEqual(stripSessionArgs(["--resume", "--model", "opus"]), ["--model", "opus"])
+    assert.deepEqual(stripSessionArgs(["--session-id", "abc"]), [])
 })
 
 test("compaction only touches the conversation after the last boundary", () => {

@@ -23,7 +23,7 @@ transcript in place, keeping every message, so it reopens under Claude Code's
 context limit. Quit the session first. Flags:
   --resume        reopen the session afterward
   --aggressive    summarize old turns instead (drops them from view; last resort)
-  --from-backup   restore the full history from the latest backup, then compact
+  --from-backup   restore each entry's original content from the backups, then compact
   --keep-tokens N recent-tail budget kept fully intact (default 25000)
 better-compact claude --run wraps Claude Code so the /better-compact:compact
 command compacts and reopens the session automatically on exit (no tmux).
