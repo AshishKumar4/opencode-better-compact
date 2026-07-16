@@ -10,6 +10,7 @@ import {
     parseTranscript,
     resolveSession,
     restoreFromBackups,
+    resumeModelArgs,
     serializeTranscript,
     sessionBackups,
     type TranscriptEntry,
@@ -42,11 +43,17 @@ export async function claudeCommand(rest: string[]): Promise<void> {
     }
 
     const outcome = compactSession(resolved.file, resolved.sessionId, args)
-    if (outcome === "live" || outcome === "failed") process.exit(1)
-    if (args.resume) resumeClaude(["--resume", resolved.sessionId])
+    if (outcome.status === "live" || outcome.status === "failed") process.exit(1)
+    if (args.resume) resumeClaude(["--resume", resolved.sessionId, ...outcome.resumeModel])
 }
 
-type CompactResult = "compacted" | "nothing" | "live" | "failed"
+// resumeModel carries the [1m] variant when the pre-compaction transcript
+// proves the session needs the long context — computed BEFORE the usage
+// reset zeroes that evidence.
+interface CompactResult {
+    status: "compacted" | "nothing" | "live" | "failed"
+    resumeModel: string[]
+}
 
 // The shared core: refuse-if-live, restore-from-backups, prune, verify, back
 // up, write. Used by both the one-shot command and the --run launcher.
@@ -57,7 +64,7 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
             `Session ${sessionId} is open in Claude Code (pid ${pid}). ` +
                 "Quit that session first — compacting a live transcript is unsafe.",
         )
-        return "live"
+        return { status: "live", resumeModel: [] }
     }
 
     let original: TranscriptEntry[]
@@ -65,8 +72,9 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
         original = parseTranscript(readFileSync(file, "utf-8"))
     } catch (error) {
         console.error(`Could not parse ${file}: ${(error as Error).message}`)
-        return "failed"
+        return { status: "failed", resumeModel: [] }
     }
+    const resumeModel = resumeModelArgs(original)
 
     // Restoration is in-memory: the file is only ever written through
     // commit(), which backs up the current state first — turns added after a
@@ -76,7 +84,7 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
         const backups = sessionBackups(sessionId)
         if (backups.length === 0) {
             console.error(`No backups found for session ${sessionId}.`)
-            return "failed"
+            return { status: "failed", resumeModel }
         }
         working = restoreFromBackups(working, backups)
         console.log(`Restored original content from ${backups.length} backup(s).`)
@@ -87,25 +95,27 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
         const outcome = summarizeTranscript(working, options)
         if (!outcome) {
             console.log("Nothing to compact — the session is already small.")
-            return "nothing"
+            return { status: "nothing", resumeModel }
         }
         if (!commit(file, sessionId, outcome.entries, original.length + 2, "summary")) {
-            return "failed"
+            return { status: "failed", resumeModel }
         }
         console.log(
             `Compacted (aggressive) ${sessionId}: ~${outcome.preTokens.toLocaleString()} -> ` +
                 `~${outcome.postTokens.toLocaleString()} est tokens (${outcome.droppedMessages} summarized, ` +
                 `${outcome.keptMessages} kept verbatim)`,
         )
-        return "compacted"
+        return { status: "compacted", resumeModel }
     }
 
     const outcome = stubTranscript(working, options)
     if (!outcome) {
         console.log("Nothing to prune — no old tool output or reasoning to stub.")
-        return "nothing"
+        return { status: "nothing", resumeModel }
     }
-    if (!commit(file, sessionId, outcome.entries, original.length, "stub")) return "failed"
+    if (!commit(file, sessionId, outcome.entries, original.length, "stub")) {
+        return { status: "failed", resumeModel }
+    }
     if (outcome.stubbedTools === 0 && outcome.strippedReasoning === 0) {
         console.log(
             `Reset ${sessionId}'s stale context anchor (already pruned; Claude Code will now recount the actual content).`,
@@ -117,7 +127,7 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
                 `stubbed, ${outcome.strippedReasoning} reasoning blocks removed; all ${outcome.totalMessages} messages kept)`,
         )
     }
-    return "compacted"
+    return { status: "compacted", resumeModel }
 }
 
 function commit(
@@ -170,10 +180,15 @@ async function claudeRun(args: ClaudeArgs): Promise<void> {
         rmSync(join(flagDir, flagged), { force: true })
 
         const resolved = resolveSession(flagged)
-        if (resolved) compactSession(resolved.file, flagged, args)
-        else console.error(`No transcript found for flagged session ${flagged}; resuming as-is.`)
-        // Session selection is now explicit; every other user flag rides along.
-        claudeArgs = ["--resume", flagged, ...stripSessionArgs(args.passthrough)]
+        const outcome = resolved
+            ? compactSession(resolved.file, flagged, args)
+            : (console.error(`No transcript found for flagged session ${flagged}; resuming as-is.`),
+              { status: "nothing" as const, resumeModel: [] })
+        // Session selection is now explicit; every other user flag rides along,
+        // and an explicit user --model always wins over the inferred one.
+        const kept = stripSessionArgs(args.passthrough)
+        const model = kept.includes("--model") ? [] : outcome.resumeModel
+        claudeArgs = ["--resume", flagged, ...model, ...kept]
     }
 }
 

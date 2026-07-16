@@ -183,6 +183,44 @@ function isClaudeArg(arg: string): boolean {
     return arg === "claude" || arg.endsWith("/claude")
 }
 
+// On --resume, Claude Code restores the session's last-used model from its
+// bare wire id, which never carries the [1m] long-context flag — a session
+// that provably ran past 200k reopens on a 200k window and locks immediately.
+// When the transcript's own usage records prove the session needs the long
+// context, resume with the last model's [1m] variant explicitly.
+const LONG_CONTEXT_MODELS = /^claude-(opus|sonnet|fable)/
+const LONG_CONTEXT_THRESHOLD = 180_000
+
+export function resumeModelArgs(entries: TranscriptEntry[]): string[] {
+    let model: string | undefined
+    let maxInputSide = 0
+    for (const entry of entries) {
+        const message = entry.message
+        if (entry.type !== "assistant" || typeof message !== "object" || !message) continue
+        const wireModel = message.model
+        if (typeof wireModel === "string" && wireModel !== "<synthetic>") model = wireModel
+        const usage = message.usage as Record<string, unknown> | undefined
+        if (usage && typeof usage === "object") {
+            let side =
+                (Number(usage.input_tokens) || 0) +
+                (Number(usage.cache_creation_input_tokens) || 0) +
+                (Number(usage.cache_read_input_tokens) || 0)
+            for (const it of (usage.iterations as Record<string, unknown>[] | undefined) ?? []) {
+                side = Math.max(
+                    side,
+                    (Number(it?.input_tokens) || 0) +
+                        (Number(it?.cache_creation_input_tokens) || 0) +
+                        (Number(it?.cache_read_input_tokens) || 0),
+                )
+            }
+            maxInputSide = Math.max(maxInputSide, side)
+        }
+    }
+    if (!model || model.endsWith("[1m]")) return []
+    if (maxInputSide <= LONG_CONTEXT_THRESHOLD || !LONG_CONTEXT_MODELS.test(model)) return []
+    return ["--model", `${model}[1m]`]
+}
+
 export function backupDir(home = homedir()): string {
     return join(home, ".better-compact", "claude-backups")
 }

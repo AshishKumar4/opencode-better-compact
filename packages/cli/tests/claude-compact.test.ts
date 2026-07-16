@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { stubTranscript, summarizeTranscript } from "../src/claude/compact"
 import { stripSessionArgs } from "../src/claude/command"
-import { restoreFromBackups, type TranscriptEntry } from "../src/claude/transcript"
+import { restoreFromBackups, resumeModelArgs, type TranscriptEntry } from "../src/claude/transcript"
 
 let counter = 0
 function uuid(): string {
@@ -275,6 +275,33 @@ test("an originally-empty content array stays empty, with no false marker", () =
     const outcome = stubTranscript(entries, { keepTailTokens: 2000 })
     assert.ok(outcome)
     assert.deepEqual(empty.message!.content, [])
+})
+
+test("resumeModelArgs adds the [1m] variant only when the transcript proves it", () => {
+    const entries = conversation(2)
+    const assistants = entries.filter((e) => e.type === "assistant")
+    for (const a of assistants) a.message!.model = "claude-opus-4-8"
+
+    // Under 200k: no override — Claude Code's own restore is fine.
+    assistants[0]!.message!.usage = { input_tokens: 1000, cache_read_input_tokens: 50_000 }
+    assert.deepEqual(resumeModelArgs(entries), [])
+
+    // Proven past 200k: resume must carry the long-context variant.
+    assistants[1]!.message!.usage = { input_tokens: 2, cache_read_input_tokens: 602_000 }
+    assert.deepEqual(resumeModelArgs(entries), ["--model", "claude-opus-4-8[1m]"])
+
+    // Evidence may live only in iterations (post-reset top levels are zeroed
+    // by compaction, but resumeModelArgs runs on the pre-reset parse anyway).
+    assistants[1]!.message!.usage = {
+        input_tokens: 0,
+        cache_read_input_tokens: 0,
+        iterations: [{ input_tokens: 2, cache_read_input_tokens: 700_000 }],
+    }
+    assert.deepEqual(resumeModelArgs(entries), ["--model", "claude-opus-4-8[1m]"])
+
+    // Unknown model families are never suffixed.
+    for (const a of assistants) a.message!.model = "some-gateway-model"
+    assert.deepEqual(resumeModelArgs(entries), [])
 })
 
 test("stripSessionArgs removes session selection and keeps every other flag", () => {
