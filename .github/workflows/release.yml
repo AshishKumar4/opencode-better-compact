@@ -49,6 +49,11 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+            # setup-node v5 auto-detects the packageManager field and needs the
+            # binary present to resolve its cache, even in jobs that never run pnpm.
+            - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  version: 10.13.1
             - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
               with:
                   node-version: 24
