@@ -2,21 +2,48 @@
 
 # @better-compact/cli
 
-I'm the wire-proxy adapter for the Better Compact ladder: a small local daemon that sits between a
-coding agent and its model API, pruning the request the agent is about to send. The agent keeps its
-full history; only what goes over the wire shrinks. One daemon serves two dialects by route prefix —
-Anthropic Messages for Claude Code, and OpenAI Responses for Codex.
+I'm the Better Compact CLI. Two jobs, matched to what each platform actually allows:
 
-## What it does
+- **Claude Code → on-disk session compaction** (`better-compact claude`). Claude Code enforces its
+  context ceiling client-side and anchors its meter on token counts recorded inside the session
+  transcript, so a wire proxy structurally cannot help it. Compacting the transcript on disk can,
+  and does.
+- **Codex → wire proxy** (`better-compact start` + `install codex`). A small local daemon on
+  `openai_base_url` that prunes the request Codex is about to send. The `/anthropic` dialect also
+  exists for gateway users, but it is no longer the Claude Code integration path.
+
+## Claude Code: `better-compact claude`
+
+```sh
+better-compact claude [sessionId] [--resume] [--aggressive] [--from-backup] [--keep-tokens N]
+better-compact claude --run [claude args...]
+```
+
+Compacts a **closed** session's transcript (`~/.claude/projects/<project>/<sessionId>.jsonl`) so it
+reopens under the context limit. The default keeps **every message**: old tool outputs and oversized
+tool inputs become short stubs (tool name, call id, and primary target preserved), old reasoning
+blocks are dropped, and the recent tail (`--keep-tokens`, default 25k) stays verbatim. It also
+zeroes the stale input-side token counts Claude Code seeds its context meter from — recorded usage
+that describes requests which no longer exist (output tokens are kept). `--aggressive` instead
+reproduces Claude Code's own `/compact` (append-only boundary + summary; old turns leave the
+context). `--from-backup` restores the full history from the latest backup first. Every run backs
+up the original to `~/.better-compact/claude-backups/` and refuses to touch a live session (registry
+pid check plus a scan for still-starting `claude --resume` processes).
+
+`--run` wraps `claude` so the `/better-compact:compact` command (from the companion plugin) can
+queue a compaction: exit the session and it prunes and reopens automatically — no tmux, no wrapper
+scripts.
+
+## Codex proxy: what it does
 
 - `better-compact start|stop|status` — a daemon on `127.0.0.1:42817` with a
   `~/.better-compact/proxy.json` `{port, pid}` lockfile. Start is idempotent; a foreign process on
   the port is a loud failure, never a silent degrade.
 - `POST /anthropic/v1/messages` and `POST /openai/responses` are rewritten through the shared core
   ladder (old tools → reasoning → remaining tools → assistant-run summaries → last-resort prefix
-  summary; Claude Code additionally prunes skills first). Everything else under `/anthropic/*` and
+  summary; the Anthropic dialect additionally prunes skills first). Everything else under `/anthropic/*` and
   `/openai/*` passes through untouched.
-- Correlation: Claude Code — the `x-session` header, else a content hash of the first user message.
+- Correlation: Anthropic dialect — the `x-session` header, else a content hash of the first user message.
   Codex — the `thread-id` header, else the body's `prompt_cache_key` (the thread id), else a content
   hash of the first user item. Plans persist under `~/.better-compact/plans/`, raw transcripts
   (cited by the injected reference message, readable by the agent's own Read/cat tool) under
@@ -25,8 +52,7 @@ Anthropic Messages for Claude Code, and OpenAI Responses for Codex.
   `/responses`) that reuse the exact credentials and headers of the request being served — no
   separate credential path.
 - Put `[[better-compact:run]]` in the latest user prompt to compact immediately. The proxy removes
-  the marker before forwarding the request. Claude Code can emit it from a command or skill
-  prompt; Codex can emit it from a prompt file.
+  the marker before forwarding the request; Codex can emit it from a prompt file.
 
 ## Wire guarantees
 
@@ -59,8 +85,8 @@ These are pinned by the test suite, not aspirations:
 }
 ```
 
-All optional. If you already pointed an agent at a gateway (`ANTHROPIC_BASE_URL` for Claude Code, a
-custom `openai_base_url` for Codex), the installers record that URL here as the upstream, so the
+All optional. If you already pointed an agent at a gateway (a custom `openai_base_url` for Codex,
+or `ANTHROPIC_BASE_URL` for an Anthropic-dialect client), the installers record that URL here as the upstream, so the
 gateway keeps working behind the proxy. `preset` is `light` (default), `moderate`, or `max`.
 `openaiContextLimit` is an optional override for custom deployments or gateways whose model name
 does not identify its window.

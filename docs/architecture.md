@@ -4,12 +4,25 @@
 
 Design for extending the context-pruning ladder from OpenCode to pi, Claude Code, and Codex. Designed against the post-fix engine semantics (unified simulate/replay, single-scale token accounting with measured provider-overhead offset, rangeHash validation at apply, re-prune on regrowth, in-flight guard).
 
-Two integration modes exist in the wild, and only two:
+Three integration modes exist in the wild:
 
 - **In-process transform** (OpenCode `experimental.chat.messages.transform`, pi `context` event): we receive the platform's native message array and return a replacement.
-- **Wire proxy** (Claude Code via `ANTHROPIC_BASE_URL`, Codex via `openai_base_url`): we receive the full serialized request body, rewrite `messages`/`input`, and pass the response SSE through untouched.
+- **Wire proxy** (Codex via `openai_base_url`): we receive the full serialized request body, rewrite `messages`/`input`, and pass the response SSE through untouched.
+- **On-disk transcript compaction** (Claude Code, `better-compact claude`): we rewrite the closed session's transcript file, which the platform re-derives its context from on resume.
 
-Everything below follows from making the ladder run once, identically, over both modes.
+Everything below follows from making the ladder run once, identically, over these modes.
+
+> **Claude Code pivot (2026-07-16).** This document originally routed Claude Code through the wire
+> proxy. Live verification falsified that design: Claude Code enforces its context ceiling
+> **client-side, before any request is sent**, and anchors its context meter on token counts
+> recorded inside the session transcript — the last `usage` along the resolved `parentUuid` chain,
+> reconstructed from `usage.iterations` at load. A proxy therefore never sees the requests that
+> matter and cannot move the meter. The shipped integration compacts the transcript on disk
+> instead (`packages/cli/src/claude/`): stub old tool inputs/outputs and reasoning in place
+> keeping every message (or `--aggressive`: reproduce the native append-only
+> `compact_boundary` + `isCompactSummary` entries), and zero the stale input-side usage counters so
+> the meter recounts the real content. The Claude-Code-specific proxy claims later in this
+> document are retained as design history and are superseded by this note.
 
 ---
 
