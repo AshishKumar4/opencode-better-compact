@@ -64,7 +64,16 @@ export function stubTranscript(
         stubbedTools += result.stubbedTools
         strippedReasoning += result.strippedReasoning
     }
-    if (stubbedTools === 0 && strippedReasoning === 0) return null
+    // A transcript pruned by an earlier run still needs its stale usage
+    // anchor cleared, even when there is nothing new to stub.
+    const previouslyPruned = entries.some(
+        (entry) => JSON.stringify(entry.message?.content ?? "").includes("better-compact: pruned"),
+    )
+    const usageReset =
+        stubbedTools > 0 || strippedReasoning > 0 || previouslyPruned
+            ? resetStaleUsage(entries)
+            : false
+    if (stubbedTools === 0 && strippedReasoning === 0 && !usageReset) return null
 
     return {
         entries,
@@ -237,6 +246,7 @@ export function summarizeTranscript(
         timestamp: now,
     }
 
+    resetStaleUsage(entries)
     return {
         entries: [...entries, boundary, summary],
         preTokens,
@@ -247,6 +257,30 @@ export function summarizeTranscript(
 }
 
 // --- shared ---
+
+// Claude Code seeds its context meter (and the client-side send gate) from the
+// LAST API usage recorded in the transcript — it only re-tokenizes the actual
+// content when no usage record exists (verified against the 2.1.211 binary's
+// /context estimator). After pruning, that recorded usage describes a request
+// that no longer exists, so zero its input-side counters: Claude Code then
+// falls back to counting the real, pruned content.
+export function resetStaleUsage(entries: TranscriptEntry[]): boolean {
+    for (let index = entries.length - 1; index >= 0; index--) {
+        const message = entries[index].message
+        const usage = message?.usage as Record<string, unknown> | undefined
+        if (!usage || typeof usage !== "object") continue
+        const inputSide =
+            (Number(usage.input_tokens) || 0) +
+            (Number(usage.cache_creation_input_tokens) || 0) +
+            (Number(usage.cache_read_input_tokens) || 0)
+        if (inputSide === 0) continue
+        usage.input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        usage.cache_read_input_tokens = 0
+        return true
+    }
+    return false
+}
 
 // Absolute indices of the conversation entries after the most recent
 // compaction boundary (earlier history is already summarized/severed).

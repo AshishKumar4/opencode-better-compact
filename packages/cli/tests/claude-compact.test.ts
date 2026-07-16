@@ -142,6 +142,39 @@ test("stub mode leaves a small session alone", () => {
     assert.equal(outcome, null)
 })
 
+test("compaction zeros the stale usage anchor so Claude Code recounts content", () => {
+    const entries = conversation(12)
+    // Two real API usage records; Claude Code anchors its meter on the last.
+    const assistants = entries.filter((e) => e.type === "assistant")
+    const older = assistants[assistants.length - 2]!
+    const last = assistants[assistants.length - 1]!
+    older.message!.usage = { input_tokens: 100, cache_read_input_tokens: 500_000, output_tokens: 9 }
+    last.message!.usage = { input_tokens: 200, cache_read_input_tokens: 700_000, output_tokens: 7 }
+
+    const outcome = stubTranscript(entries, { keepTailTokens: 2000 })
+    assert.ok(outcome)
+    const lastUsage = last.message!.usage as Record<string, number>
+    assert.equal(lastUsage.input_tokens, 0)
+    assert.equal(lastUsage.cache_read_input_tokens, 0)
+    assert.equal(lastUsage.output_tokens, 7, "output side untouched")
+    const olderUsage = older.message!.usage as Record<string, number>
+    assert.equal(olderUsage.cache_read_input_tokens, 500_000, "earlier usage history untouched")
+})
+
+test("an already-pruned transcript with nothing new to stub still gets the usage reset", () => {
+    const entries = conversation(12)
+    const last = entries.filter((e) => e.type === "assistant").at(-1)!
+    last.message!.usage = { input_tokens: 300, cache_read_input_tokens: 800_000, output_tokens: 3 }
+    const first = stubTranscript(entries, { keepTailTokens: 2000 })
+    assert.ok(first)
+    // Simulate the pre-fix state: a pruned transcript whose anchor was never
+    // cleared (as left behind by an earlier CLI version).
+    ;(last.message!.usage as Record<string, number>).cache_read_input_tokens = 800_000
+    const second = stubTranscript(first.entries, { keepTailTokens: 2000 })
+    assert.ok(second, "reset-only pass still proceeds")
+    assert.equal((last.message!.usage as Record<string, number>).cache_read_input_tokens, 0)
+})
+
 test("stub mode preserves the most recent tool output verbatim", () => {
     const entries = conversation(12)
     const lastResult = [...entries].reverse().find((e) => e.toolUseResult)!
