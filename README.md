@@ -23,10 +23,13 @@ The ladder lives in a platform-neutral core (`packages/core`) that operates on a
 | ------------------------------- | ---------------------------------------------------- | ------------------------------------ |
 | [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`)                       | In-process message transform plugin  |
 | pi                              | Shipping (`packages/pi`)                             | In-process `context` event extension |
-| Claude Code                     | Shipping (`packages/cli` + `packages/claude-code`) | Local proxy on `ANTHROPIC_BASE_URL`  |
+| Claude Code                     | Shipping (`packages/cli` + `packages/claude-code`) | On-disk session compaction (`better-compact claude`) |
 | Codex                           | Shipping (`packages/cli`)                          | Local proxy on `openai_base_url`     |
 
-The full design, including the IR, the codec contract, and the proxy engine, lives in [docs/architecture.md](docs/architecture.md).
+Claude Code enforces its context ceiling client-side, so a wire proxy can't manage it; Better
+Compact compacts the session transcript on disk instead (`better-compact claude`), reproducing
+Claude Code's own compaction while keeping every message. The full design, including the IR, the
+codec contract, and the proxy engine, lives in [docs/architecture.md](docs/architecture.md).
 
 ## Install (OpenCode)
 
@@ -50,7 +53,7 @@ packages/
 ├── opencode/     better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
 ├── pi/           @better-compact/pi — the pi extension (codec, plan store, summarizer)
 ├── proxy/        @better-compact/cli — the better-compact daemon (Anthropic + OpenAI Responses codecs, Codex installer)
-└── claude-code/  @better-compact/claude-code — the Claude Code plugin shell over the proxy
+└── claude-code/  @better-compact/claude-code — the Claude Code plugin (on-disk session compaction UX)
 ```
 
 ```bash
