@@ -265,9 +265,14 @@ export function summarizeTranscript(
 // that no longer exists, so zero its input-side counters: Claude Code then
 // falls back to counting the real, pruned content.
 export function resetStaleUsage(entries: TranscriptEntry[]): boolean {
-    for (let index = entries.length - 1; index >= 0; index--) {
-        const message = entries[index].message
-        const usage = message?.usage as Record<string, unknown> | undefined
+    let reset = false
+    // Every record, not just the last in file order: Claude Code anchors on
+    // the last usage along the resolved parentUuid chain, and transcripts
+    // written by competing instances interleave branches — any record can end
+    // up being the anchor (observed live). Stale input-side numbers carry no
+    // information after pruning; outputs are kept.
+    for (const entry of entries) {
+        const usage = entry.message?.usage as Record<string, unknown> | undefined
         if (!usage || typeof usage !== "object") continue
         if (usageInputSide(usage) === 0) continue
         zeroInputSide(usage)
@@ -278,9 +283,9 @@ export function resetStaleUsage(entries: TranscriptEntry[]): boolean {
                 if (iteration && typeof iteration === "object") zeroInputSide(iteration)
             }
         }
-        return true
+        reset = true
     }
-    return false
+    return reset
 }
 
 function usageInputSide(usage: Record<string, unknown>): number {

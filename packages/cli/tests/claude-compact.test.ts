@@ -169,8 +169,11 @@ test("compaction zeros the stale usage anchor so Claude Code recounts content", 
     assert.equal(lastUsage.iterations[0].cache_read_input_tokens, 0)
     assert.equal(lastUsage.iterations[0].input_tokens, 0)
     assert.equal(lastUsage.iterations[0].output_tokens, 7)
+    // Every record is cleared: transcripts interleave branches from competing
+    // instances, so any usage record can end up as Claude Code's chain anchor.
     const olderUsage = older.message!.usage as Record<string, number>
-    assert.equal(olderUsage.cache_read_input_tokens, 500_000, "earlier usage history untouched")
+    assert.equal(olderUsage.cache_read_input_tokens, 0)
+    assert.equal(olderUsage.output_tokens, 9, "output side untouched")
 })
 
 test("an already-pruned transcript with nothing new to stub still gets the usage reset", () => {
