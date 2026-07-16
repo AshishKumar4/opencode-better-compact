@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -81,31 +82,72 @@ export function latestSessionForCwd(cwd: string, home = homedir()): ResolvedSess
 }
 
 // A session is live when a registry entry names it and that process is still
-// running. Editing a live transcript is unsafe: Claude Code holds it in
-// memory and would overwrite the change on its next append.
+// running — or when a claude process was launched to resume it but has not
+// registered yet (the registry lags startup by several seconds, a real race).
+// Editing a live transcript is unsafe: Claude Code reads it once at resume
+// and holds it in memory, blind to any change underneath.
 export function liveSessionPid(sessionId: string, home = homedir()): number | null {
     const dir = sessionsDir(home)
-    if (!existsSync(dir)) return null
-    for (const name of readdirSync(dir)) {
-        if (!name.endsWith(".json")) continue
-        let record: { sessionId?: string; pid?: number }
-        try {
-            record = JSON.parse(readFileSync(join(dir, name), "utf-8")) as {
-                sessionId?: string
-                pid?: number
+    if (existsSync(dir)) {
+        for (const name of readdirSync(dir)) {
+            if (!name.endsWith(".json")) continue
+            let record: { sessionId?: string; pid?: number }
+            try {
+                record = JSON.parse(readFileSync(join(dir, name), "utf-8")) as {
+                    sessionId?: string
+                    pid?: number
+                }
+            } catch {
+                continue
             }
-        } catch {
-            continue
-        }
-        if (record.sessionId !== sessionId || typeof record.pid !== "number") continue
-        try {
-            process.kill(record.pid, 0)
-            return record.pid
-        } catch {
-            // ESRCH: the process is gone, the registry entry is stale.
+            if (record.sessionId !== sessionId || typeof record.pid !== "number") continue
+            try {
+                process.kill(record.pid, 0)
+                return record.pid
+            } catch {
+                // ESRCH: the process is gone, the registry entry is stale.
+            }
         }
     }
+    return resumingProcessPid(sessionId)
+}
+
+// A not-yet-registered `claude --resume <id>` (or --session-id) process,
+// found by its command line. Linux reads /proc directly; elsewhere `ps`.
+function resumingProcessPid(sessionId: string): number | null {
+    if (process.platform === "linux") {
+        for (const name of readdirSync("/proc")) {
+            const pid = Number(name)
+            if (!Number.isInteger(pid) || pid === process.pid) continue
+            let cmdline: string
+            try {
+                cmdline = readFileSync(join("/proc", name, "cmdline"), "utf-8")
+            } catch {
+                continue
+            }
+            const args = cmdline.split("\0")
+            if (args.some((arg) => arg === sessionId) && args.some(isClaudeArg)) return pid
+        }
+        return null
+    }
+    try {
+        const out = execFileSync("ps", ["-eo", "pid=,args="], { encoding: "utf-8" })
+        for (const line of out.split("\n")) {
+            const parts = line.trim().split(/\s+/)
+            const pid = Number(parts[0])
+            if (!Number.isInteger(pid) || pid === process.pid) continue
+            if (parts.includes(sessionId) && parts.some(isClaudeArg)) return pid
+        }
+    } catch {
+        // ps unavailable: fall back to registry-only detection.
+    }
     return null
+}
+
+// The claude binary itself (argv0 or a re-exec path), not any string that
+// happens to mention it — a shell wrapper quoting the command must not match.
+function isClaudeArg(arg: string): boolean {
+    return arg === "claude" || arg.endsWith("/claude")
 }
 
 export function backupDir(home = homedir()): string {
