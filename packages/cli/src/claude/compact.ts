@@ -269,17 +269,42 @@ export function resetStaleUsage(entries: TranscriptEntry[]): boolean {
         const message = entries[index].message
         const usage = message?.usage as Record<string, unknown> | undefined
         if (!usage || typeof usage !== "object") continue
-        const inputSide =
-            (Number(usage.input_tokens) || 0) +
-            (Number(usage.cache_creation_input_tokens) || 0) +
-            (Number(usage.cache_read_input_tokens) || 0)
-        if (inputSide === 0) continue
-        usage.input_tokens = 0
-        usage.cache_creation_input_tokens = 0
-        usage.cache_read_input_tokens = 0
+        if (usageInputSide(usage) === 0) continue
+        zeroInputSide(usage)
+        // Claude Code reconstructs usage from the per-iteration records at
+        // load, so a top-level reset alone gets resurrected (verified live).
+        if (Array.isArray(usage.iterations)) {
+            for (const iteration of usage.iterations as Record<string, unknown>[]) {
+                if (iteration && typeof iteration === "object") zeroInputSide(iteration)
+            }
+        }
         return true
     }
     return false
+}
+
+function usageInputSide(usage: Record<string, unknown>): number {
+    let total =
+        (Number(usage.input_tokens) || 0) +
+        (Number(usage.cache_creation_input_tokens) || 0) +
+        (Number(usage.cache_read_input_tokens) || 0)
+    if (Array.isArray(usage.iterations)) {
+        for (const iteration of usage.iterations as Record<string, unknown>[]) {
+            if (iteration && typeof iteration === "object") {
+                total +=
+                    (Number(iteration.input_tokens) || 0) +
+                    (Number(iteration.cache_creation_input_tokens) || 0) +
+                    (Number(iteration.cache_read_input_tokens) || 0)
+            }
+        }
+    }
+    return total
+}
+
+function zeroInputSide(record: Record<string, unknown>): void {
+    if ("input_tokens" in record) record.input_tokens = 0
+    if ("cache_creation_input_tokens" in record) record.cache_creation_input_tokens = 0
+    if ("cache_read_input_tokens" in record) record.cache_read_input_tokens = 0
 }
 
 // Absolute indices of the conversation entries after the most recent

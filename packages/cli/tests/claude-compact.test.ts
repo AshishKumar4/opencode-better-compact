@@ -149,14 +149,26 @@ test("compaction zeros the stale usage anchor so Claude Code recounts content", 
     const older = assistants[assistants.length - 2]!
     const last = assistants[assistants.length - 1]!
     older.message!.usage = { input_tokens: 100, cache_read_input_tokens: 500_000, output_tokens: 9 }
-    last.message!.usage = { input_tokens: 200, cache_read_input_tokens: 700_000, output_tokens: 7 }
+    last.message!.usage = {
+        input_tokens: 200,
+        cache_read_input_tokens: 700_000,
+        output_tokens: 7,
+        iterations: [{ input_tokens: 2, cache_read_input_tokens: 699_000, output_tokens: 7 }],
+    }
 
     const outcome = stubTranscript(entries, { keepTailTokens: 2000 })
     assert.ok(outcome)
-    const lastUsage = last.message!.usage as Record<string, number>
+    const lastUsage = last.message!.usage as Record<string, number> & {
+        iterations: Record<string, number>[]
+    }
     assert.equal(lastUsage.input_tokens, 0)
     assert.equal(lastUsage.cache_read_input_tokens, 0)
     assert.equal(lastUsage.output_tokens, 7, "output side untouched")
+    // Claude Code rebuilds usage from iterations at load; they must be zeroed
+    // too or the anchor resurrects.
+    assert.equal(lastUsage.iterations[0].cache_read_input_tokens, 0)
+    assert.equal(lastUsage.iterations[0].input_tokens, 0)
+    assert.equal(lastUsage.iterations[0].output_tokens, 7)
     const olderUsage = older.message!.usage as Record<string, number>
     assert.equal(olderUsage.cache_read_input_tokens, 500_000, "earlier usage history untouched")
 })
@@ -167,12 +179,17 @@ test("an already-pruned transcript with nothing new to stub still gets the usage
     last.message!.usage = { input_tokens: 300, cache_read_input_tokens: 800_000, output_tokens: 3 }
     const first = stubTranscript(entries, { keepTailTokens: 2000 })
     assert.ok(first)
-    // Simulate the pre-fix state: a pruned transcript whose anchor was never
-    // cleared (as left behind by an earlier CLI version).
-    ;(last.message!.usage as Record<string, number>).cache_read_input_tokens = 800_000
+    // Simulate the pre-fix state an earlier CLI version left behind: top-level
+    // zeroed but iterations still carrying the original numbers (the exact
+    // resurrection case observed live).
+    ;(last.message!.usage as Record<string, unknown>).iterations = [
+        { input_tokens: 2, cache_read_input_tokens: 740_196, output_tokens: 5 },
+    ]
     const second = stubTranscript(first.entries, { keepTailTokens: 2000 })
     assert.ok(second, "reset-only pass still proceeds")
-    assert.equal((last.message!.usage as Record<string, number>).cache_read_input_tokens, 0)
+    const usage = last.message!.usage as { iterations: Record<string, number>[] }
+    assert.equal(usage.iterations[0].cache_read_input_tokens, 0)
+    assert.equal(usage.iterations[0].input_tokens, 0)
 })
 
 test("stub mode preserves the most recent tool output verbatim", () => {
