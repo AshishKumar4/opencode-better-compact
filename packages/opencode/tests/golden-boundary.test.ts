@@ -387,7 +387,10 @@ const scenarios: Scenario[] = [
             assert.ok(plan)
             const names = plan.stages.map((stage) => stage.name)
             assert.ok(names.includes("reasoning"))
-            assert.ok(!names.includes("assistant-runs"))
+            // Escalation chases the target (35%), not the trigger: reasoning
+            // alone leaves this scenario above target, so assistant-run
+            // summarization runs too.
+            assert.ok(names.includes("assistant-runs"))
         },
     },
     {

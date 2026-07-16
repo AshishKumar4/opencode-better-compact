@@ -160,8 +160,12 @@ export function buildPlan(turns: Turn[], inputs: BuildPlanInputs, spec: LadderSp
     ctx.referenceTokens = reference ? spec.codec.estimateTurns([reference]) : 0
     const projectedTokens = () => estimateTurns(working, spec.codec, estimator) + ctx.referenceTokens
 
+    // Escalation chases the TARGET, not the trigger: the trigger decides when
+    // compaction happens, the target decides how deep it goes. Stopping at
+    // first-under-trigger left sessions at ~50-80% and re-compacting every few
+    // turns instead of dropping to the profile's target.
     for (const stage of spec.stages) {
-        if (!stage.always && projectedTokens() < triggerTokens && !priorStages.has(stage.name)) {
+        if (!stage.always && projectedTokens() <= targetTokens && !priorStages.has(stage.name)) {
             markTargetMet(stages)
             continue
         }
