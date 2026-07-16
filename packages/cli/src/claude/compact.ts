@@ -2,24 +2,13 @@ import { randomUUID } from "node:crypto"
 import {
     buildPlan,
     COMPACTION_PRESETS,
-    findRawTailStartIndex,
-    findRecentToolCallTail,
     formatPrefixSummary,
     type CompactionProfile,
     type Turn,
 } from "@better-compact/core"
-import {
-    anthropicCodec,
-    anthropicSpec,
-    claudeCodeConventions,
-    type WireBlock,
-    type WireMessage,
-} from "../anthropic/codec"
+import { anthropicCodec, anthropicSpec, type WireBlock, type WireMessage } from "../anthropic/codec"
 import type { TranscriptEntry } from "./transcript"
 
-// The recent tail kept fully intact and the floor for the ladder tail scan.
-const MIN_TAIL_MESSAGES = 3
-const MIN_TAIL_USER_TURNS = 2
 // Outputs smaller than this aren't worth a stub.
 const STUB_MIN_CHARS = 200
 
@@ -52,55 +41,52 @@ export function stubTranscript(
 ): StubOutcome | null {
     const conv = liveConversation(entries)
     if (conv.length === 0) return null
-
-    const messages = conv.map((index) => entries[index].message as WireMessage)
-    const turns = anthropicCodec.encode(messages)
     const keepTailTokens = options.keepTailTokens ?? 25_000
 
-    const rawTailStart = findRawTailStartIndex(turns, MIN_TAIL_MESSAGES, MIN_TAIL_USER_TURNS)
-    const preserved = findRecentToolCallTail(
-        turns,
-        keepTailTokens,
-        anthropicCodec,
-        claudeCodeConventions,
-    )
-    // Messages folded into the turns before the tail are the "old" ones.
-    const oldMessages = new Set<WireMessage>()
-    for (let index = 0; index < rawTailStart; index++) {
-        for (const message of (turns[index].handle as WireMessage[] | undefined) ?? []) {
-            oldMessages.add(message)
-        }
+    // Keep the most recent messages fully intact up to the tail budget; prune
+    // older tool output and reasoning. Token-based so it holds regardless of
+    // how sparse the user prompts are (tool-result turns fold into assistant
+    // runs, so a user-turn floor would keep almost everything).
+    const keepIntact = new Set<number>()
+    let budget = 0
+    for (let position = conv.length - 1; position >= 0 && budget < keepTailTokens; position--) {
+        keepIntact.add(conv[position])
+        budget += estimateEntryTokens(entries[conv[position]])
     }
 
-    const preTokens = anthropicCodec.estimateTurns(turns)
+    const preTokens = totalTokens(conv, entries)
     let stubbedTools = 0
     let strippedReasoning = 0
     for (const index of conv) {
-        if (!oldMessages.has(entries[index].message as WireMessage)) continue
-        const result = stubEntry(entries[index], preserved)
+        if (keepIntact.has(index)) continue
+        const result = stubEntry(entries[index])
         stubbedTools += result.stubbedTools
         strippedReasoning += result.strippedReasoning
     }
     if (stubbedTools === 0 && strippedReasoning === 0) return null
 
-    const postTokens = anthropicCodec.estimateTurns(
-        anthropicCodec.encode(conv.map((index) => entries[index].message as WireMessage)),
-    )
     return {
         entries,
         preTokens,
-        postTokens,
+        postTokens: totalTokens(conv, entries),
         stubbedTools,
         strippedReasoning,
-        keptTailMessages: conv.length - oldMessages.size,
+        keptTailMessages: keepIntact.size,
         totalMessages: conv.length,
     }
 }
 
-function stubEntry(
-    entry: TranscriptEntry,
-    preserved: ReadonlySet<string>,
-): { stubbedTools: number; strippedReasoning: number } {
+function estimateEntryTokens(entry: TranscriptEntry): number {
+    return Math.round(contentChars(entry.message?.content) / 4)
+}
+
+function totalTokens(conv: number[], entries: TranscriptEntry[]): number {
+    return anthropicCodec.estimateTurns(
+        anthropicCodec.encode(conv.map((index) => entries[index].message as WireMessage)),
+    )
+}
+
+function stubEntry(entry: TranscriptEntry): { stubbedTools: number; strippedReasoning: number } {
     let stubbedTools = 0
     let strippedReasoning = 0
     const content = entry.message?.content
@@ -111,11 +97,7 @@ function stubEntry(
                 strippedReasoning++
                 continue
             }
-            if (
-                block.type === "tool_result" &&
-                typeof block.tool_use_id === "string" &&
-                !preserved.has(block.tool_use_id)
-            ) {
+            if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
                 const size = contentChars(block.content)
                 if (size > STUB_MIN_CHARS) {
                     kept.push({
