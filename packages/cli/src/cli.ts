@@ -22,9 +22,14 @@ Usage:
   better-compact install claude-code Point Claude Code settings at the proxy
   better-compact install codex       Point Codex config.toml at the proxy
 
-better-compact claude compacts a session's transcript (summarize old turns,
-keep the recent tail) so it reopens under Claude Code's context limit. Quit the
-session first; --resume reopens it. --keep-tokens N sets the tail budget.
+better-compact claude prunes old tool output and reasoning from a session's
+transcript in place, keeping every message, so it reopens under Claude Code's
+context limit. Quit the session first. Flags:
+  --resume        reopen the session afterward
+  --aggressive    summarize old turns instead (drops them from view; last resort)
+  --from-backup   restore the full history from the latest backup, then compact
+  --keep-tokens N recent-tail budget kept fully intact (default 25000)
+Originals are backed up to ~/.better-compact/claude-backups/.
 --capture writes sanitized request bodies to ~/.better-compact/captures/`
 
 async function main(): Promise<void> {

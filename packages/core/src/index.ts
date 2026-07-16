@@ -16,6 +16,8 @@ export {
 export type { EnginePorts, Logger, PlanStore, Summarizer, TranscriptStore } from "./ports"
 export {
     assistantRunsStage,
+    findRawTailStartIndex,
+    findRecentToolCallTail,
     formatPrefixSummary,
     purgeErrorInputsStage,
     reasoningStage,

@@ -108,11 +108,31 @@ export function liveSessionPid(sessionId: string, home = homedir()): number | nu
     return null
 }
 
+export function backupDir(home = homedir()): string {
+    return join(home, ".better-compact", "claude-backups")
+}
+
 export function backupTranscript(file: string, stamp: string): string {
-    const dir = join(homedir(), ".better-compact", "claude-backups")
+    const dir = backupDir()
     mkdirSync(dir, { recursive: true })
     const base = file.split("/").pop() ?? "session.jsonl"
     const backup = join(dir, `${base}.${stamp}.bak`)
     copyFileSync(file, backup)
     return backup
+}
+
+// The most recent backup captured for a session, used by --from-backup to
+// undo a prior compaction before recompacting from the full history.
+export function latestBackup(sessionId: string, home = homedir()): string | null {
+    const dir = backupDir(home)
+    if (!existsSync(dir)) return null
+    const prefix = `${sessionId}.jsonl.`
+    let newest: { file: string; mtimeMs: number } | null = null
+    for (const name of readdirSync(dir)) {
+        if (!name.startsWith(prefix) || !name.endsWith(".bak")) continue
+        const file = join(dir, name)
+        const mtimeMs = statSync(file).mtimeMs
+        if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs }
+    }
+    return newest?.file ?? null
 }

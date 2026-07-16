@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
-import { compactTranscript } from "./compact"
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs"
+import { stubTranscript, summarizeTranscript } from "./compact"
 import {
     backupTranscript,
+    latestBackup,
     latestSessionForCwd,
     liveSessionPid,
     parseTranscript,
@@ -14,6 +15,8 @@ import {
 interface ClaudeArgs {
     sessionId?: string
     resume: boolean
+    aggressive: boolean
+    fromBackup: boolean
     keepTailTokens?: number
 }
 
@@ -41,33 +44,73 @@ export async function claudeCommand(rest: string[]): Promise<void> {
         process.exit(1)
     }
 
-    const entries = parseTranscript(readFileSync(resolved.file, "utf-8"))
-    const outcome = compactTranscript(entries, { keepTailTokens: args.keepTailTokens })
-    if (!outcome) {
-        console.log("Nothing to compact — the session is already small.")
-        if (args.resume) resumeClaude(resolved.sessionId)
+    if (args.fromBackup) {
+        const backup = latestBackup(resolved.sessionId)
+        if (!backup) {
+            console.error(`No backup found for session ${resolved.sessionId}.`)
+            process.exit(1)
+        }
+        copyFileSync(backup, resolved.file)
+        console.log(`Restored full history from ${backup}`)
+    }
+
+    const original = parseTranscript(readFileSync(resolved.file, "utf-8"))
+    const options = { keepTailTokens: args.keepTailTokens }
+
+    if (args.aggressive) {
+        const outcome = summarizeTranscript(clone(original), options)
+        if (!outcome) return done("Nothing to compact — the session is already small.", args, resolved.sessionId)
+        commit(resolved.file, outcome.entries, original.length + 2, "summary")
+        console.log(`Compacted (aggressive) ${resolved.sessionId}:`)
+        console.log(
+            `  ~${outcome.preTokens.toLocaleString()} -> ~${outcome.postTokens.toLocaleString()} est tokens` +
+                ` (${outcome.droppedMessages} messages summarized, ${outcome.keptMessages} kept verbatim)`,
+        )
+        reportBackupAndResume(resolved.file, args, resolved.sessionId)
         return
     }
 
-    const serialized = serializeTranscript(outcome.entries)
-    const check = verifyIntegrity(serialized, outcome.entries)
+    const working = clone(original)
+    const outcome = stubTranscript(working, options)
+    if (!outcome) return done("Nothing to prune — no old tool output or reasoning to stub.", args, resolved.sessionId)
+    commit(resolved.file, outcome.entries, original.length, "stub")
+    console.log(`Compacted ${resolved.sessionId}:`)
+    console.log(
+        `  ~${outcome.preTokens.toLocaleString()} -> ~${outcome.postTokens.toLocaleString()} est tokens` +
+            ` (${outcome.stubbedTools} tool outputs stubbed, ${outcome.strippedReasoning} reasoning blocks removed;` +
+            ` all ${outcome.totalMessages} messages kept)`,
+    )
+    reportBackupAndResume(resolved.file, args, resolved.sessionId)
+}
+
+// Written just before commit; stashed so reportBackupAndResume can print it.
+let lastBackup = ""
+
+function commit(
+    file: string,
+    entries: TranscriptEntry[],
+    expectedLines: number,
+    mode: "stub" | "summary",
+): void {
+    const serialized = serializeTranscript(entries)
+    const check = verifyIntegrity(serialized, entries, expectedLines, mode)
     if (!check.ok) {
         console.error(`Compaction produced an invalid transcript (${check.reason}); aborting.`)
         process.exit(1)
     }
-
     const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-    const backup = backupTranscript(resolved.file, stamp)
-    writeFileSync(resolved.file, serialized)
+    lastBackup = backupTranscript(file, stamp)
+    writeFileSync(file, serialized)
+}
 
-    console.log(`Compacted ${resolved.sessionId}:`)
-    console.log(
-        `  ~${outcome.preTokens.toLocaleString()} -> ~${outcome.postTokens.toLocaleString()} est tokens` +
-            ` (${outcome.droppedMessages} messages summarized, ${outcome.keptMessages} kept verbatim)`,
-    )
-    console.log(`  backup: ${backup}`)
+function reportBackupAndResume(file: string, args: ClaudeArgs, sessionId: string): void {
+    console.log(`  backup: ${lastBackup}`)
+    if (args.resume) resumeClaude(sessionId)
+}
 
-    if (args.resume) resumeClaude(resolved.sessionId)
+function done(message: string, args: ClaudeArgs, sessionId: string): void {
+    console.log(message)
+    if (args.resume) resumeClaude(sessionId)
 }
 
 function resumeClaude(sessionId: string): void {
@@ -79,11 +122,11 @@ function resumeClaude(sessionId: string): void {
     })
 }
 
-// The two appended entries must form a valid resumable chain, and every line
-// must still parse — otherwise Claude Code would reject the transcript.
 function verifyIntegrity(
     serialized: string,
     entries: TranscriptEntry[],
+    expectedLines: number,
+    mode: "stub" | "summary",
 ): { ok: true } | { ok: false; reason: string } {
     let reparsed: TranscriptEntry[]
     try {
@@ -91,25 +134,33 @@ function verifyIntegrity(
     } catch (error) {
         return { ok: false, reason: `re-parse failed: ${(error as Error).message}` }
     }
-    if (reparsed.length !== entries.length) {
-        return { ok: false, reason: "line count changed" }
+    if (reparsed.length !== expectedLines) {
+        return { ok: false, reason: `line count ${reparsed.length} != expected ${expectedLines}` }
     }
-    const summary = entries[entries.length - 1]
-    const boundary = entries[entries.length - 2]
-    if (boundary?.subtype !== "compact_boundary" || boundary.parentUuid !== null) {
-        return { ok: false, reason: "boundary marker malformed" }
-    }
-    if (!summary?.isCompactSummary || summary.parentUuid !== boundary.uuid) {
-        return { ok: false, reason: "summary not rooted at boundary" }
+    if (mode === "summary") {
+        const summary = entries[entries.length - 1]
+        const boundary = entries[entries.length - 2]
+        if (boundary?.subtype !== "compact_boundary" || boundary.parentUuid !== null) {
+            return { ok: false, reason: "boundary marker malformed" }
+        }
+        if (!summary?.isCompactSummary || summary.parentUuid !== boundary.uuid) {
+            return { ok: false, reason: "summary not rooted at boundary" }
+        }
     }
     return { ok: true }
 }
 
+function clone(entries: TranscriptEntry[]): TranscriptEntry[] {
+    return entries.map((entry) => structuredClone(entry))
+}
+
 function parseArgs(rest: string[]): ClaudeArgs {
-    const args: ClaudeArgs = { resume: false }
+    const args: ClaudeArgs = { resume: false, aggressive: false, fromBackup: false }
     for (let index = 0; index < rest.length; index++) {
         const token = rest[index]
         if (token === "--resume") args.resume = true
+        else if (token === "--aggressive") args.aggressive = true
+        else if (token === "--from-backup") args.fromBackup = true
         else if (token === "--keep-tokens") args.keepTailTokens = Number(rest[++index]) || undefined
         else if (!token.startsWith("-") && !args.sessionId) args.sessionId = token
     }
