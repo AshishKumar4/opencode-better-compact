@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "@better-compact/cli",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "type": "module",
     "description": "Local context-pruning CLI and proxy daemon for coding agents (Claude Code, Codex)",
     "keywords": [
