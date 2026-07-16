@@ -15,6 +15,7 @@ const HELP = `better-compact — local context-pruning for coding agents
 
 Usage:
   better-compact claude [sessionId] [--resume]   Compact a Claude Code session on disk
+  better-compact claude --run [claude args...]   Launch Claude Code with auto-compaction
   better-compact start [--capture]   Start the proxy daemon (idempotent)
   better-compact run [--capture]     Run the proxy in the foreground
   better-compact stop                Stop the daemon
@@ -29,6 +30,8 @@ context limit. Quit the session first. Flags:
   --aggressive    summarize old turns instead (drops them from view; last resort)
   --from-backup   restore the full history from the latest backup, then compact
   --keep-tokens N recent-tail budget kept fully intact (default 25000)
+better-compact claude --run wraps Claude Code so the /better-compact:compact
+command compacts and reopens the session automatically on exit (no tmux).
 Originals are backed up to ~/.better-compact/claude-backups/.
 --capture writes sanitized request bodies to ~/.better-compact/captures/`
 

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process"
-import { copyFileSync, readFileSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { dirname, join } from "node:path"
 import { stubTranscript, summarizeTranscript } from "./compact"
 import {
     backupTranscript,
@@ -17,11 +20,14 @@ interface ClaudeArgs {
     resume: boolean
     aggressive: boolean
     fromBackup: boolean
+    run: boolean
     keepTailTokens?: number
+    passthrough: string[]
 }
 
 export async function claudeCommand(rest: string[]): Promise<void> {
     const args = parseArgs(rest)
+    if (args.run) return claudeRun(args)
 
     const resolved = args.sessionId
         ? resolveSession(args.sessionId)
@@ -35,91 +41,140 @@ export async function claudeCommand(rest: string[]): Promise<void> {
         process.exit(1)
     }
 
-    const pid = liveSessionPid(resolved.sessionId)
+    const outcome = compactSession(resolved.file, resolved.sessionId, args)
+    if (outcome === "live") process.exit(1)
+    if (args.resume) resumeClaude(resolved.sessionId, [])
+}
+
+type CompactResult = "compacted" | "nothing" | "live"
+
+// The shared core: refuse-if-live, restore-from-backup, prune, verify, back up,
+// write. Used by both the one-shot command and the --run launcher.
+function compactSession(file: string, sessionId: string, args: ClaudeArgs): CompactResult {
+    const pid = liveSessionPid(sessionId)
     if (pid !== null) {
         console.error(
-            `Session ${resolved.sessionId} is open in Claude Code (pid ${pid}). ` +
+            `Session ${sessionId} is open in Claude Code (pid ${pid}). ` +
                 "Quit that session first — compacting a live transcript is unsafe.",
         )
-        process.exit(1)
+        return "live"
     }
 
     if (args.fromBackup) {
-        const backup = latestBackup(resolved.sessionId)
+        const backup = latestBackup(sessionId)
         if (!backup) {
-            console.error(`No backup found for session ${resolved.sessionId}.`)
-            process.exit(1)
+            console.error(`No backup found for session ${sessionId}.`)
+            return "nothing"
         }
-        copyFileSync(backup, resolved.file)
+        copyFileSync(backup, file)
         console.log(`Restored full history from ${backup}`)
     }
 
-    const original = parseTranscript(readFileSync(resolved.file, "utf-8"))
+    const original = parseTranscript(readFileSync(file, "utf-8"))
     const options = { keepTailTokens: args.keepTailTokens }
 
     if (args.aggressive) {
         const outcome = summarizeTranscript(clone(original), options)
-        if (!outcome) return done("Nothing to compact — the session is already small.", args, resolved.sessionId)
-        commit(resolved.file, outcome.entries, original.length + 2, "summary")
-        console.log(`Compacted (aggressive) ${resolved.sessionId}:`)
+        if (!outcome) {
+            console.log("Nothing to compact — the session is already small.")
+            return "nothing"
+        }
+        if (!commit(file, outcome.entries, original.length + 2, "summary")) return "nothing"
         console.log(
-            `  ~${outcome.preTokens.toLocaleString()} -> ~${outcome.postTokens.toLocaleString()} est tokens` +
-                ` (${outcome.droppedMessages} messages summarized, ${outcome.keptMessages} kept verbatim)`,
+            `Compacted (aggressive) ${sessionId}: ~${outcome.preTokens.toLocaleString()} -> ` +
+                `~${outcome.postTokens.toLocaleString()} est tokens (${outcome.droppedMessages} summarized, ` +
+                `${outcome.keptMessages} kept verbatim)`,
         )
-        reportBackupAndResume(resolved.file, args, resolved.sessionId)
-        return
+        return "compacted"
     }
 
-    const working = clone(original)
-    const outcome = stubTranscript(working, options)
-    if (!outcome) return done("Nothing to prune — no old tool output or reasoning to stub.", args, resolved.sessionId)
-    commit(resolved.file, outcome.entries, original.length, "stub")
-    console.log(`Compacted ${resolved.sessionId}:`)
+    const outcome = stubTranscript(clone(original), options)
+    if (!outcome) {
+        console.log("Nothing to prune — no old tool output or reasoning to stub.")
+        return "nothing"
+    }
+    if (!commit(file, outcome.entries, original.length, "stub")) return "nothing"
     console.log(
-        `  ~${outcome.preTokens.toLocaleString()} -> ~${outcome.postTokens.toLocaleString()} est tokens` +
-            ` (${outcome.stubbedTools} tool outputs stubbed, ${outcome.strippedReasoning} reasoning blocks removed;` +
-            ` all ${outcome.totalMessages} messages kept)`,
+        `Compacted ${sessionId}: ~${outcome.preTokens.toLocaleString()} -> ` +
+            `~${outcome.postTokens.toLocaleString()} est tokens (${outcome.stubbedTools} tool outputs ` +
+            `stubbed, ${outcome.strippedReasoning} reasoning blocks removed; all ${outcome.totalMessages} messages kept)`,
     )
-    reportBackupAndResume(resolved.file, args, resolved.sessionId)
+    return "compacted"
 }
-
-// Written just before commit; stashed so reportBackupAndResume can print it.
-let lastBackup = ""
 
 function commit(
     file: string,
     entries: TranscriptEntry[],
     expectedLines: number,
     mode: "stub" | "summary",
-): void {
+): boolean {
     const serialized = serializeTranscript(entries)
     const check = verifyIntegrity(serialized, entries, expectedLines, mode)
     if (!check.ok) {
         console.error(`Compaction produced an invalid transcript (${check.reason}); aborting.`)
-        process.exit(1)
+        return false
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-    lastBackup = backupTranscript(file, stamp)
+    const backup = backupTranscript(file, stamp)
     writeFileSync(file, serialized)
+    console.log(`  backup: ${backup}`)
+    return true
 }
 
-function reportBackupAndResume(file: string, args: ClaudeArgs, sessionId: string): void {
-    console.log(`  backup: ${lastBackup}`)
-    if (args.resume) resumeClaude(sessionId)
+// --run: wrap `claude` so `/better-compact` can compact + reopen without tmux.
+// The command inside the session drops a flag; on exit we honor it, prune, and
+// re-exec `claude --resume`, looping until the user quits without a flag.
+async function claudeRun(args: ClaudeArgs): Promise<void> {
+    let claudeArgs = [...args.passthrough]
+    let sessionId = args.sessionId ?? sessionIdFromArgs(claudeArgs)
+    if (!sessionId) {
+        sessionId = randomUUID()
+        claudeArgs = ["--session-id", sessionId, ...claudeArgs]
+    }
+    const flag = join(homedir(), ".better-compact", "recompact", sessionId)
+    mkdirSync(dirname(flag), { recursive: true })
+    rmSync(flag, { force: true })
+
+    for (;;) {
+        const code = await spawnClaude(claudeArgs)
+        if (!existsSync(flag)) process.exit(code)
+        rmSync(flag, { force: true })
+        const resolved = resolveSession(sessionId)
+        if (resolved) compactSession(resolved.file, sessionId, { ...args, resume: false })
+        claudeArgs = ["--resume", sessionId]
+    }
 }
 
-function done(message: string, args: ClaudeArgs, sessionId: string): void {
-    console.log(message)
-    if (args.resume) resumeClaude(sessionId)
+function spawnClaude(claudeArgs: string[]): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const child = spawn("claude", claudeArgs, { stdio: "inherit" })
+        child.on("exit", (code) => resolve(code ?? 0))
+        child.on("error", reject)
+    })
 }
 
-function resumeClaude(sessionId: string): void {
-    const child = spawn("claude", ["--resume", sessionId], { stdio: "inherit" })
+function resumeClaude(sessionId: string, extra: string[]): void {
+    const child = spawn("claude", ["--resume", sessionId, ...extra], { stdio: "inherit" })
     child.on("exit", (code) => process.exit(code ?? 0))
     child.on("error", (error) => {
         console.error(`Could not launch claude --resume: ${error.message}`)
         process.exit(1)
     })
+}
+
+function sessionIdFromArgs(claudeArgs: string[]): string | undefined {
+    for (let index = 0; index < claudeArgs.length; index++) {
+        if (
+            (claudeArgs[index] === "--resume" ||
+                claudeArgs[index] === "-r" ||
+                claudeArgs[index] === "--session-id") &&
+            claudeArgs[index + 1] &&
+            !claudeArgs[index + 1].startsWith("-")
+        ) {
+            return claudeArgs[index + 1]
+        }
+    }
+    return undefined
 }
 
 function verifyIntegrity(
@@ -155,10 +210,19 @@ function clone(entries: TranscriptEntry[]): TranscriptEntry[] {
 }
 
 function parseArgs(rest: string[]): ClaudeArgs {
-    const args: ClaudeArgs = { resume: false, aggressive: false, fromBackup: false }
+    const args: ClaudeArgs = { resume: false, aggressive: false, fromBackup: false, run: false, passthrough: [] }
+    let seenRun = false
     for (let index = 0; index < rest.length; index++) {
         const token = rest[index]
-        if (token === "--resume") args.resume = true
+        // Everything after --run is forwarded to claude verbatim.
+        if (seenRun) {
+            args.passthrough.push(token)
+            continue
+        }
+        if (token === "--run") {
+            args.run = true
+            seenRun = true
+        } else if (token === "--resume") args.resume = true
         else if (token === "--aggressive") args.aggressive = true
         else if (token === "--from-backup") args.fromBackup = true
         else if (token === "--keep-tokens") args.keepTailTokens = Number(rest[++index]) || undefined
