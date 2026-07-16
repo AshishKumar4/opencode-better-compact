@@ -66,6 +66,7 @@ export const anthropicCodec: Codec<WireMessage> = {
     decode(turns, messages) {
         const output = turns.flatMap(decodeTurn)
         migrateCacheControl(messages, output)
+        demoteStrandedSystemMessages(output)
         return output
     },
 
@@ -158,6 +159,33 @@ function anthropicMessageIncludes(message: WireMessage, marker: string): boolean
         (block) =>
             block.type === "text" && typeof block.text === "string" && block.text.includes(marker),
     )
+}
+
+// The API constrains inline system messages to follow a user message (or an
+// assistant message ending in a server tool result). Pruning removes the
+// tool-result carrier messages that preceded them, stranding reminders behind
+// plain assistant messages — rejected with a 400. A stranded reminder becomes
+// a user message wrapping the same text in <system-reminder> tags, the form
+// Claude Code itself uses for most reminders; validly-placed ones re-emit
+// verbatim.
+function demoteStrandedSystemMessages(output: WireMessage[]): void {
+    for (let index = 0; index < output.length; index++) {
+        const message = output[index]
+        if (message.role !== "system") continue
+        if (index > 0 && output[index - 1].role === "user") continue
+        const text =
+            typeof message.content === "string"
+                ? message.content
+                : message.content
+                      .map((block) => (typeof block.text === "string" ? block.text : ""))
+                      .filter(Boolean)
+                      .join("\n")
+        output[index] = {
+            ...message,
+            role: "user",
+            content: [{ type: "text", text: `<system-reminder>\n${text}\n</system-reminder>` }],
+        }
+    }
 }
 
 // A Turn is one plain user message, or one assistant message plus the user

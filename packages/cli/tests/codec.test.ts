@@ -136,6 +136,55 @@ test("pruning preserves inline system-reminders verbatim while compacting tools"
     }
 })
 
+test("a system-reminder stranded by pruning demotes to a user system-reminder message", () => {
+    // The reminder originally follows a tool_result carrier (user). Pruning
+    // the tool pair removes the carrier, stranding it behind the assistant.
+    const messages = [
+        userMessage("start"),
+        assistantMessage([
+            { type: "text", text: "working" },
+            toolUse("toolu_1", "Bash", { command: "ls" }),
+        ]),
+        userMessage([toolResult("toolu_1", "listing ".repeat(200))]),
+        systemMessage("The task tools haven't been used recently."),
+        assistantMessage("done"),
+        userMessage("next"),
+    ]
+    const turns = anthropicCodec.encode(messages)
+    // Drop the tool item (as tools-old would), then decode.
+    const stripped = turns.map((turn) => ({
+        ...turn,
+        items: turn.items.filter((item) => item.kind !== "tool"),
+    }))
+    const decoded = anthropicCodec.decode(stripped, messages)
+
+    // API rule: system must follow a user message.
+    for (let index = 0; index < decoded.length; index++) {
+        if (decoded[index].role === "system") {
+            assert.equal(decoded[index - 1]?.role, "user", "no stranded system messages")
+        }
+    }
+    const demoted = decoded.find(
+        (message) =>
+            message.role === "user" &&
+            Array.isArray(message.content) &&
+            (message.content as { text?: string }[]).some((block) =>
+                block.text?.includes("<system-reminder>\nThe task tools haven't been used recently."),
+            ),
+    )
+    assert.ok(demoted, "stranded reminder demoted to a user system-reminder message")
+})
+
+test("a validly-placed system-reminder re-emits verbatim, not demoted", () => {
+    const messages = [
+        userMessage("start"),
+        systemMessage("reminder after user"),
+        assistantMessage("ok"),
+    ]
+    const decoded = anthropicCodec.decode(anthropicCodec.encode(messages), messages)
+    assert.equal(decoded[1], messages[1], "same object, still role system")
+})
+
 test("tool_use and its tool_result from the next user message form one IR item", () => {
     const messages = kitchenSinkMessages()
     const turns = anthropicCodec.encode(messages)
