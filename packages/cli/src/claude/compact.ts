@@ -3,6 +3,7 @@ import {
     buildPlan,
     COMPACTION_PRESETS,
     formatPrefixSummary,
+    primaryToolTarget,
     type CompactionProfile,
     type Turn,
 } from "@better-compact/core"
@@ -103,6 +104,24 @@ function stubEntry(entry: TranscriptEntry): { stubbedTools: number; strippedReas
                     kept.push({
                         ...block,
                         content: `[better-compact: pruned ${size}-char tool output — full copy in backup]`,
+                    })
+                    stubbedTools++
+                    continue
+                }
+            }
+            // Oversized tool inputs (Write/Edit file contents) dominate
+            // write-heavy sessions. Keep the action record — name, id, and
+            // primary target — and prune the payload.
+            if (block.type === "tool_use") {
+                const size = contentChars(block.input)
+                if (size > STUB_MIN_CHARS) {
+                    const target = primaryToolTarget(block.input)
+                    kept.push({
+                        ...block,
+                        input: {
+                            ...(target ? { target: target.display } : {}),
+                            pruned: `[better-compact: pruned ${size}-char tool input — full copy in backup]`,
+                        },
                     })
                     stubbedTools++
                     continue

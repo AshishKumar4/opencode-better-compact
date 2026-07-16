@@ -96,7 +96,7 @@ function compactSession(file: string, sessionId: string, args: ClaudeArgs): Comp
     if (!commit(file, outcome.entries, original.length, "stub")) return "nothing"
     console.log(
         `Compacted ${sessionId}: ~${outcome.preTokens.toLocaleString()} -> ` +
-            `~${outcome.postTokens.toLocaleString()} est tokens (${outcome.stubbedTools} tool outputs ` +
+            `~${outcome.postTokens.toLocaleString()} est tokens (${outcome.stubbedTools} tool inputs/outputs ` +
             `stubbed, ${outcome.strippedReasoning} reasoning blocks removed; all ${outcome.totalMessages} messages kept)`,
     )
     return "compacted"

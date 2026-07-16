@@ -87,6 +87,56 @@ test("stub mode keeps every message, stubs old tool output, strips old reasoning
     assert.equal((last.message!.content as string) || "latest question", "latest question")
 })
 
+test("stub mode prunes oversized old tool inputs, keeping the action record", () => {
+    const entries: TranscriptEntry[] = []
+    const start = userText(null, "write files")
+    entries.push(start)
+    let parent = start.uuid!
+    for (let i = 0; i < 10; i++) {
+        const callId = `toolu_w${i}`
+        const write: TranscriptEntry = {
+            ...COMMON,
+            type: "assistant",
+            uuid: uuid(),
+            parentUuid: parent,
+            message: {
+                role: "assistant",
+                content: [
+                    {
+                        type: "tool_use",
+                        id: callId,
+                        name: "Write",
+                        input: { file_path: `/proj/file${i}.ts`, content: "code ".repeat(3000) },
+                    },
+                ],
+            },
+        }
+        const result = userToolResult(write.uuid!, callId, 30)
+        entries.push(write, result)
+        parent = result.uuid!
+    }
+    entries.push(userText(parent, "done?"))
+
+    const outcome = stubTranscript(entries, { keepTailTokens: 2000 })
+    assert.ok(outcome, "should compact input-heavy session")
+    assert.ok(outcome.stubbedTools > 0)
+    assert.ok(outcome.postTokens < outcome.preTokens / 2, "input bulk removed")
+    const stubbedWrite = outcome.entries.find(
+        (e) =>
+            Array.isArray(e.message?.content) &&
+            (e.message!.content as { type?: string; input?: { pruned?: string; target?: string } }[]).some(
+                (b) => b.type === "tool_use" && typeof b.input?.pruned === "string",
+            ),
+    )
+    assert.ok(stubbedWrite, "an old tool_use input was stubbed")
+    const block = (stubbedWrite!.message!.content as { type?: string; id?: string; name?: string; input?: { target?: string } }[]).find(
+        (b) => b.type === "tool_use",
+    )!
+    assert.equal(block.name, "Write", "tool name kept")
+    assert.ok(block.id, "call id kept")
+    assert.match(block.input!.target!, /\/proj\/file\d+\.ts/, "primary target kept")
+})
+
 test("stub mode leaves a small session alone", () => {
     const outcome = stubTranscript(conversation(1, 50), { keepTailTokens: 25000 })
     assert.equal(outcome, null)
