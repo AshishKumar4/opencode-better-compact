@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdirSync, openSync, rmSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { DEFAULT_PORT, loadConfig, proxyPaths, type ProxyPaths } from "./config"
+import { claudeCommand } from "./claude/command"
 import { checkHealth, daemonNeedsRestart, decideStop, readLock, runDaemon } from "./daemon"
 import {
     ANTHROPIC_PROXY_BASE_URL,
@@ -10,16 +11,20 @@ import {
     installCodex,
 } from "./install"
 
-const HELP = `better-compact — local context-pruning proxy for coding agents
+const HELP = `better-compact — local context-pruning for coding agents
 
 Usage:
-  better-compact start [--capture]   Start the daemon (idempotent)
-  better-compact run [--capture]     Run in the foreground
+  better-compact claude [sessionId] [--resume]   Compact a Claude Code session on disk
+  better-compact start [--capture]   Start the proxy daemon (idempotent)
+  better-compact run [--capture]     Run the proxy in the foreground
   better-compact stop                Stop the daemon
   better-compact status              Show daemon status
   better-compact install claude-code Point Claude Code settings at the proxy
   better-compact install codex       Point Codex config.toml at the proxy
 
+better-compact claude compacts a session's transcript (summarize old turns,
+keep the recent tail) so it reopens under Claude Code's context limit. Quit the
+session first; --resume reopens it. --keep-tokens N sets the tail budget.
 --capture writes sanitized request bodies to ~/.better-compact/captures/`
 
 async function main(): Promise<void> {
@@ -28,6 +33,10 @@ async function main(): Promise<void> {
     const paths = proxyPaths()
 
     switch (command) {
+        case "claude": {
+            await claudeCommand(rest)
+            return
+        }
         case "start": {
             await startDaemon(paths, capture)
             return
