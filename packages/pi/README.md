@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # @better-compact/pi
 
 This is my [pi](https://pi.dev) adapter for Better Compact — the staged context-pruning ladder from

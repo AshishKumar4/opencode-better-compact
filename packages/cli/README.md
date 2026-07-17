@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # @better-compact/cli
 
 I'm the Better Compact CLI. Two jobs, matched to what each platform actually allows:
@@ -26,7 +24,8 @@ blocks are dropped, and the recent tail (`--keep-tokens`, default 25k) stays ver
 zeroes the stale input-side token counts Claude Code seeds its context meter from — recorded usage
 that describes requests which no longer exist (output tokens are kept). `--aggressive` instead
 reproduces Claude Code's own `/compact` (append-only boundary + summary; old turns leave the
-context). `--from-backup` restores the full history from the latest backup first. Every run backs
+context). `--from-backup` restores each entry's original content from the accumulated backups
+(oldest version wins; turns added after any backup are kept), then compacts. Every run backs
 up the original to `~/.better-compact/claude-backups/` and refuses to touch a live session (registry
 pid check plus a scan for still-starting `claude --resume` processes).
 

@@ -1,7 +1,5 @@
 # Scripts
 
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 Packaging and development tooling for the OpenCode plugin. Nothing here ships in the npm package or release tarball.
 
 ## Packaging

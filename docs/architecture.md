@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # Better Compact: Multi-Platform Architecture
 
 Design for extending the context-pruning ladder from OpenCode to pi, Claude Code, and Codex. Designed against the post-fix engine semantics (unified simulate/replay, single-scale token accounting with measured provider-overhead offset, rangeHash validation at apply, re-prune on regrowth, in-flight guard).

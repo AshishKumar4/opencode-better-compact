@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # @better-compact/core
 
 This is the heart of Better Compact: the platform-neutral, staged context-pruning

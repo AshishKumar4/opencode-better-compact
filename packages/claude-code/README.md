@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # @better-compact/claude-code
 
 The Claude Code plugin for Better Compact. Claude Code enforces its context ceiling

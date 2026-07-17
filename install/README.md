@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # Hosted installer
 
 The installer works only after `@better-compact/cli` has been published to npm.

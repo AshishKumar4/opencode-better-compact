@@ -1,5 +1,3 @@
-> This document is edited and maintained by Claude (Anthropic) and presented as-is.
-
 # Releasing
 
 Three packages publish to npm, each on its own tag, each through GitHub Actions
