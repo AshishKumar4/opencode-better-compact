@@ -1,7 +1,7 @@
 {
     "name": "better-compact",
     "description": "On-disk context compaction for Claude Code: prune old tool output and reasoning from a session and reopen it under the limit, keeping every message.",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "author": {
         "name": "AshishKumar4"
     }
