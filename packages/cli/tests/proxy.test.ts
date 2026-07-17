@@ -589,16 +589,24 @@ test("dumps the rewritten body when upstream rejects it with a 4xx", async () =>
     )
     assert.equal(response.status, 400)
     assert.equal(response.body.toString("utf-8"), errorBody)
+    // The dump is written fire-and-forget; wait until it exists AND parses
+    // (a partially flushed file is valid to observe mid-write).
+    let dumped: { messages: WireMessage[] } | null = null
     assert.ok(
-        await waitUntil(
-            async () => (await readdir(join(harness.home, "debug")).catch(() => [])).length > 0,
-        ),
+        await waitUntil(async () => {
+            const dumps = await readdir(join(harness.home, "debug")).catch(() => [])
+            if (dumps.length === 0) return false
+            try {
+                dumped = JSON.parse(
+                    await readFile(join(harness.home, "debug", dumps[0]), "utf-8"),
+                ) as { messages: WireMessage[] }
+                return true
+            } catch {
+                return false
+            }
+        }),
     )
-    const dumps = await readdir(join(harness.home, "debug"))
-    const dumped = JSON.parse(await readFile(join(harness.home, "debug", dumps[0]), "utf-8")) as {
-        messages: WireMessage[]
-    }
-    assert.ok(dumped.messages.length < bigConversation().length)
+    assert.ok(dumped!.messages.length < bigConversation().length)
 })
 
 test("an overflow forces one fresh compaction and retries through the normal forward path", async () => {
