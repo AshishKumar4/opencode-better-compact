@@ -2,7 +2,7 @@
 
 I got tired of watching coding agents hit their context limit and replace hours of careful work with a single lossy summary. Better Compact is my answer: a staged, pruning-first context ladder that preserves raw user intent, prunes old tool-heavy context first, writes transcript references for exact recall, and summarizes old assistant turns only when lighter pruning is not enough.
 
-The ladder is the product. Each platform declares its own ordered stage array — the same stages in the same order, minus the ones that platform has no concept of (skill and todo preservation exist only where the platform has skills/todos: OpenCode and Claude Code have both; pi and Codex have neither):
+The ladder is the product. Each platform declares its own ordered stage array — the same stages in the same order, minus the ones that platform has no concept of (skill and todo preservation exist only where the platform has skills/todos: OpenCode and Claude Code have both; pi has neither):
 
 1. Prune loaded skill context. _(skill-aware platforms only)_
 2. Supersede repeated reads of the same target and purge stale failed-tool inputs.
@@ -25,14 +25,13 @@ The ladder lives in a platform-neutral core (`packages/core`) that operates on a
 | [OpenCode](https://opencode.ai) | Shipping (`packages/opencode`)                       | In-process message transform plugin  |
 | pi                              | Shipping (`packages/pi`)                             | In-process `context` event extension |
 | Claude Code                     | Shipping (`packages/cli` + `packages/claude-code`) | On-disk session compaction (`better-compact claude`) |
-| Codex                           | Shipping (`packages/cli`)                          | Local proxy on `openai_base_url`     |
 
 Claude Code enforces its context ceiling client-side and seeds its meter from token counts
-recorded inside the session transcript, so a wire proxy can't manage it; Better Compact compacts
-the transcript on disk instead (`better-compact claude`) — pruning in place while keeping every
-message, and resetting the stale accounting so the meter reflects reality (`--aggressive`
+recorded inside the session transcript, so nothing on the wire can manage it; Better Compact
+compacts the transcript on disk instead (`better-compact claude`) — pruning in place while keeping
+every message, and resetting the stale accounting so the meter reflects reality (`--aggressive`
 reproduces Claude Code's own summarize-and-sever compaction when stubbing alone is not enough).
-The full design, including the IR, the codec contract, and the proxy engine, lives in
+The full design, including the IR and the codec contract, lives in
 [docs/architecture.md](docs/architecture.md).
 
 ## Install
@@ -80,16 +79,6 @@ claude plugin install better-compact@better-compact
 
 Details and flags (`--aggressive`, `--from-backup`, `--keep-tokens`): [packages/cli/README.md](packages/cli/README.md) and [packages/claude-code/README.md](packages/claude-code/README.md).
 
-### Codex
-
-```bash
-npm install -g @better-compact/cli
-better-compact install codex
-```
-
-Points `~/.codex/config.toml` at the local pruning proxy and starts the daemon; requests shrink on
-the wire while Codex keeps its full history. Details: [packages/cli/README.md](packages/cli/README.md).
-
 ### pi
 
 Not yet on npm — build from source (`pnpm build` in `packages/pi`, then drop `dist/extension.js`
@@ -104,7 +93,7 @@ packages/
 ├── core/         @better-compact/core — the platform-neutral ladder, pure, zero runtime dependencies
 ├── opencode/     better-compact — the OpenCode plugin (hooks, codec, TUI, commands, state)
 ├── pi/           @better-compact/pi — the pi extension (codec, plan store, summarizer)
-├── cli/          @better-compact/cli — the better-compact CLI (Claude Code on-disk compaction; proxy daemon with Anthropic + OpenAI Responses codecs; Codex installer)
+├── cli/          @better-compact/cli — the better-compact CLI (Claude Code on-disk session compaction)
 └── claude-code/  @better-compact/claude-code — the Claude Code plugin (/better-compact:compact command)
 ```
 
@@ -136,7 +125,7 @@ And for the TUI plugin, in `~/.config/opencode/tui.json`:
 
 ## Releases
 
-Published packages: [`better-compact`](https://www.npmjs.com/package/better-compact) (OpenCode plugin), [`@better-compact/cli`](https://www.npmjs.com/package/@better-compact/cli) (Claude Code compaction + Codex proxy), and [`@better-compact/core`](https://www.npmjs.com/package/@better-compact/core) (the ladder, for embedding in other harnesses).
+Published packages: [`better-compact`](https://www.npmjs.com/package/better-compact) (OpenCode plugin), [`@better-compact/cli`](https://www.npmjs.com/package/@better-compact/cli) (Claude Code on-disk compaction), and [`@better-compact/core`](https://www.npmjs.com/package/@better-compact/core) (the ladder, for embedding in other harnesses).
 
 CI verifies every push/PR with typecheck, tests (including the Bun-hosted TUI suite), build, package verification, and an OpenCode plugin-manager install smoke test. Three tag-driven release pipelines publish to npm with provenance: `v*` (OpenCode plugin — verifies the tag against the package version, packs a deterministic tarball, smoke-installs it through real OpenCode versions, and creates the GitHub Release), `cli-v*` (the CLI), and `core-v*` (the core). The release runbook lives in [RELEASING.md](RELEASING.md).
 

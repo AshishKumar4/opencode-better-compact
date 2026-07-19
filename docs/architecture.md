@@ -2,13 +2,17 @@
 
 Design for extending the context-pruning ladder from OpenCode to pi, Claude Code, and Codex. Designed against the post-fix engine semantics (unified simulate/replay, single-scale token accounting with measured provider-overhead offset, rangeHash validation at apply, re-prune on regrowth, in-flight guard).
 
-Three integration modes exist in the wild:
+Two integration modes ship today:
 
 - **In-process transform** (OpenCode `experimental.chat.messages.transform`, pi `context` event): we receive the platform's native message array and return a replacement.
-- **Wire proxy** (Codex via `openai_base_url`): we receive the full serialized request body, rewrite `messages`/`input`, and pass the response SSE through untouched.
 - **On-disk transcript compaction** (Claude Code, `better-compact claude`): we rewrite the closed session's transcript file, which the platform re-derives its context from on resume.
 
 Everything below follows from making the ladder run once, identically, over these modes.
+
+> **Proxy retirement (2026-07-18).** The wire-proxy mode (Codex via `openai_base_url`, and the
+> Anthropic dialect it shared) has been removed entirely along with Codex support — the daemon,
+> both wire codecs, the installers, and the hosted install script. The proxy sections below are
+> retained as design history only.
 
 > **Claude Code pivot (2026-07-16).** This document originally routed Claude Code through the wire
 > proxy. Live verification falsified that design: Claude Code enforces its context ceiling

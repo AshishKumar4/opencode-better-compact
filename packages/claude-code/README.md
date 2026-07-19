@@ -22,7 +22,7 @@ re-derives context from on resume. Better Compact compacts that transcript direc
 2. Add this plugin to Claude Code (register the repository as a plugin marketplace, or copy this
    directory into your plugin setup) to get the `/better-compact:compact` command.
 
-3. If you previously pointed Claude Code at the proxy, undo it:
+3. If an earlier release pointed Claude Code at the retired local proxy, undo it:
 
    ```sh
    better-compact install claude-code

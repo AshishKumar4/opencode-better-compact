@@ -6,7 +6,7 @@ filesystem, zero runtime dependencies — so the exact same pruning behavior run
 everywhere and every platform adapter is a thin codec around it.
 
 It is a workspace-internal package (`private`, unpublished). Each adapter
-(`opencode`, `pi`, `proxy`) bundles core into its own `dist/` at build time; you
+(`opencode`, `pi`, `cli`) bundles core into its own `dist/` at build time; you
 never install `@better-compact/core` on its own.
 
 ## What it does

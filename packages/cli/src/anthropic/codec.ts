@@ -129,38 +129,6 @@ export const anthropicSpec: LadderSpec = {
     ],
 }
 
-export function stripAnthropicManualTrigger(
-    messages: WireMessage[],
-    marker: string,
-): { forced: boolean; stripped: boolean } {
-    const latest = messages.at(-1)
-    const forced = latest?.role === "user" && anthropicMessageIncludes(latest, marker)
-    let stripped = false
-    for (const message of messages) {
-        if (message.role !== "user") continue
-        if (typeof message.content === "string") {
-            stripped ||= message.content.includes(marker)
-            message.content = message.content.replaceAll(marker, "")
-            continue
-        }
-        for (const block of message.content) {
-            if (block.type === "text" && typeof block.text === "string") {
-                stripped ||= block.text.includes(marker)
-                block.text = block.text.replaceAll(marker, "")
-            }
-        }
-    }
-    return { forced, stripped }
-}
-
-function anthropicMessageIncludes(message: WireMessage, marker: string): boolean {
-    if (typeof message.content === "string") return message.content.includes(marker)
-    return message.content.some(
-        (block) =>
-            block.type === "text" && typeof block.text === "string" && block.text.includes(marker),
-    )
-}
-
 // The API constrains inline system messages to follow a user message (or an
 // assistant message ending in a server tool result). Pruning removes the
 // tool-result carrier messages that preceded them, stranding reminders behind

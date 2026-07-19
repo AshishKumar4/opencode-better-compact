@@ -25,7 +25,7 @@ modified — pruning happens per request, on the messages pi is about to send.
 
 pi does not expose provider error bodies or retry control to in-process extensions, so Better
 Compact cannot reactively retry an overflow here. Proactive threshold triggering is the primary
-protection; the standalone proxy adds one forced-compaction retry as a backstop.
+protection.
 
 ## Install
 

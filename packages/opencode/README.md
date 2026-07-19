@@ -56,7 +56,7 @@ The TUI shows live progress, context-window bars, stages completed, and final sa
 
 OpenCode does not expose provider error bodies or retry control to in-process plugins, so Better
 Compact cannot reactively retry an overflow there. Proactive threshold triggering is the primary
-protection; the standalone proxy adds one forced-compaction retry as a backstop.
+protection.
 
 ## Configuration
 
