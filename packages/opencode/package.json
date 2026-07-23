@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/package.json",
     "name": "better-compact",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "type": "module",
     "description": "OpenCode plugin that improves long-session context with boundary-time pruning",
     "main": "./dist/index.js",

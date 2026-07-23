@@ -263,7 +263,17 @@ test("normal-Bun progress controller renders matching completion and stops", asy
         updatedAt: startedAt + 20,
         completedAt: startedAt + 20,
     }
-    const staleJob = { ...finalJob, id: "bc_stale", currentStage: "Stale completion" }
+    // A leftover from an earlier run: predates this request, so the modal
+    // must not adopt it (recent foreign-id jobs ARE adopted — the server
+    // enforces one compaction per session, so a recent job is ours).
+    const staleJob = {
+        ...finalJob,
+        id: "bc_stale",
+        currentStage: "Stale completion",
+        startedAt: startedAt - 60_000,
+        updatedAt: startedAt - 59_000,
+        completedAt: startedAt - 59_000,
+    }
     const renders: Array<() => JSX.Element> = []
     let currentClose: (() => void) | undefined
     let dispose: (() => void) | undefined
@@ -323,6 +333,77 @@ test("normal-Bun progress controller renders matching completion and stops", asy
         expect(frame).toContain("Complete")
         expect(frame).toContain("100.0%")
         expect(frame).not.toContain("Stale completion")
+    } finally {
+        setup.renderer.destroy()
+        currentClose?.()
+    }
+})
+
+test("progress controller adopts a recent same-session job with a foreign id", async () => {
+    const startedAt = Date.now()
+    const initialJob: BoundaryJobProgress = {
+        id: "bc_modal_local",
+        sessionId: "session-1",
+        status: "running",
+        currentStage: "Starting Better Compact",
+        percent: 0,
+        stages: BOUNDARY_PROGRESS_STAGES.map((stage) => ({ ...stage, status: "pending" })),
+        logs: ["Starting Better Compact."],
+        counters: { beforeTokens: 100_000, currentTokens: 100_000, contextLimit: 200_000 },
+        startedAt,
+        updatedAt: startedAt,
+    }
+    // The server minted its own id (command-path trigger or protocol drift),
+    // but the job is recent and on our session: single-flight means it is ours.
+    const serverJob: BoundaryJobProgress = {
+        ...initialJob,
+        id: "bc_server_minted",
+        status: "completed",
+        currentStage: "Complete",
+        percent: 100,
+        stages: initialJob.stages.map((stage) => ({ ...stage, status: "completed" })),
+        startedAt: startedAt + 50,
+        updatedAt: startedAt + 80,
+        completedAt: startedAt + 80,
+    }
+    const renders: Array<() => JSX.Element> = []
+    let currentClose: (() => void) | undefined
+    const controllerApi = {
+        ...api,
+        lifecycle: { onDispose: () => () => undefined },
+        ui: {
+            ...api.ui,
+            dialog: {
+                replace: (render: () => JSX.Element, onClose?: () => void) => {
+                    currentClose?.()
+                    renders.push(render)
+                    currentClose = onClose
+                },
+                setSize: () => undefined,
+                clear: () => currentClose?.(),
+            },
+        },
+    }
+    openProgressModal(controllerApi as never, {} as never, initialJob, {
+        intervalMs: 5,
+        loadJob: async () => serverJob,
+    })
+    await Bun.sleep(40)
+    const render = renders.at(-1)
+    expect(render).toBeDefined()
+    const setup = await renderHosted(
+        () => (
+            <HostDialog width={120} height={60}>
+                {render?.()}
+            </HostDialog>
+        ),
+        120,
+        60,
+    )
+    try {
+        const frame = setup.captureCharFrame()
+        expect(frame).toContain("Complete")
+        expect(frame).toContain("100.0%")
     } finally {
         setup.renderer.destroy()
         currentClose?.()

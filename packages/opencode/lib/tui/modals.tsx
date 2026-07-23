@@ -139,29 +139,18 @@ export function openProgressModal(
         refreshing = true
         try {
             const next = await (options?.loadJob?.() ?? loadBoundaryJob(initialJob.sessionId))
-            if (
+            // The server enforces one compaction per session, so any job on
+            // this session that started around our request IS our run — the
+            // server may mint its own id (command-path triggers, protocol
+            // drift across plugin versions). Only jobs that predate the
+            // request are foreign (stale leftovers from an earlier run).
+            const ours =
                 !stopped &&
-                next?.id === initialJob.id &&
+                next != null &&
                 next.sessionId === initialJob.sessionId &&
-                next.updatedAt >= snapshot.updatedAt
-            ) {
+                (next.id === initialJob.id || next.startedAt >= initialJob.startedAt - 10_000)
+            if (ours && (next.id !== snapshot.id || next.updatedAt >= snapshot.updatedAt)) {
                 snapshot = next
-            } else if (
-                !stopped &&
-                next &&
-                next.sessionId === initialJob.sessionId &&
-                next.id !== initialJob.id &&
-                next.status === "running"
-            ) {
-                const now = Date.now()
-                snapshot = {
-                    ...snapshot,
-                    status: "failed",
-                    currentStage: "Another compaction is already running",
-                    error: "Another Better Compact run is already active for this session.",
-                    updatedAt: now,
-                    completedAt: now,
-                }
             } else if (!stopped && Date.now() - openedAt >= 5_000) {
                 const now = Date.now()
                 snapshot = {
