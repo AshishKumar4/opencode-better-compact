@@ -299,7 +299,7 @@ const GLOBAL_CONFIG_DIR = process.env.XDG_CONFIG_HOME
 const GLOBAL_CONFIG_PATH_JSONC = join(GLOBAL_CONFIG_DIR, "better-compact.jsonc")
 const GLOBAL_CONFIG_PATH_JSON = join(GLOBAL_CONFIG_DIR, "better-compact.json")
 const SCHEMA_URL =
-    "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json"
+    "https://raw.githubusercontent.com/AshishKumar4/better-compact/master/packages/opencode/better-compact.schema.json"
 
 function globalConfigPath(): string {
     if (existsSync(GLOBAL_CONFIG_PATH_JSONC)) return GLOBAL_CONFIG_PATH_JSONC

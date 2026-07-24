@@ -33,7 +33,7 @@ versions without a token, configure a trusted publisher once on npmjs.com:
 
 - npmjs.com → the `@better-compact/core` package → **Settings → Trusted Publishing**
 - Add a **GitHub Actions** publisher:
-  - Repository owner/name: `AshishKumar4/opencode-better-compact`
+  - Repository owner/name: `AshishKumar4/better-compact`
   - Workflow filename: `release-core.yml`
 
 After that, a `core-v*` tag publishes core hands-off, the same way the plugin
@@ -59,7 +59,7 @@ on npmjs.com so CI can publish future versions without a token:
 
 - npmjs.com → the `@better-compact/cli` package → **Settings → Trusted Publishing**
 - Add a **GitHub Actions** publisher:
-  - Repository owner/name: `AshishKumar4/opencode-better-compact`
+  - Repository owner/name: `AshishKumar4/better-compact`
   - Workflow filename: `release-proxy.yml`
 
 After that, subsequent `proxy-v*` tags publish the proxy tokenlessly with

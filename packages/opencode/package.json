@@ -44,13 +44,13 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "url": "git+https://github.com/AshishKumar4/better-compact.git",
         "directory": "packages/opencode"
     },
     "bugs": {
-        "url": "https://github.com/AshishKumar4/opencode-better-compact/issues"
+        "url": "https://github.com/AshishKumar4/better-compact/issues"
     },
-    "homepage": "https://github.com/AshishKumar4/opencode-better-compact#readme",
+    "homepage": "https://github.com/AshishKumar4/better-compact#readme",
     "author": "AshishKumar4",
     "license": "AGPL-3.0-or-later",
     "engines": {

@@ -6,7 +6,7 @@
     "description": "Claude Code plugin shell for Better Compact: daemon lifecycle hook, status command, installer",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/AshishKumar4/opencode-better-compact.git",
+        "url": "git+https://github.com/AshishKumar4/better-compact.git",
         "directory": "packages/claude-code"
     },
     "author": "AshishKumar4",

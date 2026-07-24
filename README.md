@@ -73,7 +73,7 @@ context meter is seeded from. For the in-session `/better-compact:compact` comma
 `better-compact claude --run` auto-reopen launcher, add the plugin:
 
 ```bash
-claude plugin marketplace add AshishKumar4/opencode-better-compact
+claude plugin marketplace add AshishKumar4/better-compact
 claude plugin install better-compact@better-compact
 ```
 
@@ -111,7 +111,7 @@ For local development, point OpenCode at this checkout:
 
 ```json
 {
-    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
+    "plugin": ["file:///path/to/better-compact/packages/opencode/index.ts"]
 }
 ```
 
@@ -119,7 +119,7 @@ And for the TUI plugin, in `~/.config/opencode/tui.json`:
 
 ```json
 {
-    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
+    "plugin": ["file:///path/to/better-compact/packages/opencode/tui.tsx"]
 }
 ```
 

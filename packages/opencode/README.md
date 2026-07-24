@@ -70,7 +70,7 @@ Example:
 
 ```jsonc
 {
-    "$schema": "https://raw.githubusercontent.com/AshishKumar4/opencode-better-compact/master/packages/opencode/better-compact.schema.json",
+    "$schema": "https://raw.githubusercontent.com/AshishKumar4/better-compact/master/packages/opencode/better-compact.schema.json",
     "enabled": true,
     "autoUpdate": false,
     "debug": false,
@@ -119,7 +119,7 @@ For local development, point OpenCode at this checkout:
 
 ```json
 {
-    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/index.ts"]
+    "plugin": ["file:///path/to/better-compact/packages/opencode/index.ts"]
 }
 ```
 
@@ -127,7 +127,7 @@ For the TUI plugin, add this to `~/.config/opencode/tui.json`:
 
 ```json
 {
-    "plugin": ["file:///path/to/opencode-better-compact/packages/opencode/tui.tsx"]
+    "plugin": ["file:///path/to/better-compact/packages/opencode/tui.tsx"]
 }
 ```
 
