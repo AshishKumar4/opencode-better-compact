@@ -4,6 +4,7 @@ import { TextAttributes } from "@opentui/core"
 import type { JSX } from "solid-js"
 import { pct } from "./format"
 import type { Theme, ThemeColor, TuiApi } from "./types"
+import { PLUGIN_VERSION } from "../version"
 
 export function BetterCompactFrame(props: {
     api: TuiApi
@@ -36,9 +37,12 @@ export function BetterCompactFrame(props: {
                         </text>
                     ) : null}
                 </box>
-                <text fg={theme.textMuted} onMouseUp={() => props.api.ui.dialog.clear()}>
-                    esc
-                </text>
+                <box flexDirection="row" gap={2}>
+                    <text fg={theme.textMuted}>v{PLUGIN_VERSION}</text>
+                    <text fg={theme.textMuted} onMouseUp={() => props.api.ui.dialog.clear()}>
+                        esc
+                    </text>
+                </box>
             </box>
             <box flexShrink={0} height={1} border={["bottom"]} borderColor={theme.borderSubtle} />
             {props.children}
